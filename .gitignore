@@ -1,0 +1,37 @@
+# Rust
+/target/
+**/target/
+**/*.rs.bk
+*.pdb
+
+# Cargo.lock IS committed: this workspace ships binaries and reproducibility
+# of the validation numbers depends on a pinned dependency graph.
+
+# Python (crates/tepsim-py)
+__pycache__/
+*.py[cod]
+*.so
+*.pyd
+.venv/
+/dist/
+*.egg-info/
+
+# wasm / browser app
+/apps/studio/dist/
+
+# mdBook
+/book/book/
+
+# coverage and profiling
+*.profraw
+*.profdata
+/coverage/
+
+# validation scratch output (the committed golden traces live in reference/)
+/validation-out/
+
+# editors and OS
+.DS_Store
+*~
+\#*\#
+.\#*

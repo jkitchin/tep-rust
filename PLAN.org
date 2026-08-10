@@ -1,0 +1,919 @@
+#+TITLE: A Pure-Rust Tennessee Eastman Process Simulator: Development Plan
+#+AUTHOR: John Kitchin
+#+DATE: 2026-08-09
+#+OPTIONS: toc:3 num:t ^:nil
+#+STARTUP: showeverything
+
+* Executive summary
+
+We will rebuild the Tennessee Eastman Process (TEP) simulator as a pure-Rust
+library with three delivery surfaces: a Rust crate, a Python package shipped as
+binary wheels, and a self-contained WebAssembly application that runs entirely
+in the browser with no server. The Rust core owns the plant model, the
+regulatory control layer, and a disturbance and scenario engine. Anomaly
+detection stays in Python where the machine learning ecosystem lives, with a
+small in-core detector interface so the browser app can demonstrate detection
+without a backend.
+
+The reference material is the Fortran of Downs and Vogel as distributed in the
+Braatz group release, specifically =teprob.f= (1594 lines, the plant model and
+eight utility routines) and =temain_mod.f= (1413 lines, the Euler driver and the
+decentralized PI control suite). Everything in that code is deterministic given
+a seed, which means a faithful port can be validated far more sharply than the
+existing Python port was. The existing Python port agrees statistically but
+diverges immediately in its noise sequence, and its long-run variance is roughly
+a quarter of the Fortran's on reactor pressure. We can do much better, and the
+plan below is built around proving it rather than asserting it.
+
+Four decisions are already made and shape everything that follows. The browser
+app is a Rust-native Leptos client with charts drawn by uPlot through a thin
+binding. The Python API is a clean break with no compatibility shim for the
+current =tep= package. The Rust core covers plant, control, and scheduling, but
+not the detector zoo. Where the Fortran has quirks or apparent bugs, we fix them
+and document the delta.
+
+One concern about the last decision, stated once and then set aside. Several
+Fortran quirks are load-bearing for comparability with thirty years of published
+TEP results and with the bundled =d00= through =d21= datasets. "Fix and document"
+is only meaningful if the delta is measured, and measuring a delta requires a
+faithful path to measure against. The plan therefore builds the faithful path
+first, as a validation instrument, and treats each fix as a change with a
+quantified effect that you sign off on individually (see
+[[*Quirk and delta register][Quirk and delta register]]). The shipped default is
+the fixed behavior, as decided.
+
+* Goals and non-goals
+
+The simulator should be the state of the art tool for two audiences. For
+education, it must run instantly in a browser, expose the process as something
+you can poke rather than a black box, and let a student write a controller
+without installing a toolchain. For anomaly detection research, it must be
+reproducible to the bit given a seed, must emit machine-readable ground-truth
+labels, must allow arbitrary user-defined faults rather than only the canonical
+twenty, and must be fast enough to generate large labeled corpora.
+
+We are not writing a new process model. We stay close to the original spirit:
+same units, same eight components, same four reactions, same fifty states, same
+forty-one measurements, same twelve manipulated variables, same twenty canonical
+disturbances. Modernization is in the software, the numerics, the interfaces,
+and the reproducibility story, not in the chemistry. We are also not attempting
+to reproduce the Bathelt revision or the extended TEP variants in the first
+release, though the architecture should not foreclose them.
+
+* Anatomy of the source we are porting
+
+** State vector
+
+The Fortran carries fifty states in a flat =YY(50)= with the mapping buried in
+index arithmetic inside =TEFUNC=. Recovering that mapping is the first act of
+the port, and it becomes typed structure in Rust.
+
+| YY index | Fortran name | Meaning                                          | Count |
+|----------+--------------+--------------------------------------------------+-------|
+| 1-3      | UCVR(1:3)    | Reactor vapor holdup, components A, B, C         |     3 |
+| 4-8      | UCLR(4:8)    | Reactor liquid holdup, components D, E, F, G, H  |     5 |
+| 9        | ETR          | Reactor internal energy                          |     1 |
+| 10-12    | UCVS(1:3)    | Separator vapor holdup, components A, B, C       |     3 |
+| 13-17    | UCLS(4:8)    | Separator liquid holdup, components D through H  |     5 |
+| 18       | ETS          | Separator internal energy                        |     1 |
+| 19-26    | UCLC(1:8)    | Stripper liquid holdup, all eight components     |     8 |
+| 27       | ETC          | Stripper internal energy                         |     1 |
+| 28-35    | UCVV(1:8)    | Feed mixing zone vapor holdup, all components    |     8 |
+| 36       | ETV          | Mixing zone internal energy                      |     1 |
+| 37       | TWR          | Reactor cooling water outlet temperature         |     1 |
+| 38       | TWS          | Condenser cooling water outlet temperature       |     1 |
+| 39-50    | VPOS(1:12)   | Valve positions, first-order lag per valve       |    12 |
+
+** Internal streams
+
+The Fortran uses thirteen internal stream indices that do not match the stream
+numbers in the 1993 paper. This mismatch is a persistent source of confusion in
+every TEP reimplementation and it must be documented explicitly.
+
+| Internal | Paper stream | Description                                        |
+|----------+--------------+----------------------------------------------------|
+| 1        | 2            | D feed                                             |
+| 2        | 3            | E feed                                             |
+| 3        | 1            | A feed                                             |
+| 4        | 4            | A and C feed                                       |
+| 5        | 5            | Stripper overhead vapor to mixing zone             |
+| 6        | 6            | Mixing zone outlet to reactor                      |
+| 7        | 6            | Reactor inlet, alias of 6                          |
+| 8        | 7            | Reactor outlet to condenser and separator          |
+| 9        | 8            | Separator vapor through compressor, recycle        |
+| 10       | 9            | Purge                                              |
+| 11       | 10           | Separator liquid underflow to stripper             |
+| 12       | (internal)   | Stripper liquid downflow                           |
+| 13       | 11           | Product                                            |
+
+** Unit operations
+
+Six physical subsystems and one instrumentation subsystem come out of the
+Fortran. Each becomes a documented Rust module.
+
+The *feed system* handles four inlet streams with valve-lagged flows. Streams 1,
+2 and 3 are pure or near-pure feeds; stream 4 is the A/C mixed feed whose
+composition is the target of the two step disturbances IDV(1) and IDV(2), and
+whose availability is throttled by IDV(7).
+
+The *mixing zone* is a vapor volume where fresh feed, recycle, and stripper
+overhead combine before the reactor. It contributes eight component balances and
+one energy balance, and its pressure drives flow into the reactor through a
+square-root resistance.
+
+The *reactor* is a vapor-liquid vessel with an internal cooling coil and an
+agitator. Four exothermic gas-phase reactions run in the vapor volume: A + C + D
+to G, A + C + E to H, A + E to F, and 3D to 2F. Rate expressions are Arrhenius
+in reactor temperature with fractional pressure orders on A and C. Heat transfer
+area varies with liquid level through a piecewise-linear ramp between ten and
+fifty percent, and the overall coefficient depends quadratically on agitator
+speed.
+
+The *condenser and separator* cool the reactor effluent and split it. The
+overall heat transfer coefficient is a smooth saturating function of reactor
+outlet flow. The vapor goes to the compressor, the liquid goes to the stripper.
+
+The *compressor and recycle* subsystem models a fixed-speed centrifugal machine
+with a cubic pressure-ratio flow curve, a recycle valve that bleeds flow back,
+and a purge valve to atmosphere. Compressor work appears as an enthalpy bump on
+the recycle stream and as measurement 20.
+
+The *stripper* strips light components out of the separator liquid using steam.
+The stripping factors are Langmuir-shaped functions of a vapor-to-liquid ratio
+that is itself a piecewise function of stripper temperature, with breakpoints at
+5.292 and 170 degrees Celsius. Steam duty is a valve-modulated heat input active
+only below 100 degrees.
+
+The *instrumentation* subsystem produces twenty-two continuous measurements with
+additive noise, plus nineteen sampled composition measurements from three
+analyzers with dead time. The gas analyzers sample every 0.1 hours, the product
+analyzer every 0.25 hours, and both report the previous sample, which is how
+dead time is implemented.
+
+** Disturbance mechanism
+
+The twenty IDV flags are not twenty independent mechanisms. Seven are direct
+algebraic step offsets applied at various injection points, three are valve
+sticking flags, and the remaining ten drive twelve internal "random walk"
+channels evaluated by =TESUB8= as cubic polynomials in time between randomly
+spaced knots. Channels one through nine use =TESUB5=, which chooses the next
+knot value and slope from the uniform generator and fits a Hermite cubic.
+Channels ten through twelve use a different rule in the =DO 910= loop that
+produces a spiky pulse train, and these drive the four "unknown" faults IDV(16),
+IDV(17), IDV(18) and IDV(20), which respectively perturb stripper steam valve
+capacity, reactor heat transfer, condenser heat transfer, and the reactor-to-
+separator flow resistance.
+
+Recovering this structure and re-expressing it as data rather than code is the
+single largest modernization opportunity in the whole project, because it turns
+"the twenty canonical faults" into twenty entries in a table of (injection
+point, profile) pairs that users can extend.
+
+** Random number generator
+
+Everything stochastic flows through =TESUB7=:
+
+#+begin_src fortran
+G = DMOD(G*9228907.D0, 4294967296.D0)
+#+end_src
+
+=G= is a double, seeded at 4651207995. The product exceeds 2^53, so it is
+rounded before the modulus is taken. The rounding is part of the algorithm. IEEE
+754 fixes both the multiply and the =fmod=, so this reproduces bit-exactly in
+Rust as long as we write it the same way and resist the urge to "fix" it with
+integer arithmetic. Getting this right, and getting the *order of calls* right,
+is what the existing Python port missed.
+
+* Architecture
+
+** Workspace layout
+
+#+begin_example
+tep-rust/
+├── Cargo.toml                  # workspace
+├── crates/
+│   ├── tepsim-core/            # no_std + alloc; plant model; zero heavy deps
+│   ├── tepsim-control/         # controller traits, classic PI suite, scheduler
+│   ├── tepsim-scenario/        # disturbances, events, scenario (de)serialization
+│   ├── tepsim/                 # facade: Simulation, recorders, dataset writers
+│   ├── tepsim-cli/             # `tep` binary
+│   ├── tepsim-py/              # PyO3 bindings, maturin project
+│   ├── tepsim-wasm/            # wasm-bindgen bindings for the web app
+│   └── tepsim-oracle/          # DEV ONLY: gfortran FFI to the original teprob.f
+├── apps/
+│   └── studio/                 # Leptos browser app ("TEP Studio")
+├── xtask/                      # build, validation-report, release automation
+├── book/                       # mdBook: theory, unit ops, validation, tutorials
+└── reference/                  # vendored original Fortran + published .dat files
+#+end_example
+
+=tepsim-core= is =no_std= with =alloc=, depends only on =libm= and optionally
+=serde=, and contains no I/O, no threads, and no global state. That constraint is
+what makes the wasm build small and the wheels trivially cross-compilable. The
+oracle crate is never a dependency of anything shipped.
+
+Suggested public names: crate family =tepsim-*= on crates.io, PyPI package
+=tepsim= (verified available; =tep= is taken), browser app branded "TEP Studio".
+
+** Core data model
+
+The Fortran keeps its entire working set in six =COMMON= blocks, which means
+exactly one simulation per process and no reentrancy. Rust replaces this with
+owned, =Send=, =Clone= structures.
+
+#+begin_src rust
+/// The eight TEP components. `B` is inert.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+#[repr(usize)]
+pub enum Component { A, B, C, D, E, F, G, H }
+
+/// Mole fractions or molar holdups indexed by `Component`.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ByComponent<T>([T; 8]);
+
+impl<T> core::ops::Index<Component> for ByComponent<T> { /* ... */ }
+
+/// Complete integrable state. Named fields, no index arithmetic.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct State {
+    pub reactor:   Holdup,          // 8 component moles + internal energy
+    pub separator: Holdup,
+    pub stripper:  Holdup,
+    pub mixing:    Holdup,
+    pub reactor_cw_out_c:   f64,
+    pub condenser_cw_out_c: f64,
+    pub valve_pos: [f64; 12],
+}
+#+end_src
+
+=State= implements a small =VectorSpace= trait (=zip_with=, =scale=,
+=add_scaled=) so integrators can be written generically without ever flattening
+to =[f64; 50]=. A flat view exists for interop and for the oracle comparison, but
+it is not the working representation.
+
+Physical quantities get newtype wrappers (=Celsius=, =Kelvin=, =KPa=,
+=KmolPerHour=) at module boundaries and in the public API, with plain =f64=
+inside hot loops. A full =uom= dependency is not worth the compile time and
+inference cost for a fixed, closed set of units, but =debug_assert!= range checks
+on every constructed quantity give most of the safety benefit.
+
+** Splitting the right-hand side
+
+This is the most important structural decision in the port, and it is not
+obvious from reading the Fortran.
+
+=TEFUNC= is not a pure function of =(t, y)=. On each call it advances the
+disturbance walk state, draws from the RNG for measurement noise, ticks the
+sampled analyzers, and latches valve positions through the sticking logic. That
+is fine for fixed-step Euler, where the RHS is evaluated exactly once per step,
+but it makes any multi-stage integrator wrong: RK4 would draw noise four times
+per step and advance the walks four times.
+
+The Rust port therefore splits it:
+
+#+begin_src rust
+impl Plant {
+    /// Pure. Same inputs always give the same derivative. No RNG, no mutation.
+    pub fn derivatives(&self, t: SimTime, y: &State, u: &Inputs)
+        -> Result<Derivative, PlantError>;
+
+    /// Impure, called exactly once per outer step: advances disturbance walks,
+    /// samples analyzers, draws measurement noise, applies valve sticking.
+    pub fn advance_discrete(&mut self, t: SimTime, y: &State, u: &Inputs)
+        -> Measurements;
+}
+#+end_src
+
+With this split, Euler reproduces the Fortran exactly, and RK4 or an adaptive
+Dormand-Prince becomes meaningful rather than merely different. It also makes the
+derivative function testable in isolation, which is what Tier 2 of the validation
+plan depends on.
+
+** Numerics and determinism
+
+Reproducibility is a feature, not a side effect, and it is one of the main
+reasons to prefer Rust here.
+
+All arithmetic is =f64=. The core uses the pure-Rust =libm= crate for =exp=,
+=pow= and =ln= rather than the platform libm, so that x86-64, aarch64 and wasm32
+produce identical bits. =sqrt= is an IEEE-exact hardware instruction everywhere
+and needs no special handling. Rust does not contract multiply-add into FMA
+without an explicit intrinsic, so operation fusion is not a risk, but CI asserts
+it anyway. There is no SIMD, no rayon, and no reordered reduction inside the
+core; parallelism happens one level up, across independent runs.
+
+The determinism gate in CI is concrete: hash the full state vector every hundred
+steps across a 48-hour run into a BLAKE3 digest, and assert the same digest on
+Linux x86-64, macOS aarch64, Windows x86-64, and wasm32 under both Node and
+headless Chrome. If the digests ever diverge, the build fails and we know
+immediately.
+
+For validation against the Fortran specifically, a non-default =libm-system=
+feature switches to the platform libm, which lets us demonstrate that trajectory
+divergence from the Fortran is caused by transcendental rounding and nothing
+else: the divergence point should move when you flip the feature.
+
+** Control layer
+
+The Fortran has nineteen near-identical copy-pasted =CONTRLn= subroutines, each
+with its own =COMMON= block, running on three different periods (three seconds
+for the flow and level loops, 360 seconds for the composition loops, 900 seconds
+for the product-quality loop). All of them are velocity-form PI:
+
+#+begin_src fortran
+DXMV = GAIN * ((ERR - ERROLD) + ERR*DELTAT*60./TAUI)
+#+end_src
+
+with the constant varying between loops (60 in most, 3 in loops 5, 10, 11 and
+others). Rust collapses this to one implementation plus a table of nineteen
+parameter sets, and exposes a trait so users supply their own.
+
+#+begin_src rust
+pub trait Controller: Send {
+    /// Sample period in simulated seconds. The scheduler honors it.
+    fn period_s(&self) -> u32;
+    fn on_sample(&mut self, ctx: &ControlContext<'_>) -> ControlAction;
+    fn reset(&mut self);
+    fn describe(&self) -> ControllerInfo;
+}
+
+pub struct ControlContext<'a> {
+    pub t: SimTime,
+    pub measurements: &'a Measurements,   // xmeas 1..=41, noisy, with dead time
+    pub manipulated:  &'a Manipulated,    // current xmv 1..=12
+    pub setpoints:    &'a Setpoints,
+}
+
+pub enum ControlAction {
+    SetMv { index: MvIndex, value: f64 },
+    Delta { index: MvIndex, delta: f64 },
+    Batch(SmallVec<[(MvIndex, f64); 4]>),
+    None,
+}
+#+end_src
+
+A =ControlScheme= owns a set of (controller, period, phase) entries and a
+multi-rate scheduler drives them. The classic Braatz decentralized scheme ships
+as =ControlScheme::braatz()=. Ricker's decentralized scheme is a good second
+preset once the first is validated.
+
+Three ways to write a controller. In Rust, implement the trait. In Python,
+implement a protocol and the binding wraps it in a trait object that reacquires
+the GIL per sample (at three-second sample periods this costs nothing relative to
+the physics). In the browser, write a Rhai script that the app compiles live,
+which is what makes the education story work without a toolchain. Rhai is pure
+Rust, wasm-compatible, and sandboxed, and it only runs at controller sample rate
+rather than per integration step.
+
+** Disturbance and scenario engine
+
+The modernization here is to separate *where* a disturbance acts from *how* it
+evolves.
+
+#+begin_src rust
+/// Where a disturbance couples into the plant.
+pub enum InjectionPoint {
+    FeedComposition { stream: Stream, component: Component },
+    FeedTemperature(Stream),
+    CoolingWaterInlet(CoolingCircuit),
+    HeatTransferCoeff(HeatExchanger),
+    ValveCapacity(ValveId),
+    ValveStick { valve: ValveId, deadband: f64 },
+    FlowResistance(Stream),
+    KineticFactor(Reaction),
+    FeedAvailability(Stream),
+}
+
+/// How it evolves in time.
+pub enum Profile {
+    Step   { magnitude: f64 },
+    Ramp   { to: f64, over_s: f64 },
+    Pulse  { magnitude: f64, duration_s: f64 },
+    Sine   { amplitude: f64, period_s: f64, phase: f64 },
+    /// The classic TEP cubic-spline random walk (TESUB5 semantics).
+    ClassicWalk { span: f64, zero: f64, slope_span: f64, knot_span_s: f64 },
+    /// The classic spiky pulse train (DO 910 semantics).
+    ClassicSpike { span: f64, zero: f64 },
+    Drift  { rate_per_hour: f64 },
+    Table(Arc<TimeSeries>),
+    Script(Arc<ScriptedProfile>),
+}
+
+pub struct Disturbance {
+    pub id: DisturbanceId,        // Idv(1..=20) or Custom(name)
+    pub point: InjectionPoint,
+    pub profile: Profile,
+}
+#+end_src
+
+The twenty canonical faults become twenty constructors over this vocabulary,
+with the mapping and the exact original constants recorded in the docs and
+locked by tests. Everything else follows for free: users define custom faults by
+naming an injection point and a profile, magnitudes become continuous instead of
+binary on/off, and multiple faults compose.
+
+A =Scenario= is the serializable unit of reproducible work:
+
+#+begin_src toml
+name = "reactor-cooling-degradation-study"
+seed = 4651207995
+duration_h = 72.0
+integrator = { kind = "euler", dt_s = 1.0 }
+control = { preset = "braatz" }
+
+[[event]]
+at_h = 8.0
+kind = "enable_disturbance"
+disturbance = "IDV4"          # reactor CW inlet temperature step
+
+[[event]]
+at_h = 20.0
+kind = "setpoint"
+loop = "reactor_level"
+value = 68.0
+
+[[event]]
+at_h = 30.0
+kind = "custom_disturbance"
+point = { HeatTransferCoeff = "Reactor" }
+profile = { Drift = { rate_per_hour = -0.004 } }
+#+end_src
+
+Scenarios have a published JSON Schema, round-trip through TOML/JSON/YAML, and
+carry a content hash. A run emits its scenario hash alongside the data, so a
+dataset is self-describing. This is the piece that makes anomaly-detection
+results comparable across papers, which the original never offered.
+
+** Ground truth and labeling
+
+Every recorded sample carries a label vector: which disturbances are active,
+their instantaneous magnitudes, and the time since each onset. Detection-delay
+metrics stop being guesswork. The recorder writes labels as columns alongside
+the 41 measurements and 12 manipulated variables.
+
+** Recording and output
+
+A =Recorder= trait with pluggable sinks. In-memory columnar (a =Vec<f64>= per
+channel, which is what you want for zero-copy numpy views), Apache Arrow IPC and
+Parquet for large corpora, CSV for teaching, and a ring buffer for the live
+browser display. Downsampling and channel selection happen at the sink so that a
+long run does not allocate what nobody reads.
+
+* Validation: showing practical equivalence to the Fortran
+
+This is the part of the project that determines whether anyone trusts the
+result, so it gets the most care. The strategy is a ladder: prove the pieces
+exactly, prove the derivative to near machine precision, prove the stochastic
+call order exactly, then prove the long-run behavior statistically and, finally,
+prove it on the downstream task people actually care about.
+
+** The oracle harness
+
+=tepsim-oracle= is a development-only crate whose =build.rs= compiles the
+unmodified =teprob.f= and =temain_mod.f= with gfortran and links them through a
+small C shim that exposes =TEINIT=, =TEFUNC=, each =TESUBn=, and read/write
+access to every =COMMON= block. Rust tests can then set the Fortran into an
+arbitrary state, call it, and compare against the Rust implementation in the same
+process.
+
+This crate is never a dependency of =tepsim=, =tepsim-py= or =tepsim-wasm=. It
+runs on Linux and macOS CI runners where gfortran is available, and it is what
+makes tiers 1 through 4 possible at all. Building it is the very first
+deliverable, before any porting starts, because it converts the entire port from
+"read carefully and hope" into a differential testing exercise.
+
+** Tier 1: exact equivalence of the utility routines
+
+For =TESUB1= (enthalpy), =TESUB2= (temperature from enthalpy by Newton),
+=TESUB3= (heat capacity), and =TESUB4= (liquid density), sweep compositions over
+a simplex grid plus ten million random Dirichlet samples, and temperature over
+the full physical range for each of the three =ITY= modes. Assert maximum
+relative error below 1e-13 and report a ULP histogram rather than a single pass
+or fail, because the histogram is the diagnostic when something later drifts.
+
+For =TESUB7=, assert bit equality of the raw =f64= over 10^7 successive draws
+starting from each of the four documented seeds. This must be exact; anything
+less means the port is wrong.
+
+For =TESUB5=, =TESUB6= and =TESUB8=, exactness follows once the RNG stream and
+the walk state agree, so the test is bit equality given a synchronized RNG.
+
+** Tier 2: single-step derivative equivalence
+
+The strongest and cheapest evidence of a correct plant port. For each of tens of
+thousands of sampled states, force both implementations into the identical state
+(all fifty states, the twelve manipulated variables, the twenty IDV flags, the
+full walk state, and the RNG word), evaluate the derivative once, and compare all
+fifty components. Target maximum relative error below 1e-12.
+
+Sampling matters more than volume. Draw from three pools: states along the
+nominal closed-loop trajectory at many times; random perturbations of those
+states scaled across several orders of magnitude; and adversarial states placed
+deliberately near every discontinuity and clamp in the model. The adversarial
+set is enumerable from the source and should be built by hand: reactor liquid
+level near the 10 and 50 percent heat-transfer breakpoints, stripper temperature
+near 5.292 and 170 degrees, compressor pressure ratio at both clamps, every
+=DLP < 0= sign flip, separator-to-stripper flow near the 0.1 threshold that
+switches the stripping-factor branch, and states that trip each of the eight
+shutdown conditions.
+
+** Tier 3: RNG call-order equivalence
+
+Instrument both implementations to emit =(call_index, site_tag, value)= on every
+RNG draw, run 10^5 steps, and diff the traces. They must match exactly.
+
+This test exists specifically because it is the one the existing Python port
+would fail. Its documented divergence is attributed to "the exact sequence of
+calls differs due to implementation details", which is precisely the defect this
+test catches on the first run instead of after a 48-hour statistical comparison.
+
+** Tier 4: trajectory equivalence, diagnostic
+
+Run both from t = 0 with the same seed for 48 hours, for the baseline and all
+twenty-one fault cases, and plot per-variable absolute and relative error against
+time on a log scale. Expect agreement near 1e-12 for the first hours with
+exponential growth thereafter, because the closed-loop plant is chaotic enough to
+amplify one-ULP differences in =exp= and =pow=.
+
+The acceptance criterion is not "errors stay small forever", which is physically
+impossible. It is twofold: error must stay below the corresponding measurement
+noise standard deviation =XNS(i)= for at least the first several hours, and the
+onset of divergence must be *explained*, by showing that switching between the
+vendored =libm= and the system libm moves the divergence point while leaving the
+statistics unchanged. That demonstration converts an unexplained mismatch into a
+characterized property of floating-point arithmetic.
+
+** Tier 5: statistical equivalence, the real gate
+
+For each of the twenty-two scenarios, run one hundred seeds for 48 hours in both
+implementations and test equivalence rather than difference. A failure to reject
+the null of no difference is not evidence of equivalence; two one-sided tests
+are.
+
+For each of the 41 measurements and 12 manipulated variables, run TOST on the
+mean with an equivalence margin of one tenth of the Fortran standard deviation,
+and report the confidence interval alongside the verdict. Test variance ratios
+with equivalence bounds, since the existing Python port's failure mode was
+variance collapse (reactor pressure standard deviation of 8.10 against the
+Fortran's 61.48) that a mean-only comparison would have passed cleanly.
+
+Beyond first and second moments, compare full marginal distributions by
+two-sample Kolmogorov-Smirnov and energy distance; compare autocorrelation
+functions out to lag 200 samples; compare Welch power spectra band by band, which
+is the test that detects the "Fortran limit-cycles, the port damps" failure
+directly; and compare the full 53-by-53 cross-correlation matrix in Frobenius
+norm, because that matrix is exactly what PCA-based detectors consume.
+
+Layered on top, and independent of the Fortran entirely, run physics invariants:
+total mass balance closure, per-atom balance closure, and energy balance closure
+at steady state, each to a stated tolerance. These catch errors that a
+Fortran-versus-Rust comparison cannot, namely errors we faithfully inherited.
+
+** Tier 6: downstream-task equivalence
+
+The operational definition of "practically equivalent" for this project's
+research audience. Train a detector suite (PCA with T-squared and SPE, dynamic
+PCA, canonical variate analysis, and a small autoencoder) on Fortran =d00=
+training data. Evaluate on Fortran =d01= through =d21= test data and on
+Rust-generated equivalents. Compare fault detection rate, false alarm rate, and
+detection delay per fault. Then reverse it: train on Rust, test on Fortran.
+
+The claim we want to be able to make is that cross-source performance matches
+within-source performance within its own run-to-run variability. If a detector
+cannot tell which simulator generated its training data, the simulators are
+equivalent for the purpose, and that is a far more meaningful statement than any
+trajectory tolerance.
+
+** Tier 7: published dataset reproduction
+
+The Fortran carries four seed values in comments, including the two used for the
+canonical training and testing sets. Attempt direct reproduction of the bundled
+=d00= through =d21= files under the documented generation protocol and report
+per-file agreement using the Tier 5 machinery. Do the same for the Rieth 2017
+large-scale generation protocol. Where reproduction is imperfect, document
+exactly which protocol detail is unknown rather than tuning until the numbers
+match.
+
+** Tier 8: differential fuzzing
+
+Nightly =cargo-fuzz= and =proptest= runs generating random (state, inputs, IDV
+mask, RNG word) tuples and comparing derivatives against the oracle, with
+automatic shrinking of any counterexample to a minimal reproducer that lands in
+the regression suite. This is how we find the branch we did not think to test.
+
+** Tier 9: cross-platform determinism
+
+Golden BLAKE3 digests asserted equal across every target in the CI matrix,
+including wasm32 executed in a real headless browser rather than only in Node,
+since the browser is where users will actually run it.
+
+** Tier 10: delta validation for every quirk fix
+
+Each entry in the quirk register is implemented behind a compile-time or
+run-time switch, and CI runs the full Tier 5 battery with the fix on and off,
+publishing the difference in every statistic. A fix that moves any statistic
+outside its equivalence margin is escalated rather than merged silently.
+
+** Validation report
+
+None of this is written by hand. =cargo xtask validate= runs the whole ladder and
+emits a chapter of the mdBook with tables, ULP histograms, divergence plots,
+TOST forest plots, spectra overlays, and detector ROC comparisons, stamped with
+the commit hash and the toolchain versions. The report is regenerated on every
+release and is the artifact you point a reviewer at.
+
+* Quirk and delta register
+
+Every deviation from the Fortran gets an entry with a classification, a measured
+effect, and a disposition. The classification matters because the three classes
+warrant different levels of caution.
+
+*Class A, no numerical effect.* Dead code and naming confusion. =XMEAS(20)= is
+assigned twice in succession, so the first assignment is dead. =R1F= and =R2F=
+are reused as both kinetic drift factors and pressure-power intermediates within
+the same routine. The =COMMON= block globals prevent reentrancy. These are fixed
+without discussion.
+
+*Class B, numerically observable, semantically clearly wrong.* =TESUB2= runs
+Newton's method for up to a hundred iterations and, on failure to converge,
+silently resets the temperature to its input value and returns success. In Rust
+this returns a =Result= and the caller decides. The =1.0e-10= addend on stream 4
+flow exists to avoid a division by zero and should become an explicit guard. The
+=IF (TIME .EQ. 0.0)= float-equality initialization checks become an explicit
+initialization phase. Each of these gets a measured delta; the Newton fix and
+the initialization fix should measure as identically zero under normal
+operation, which is itself worth demonstrating.
+
+*Class C, behavior-defining and benchmark-relevant.* On any of the eight
+shutdown conditions the Fortran zeroes all fifty derivatives, which freezes the
+plant rather than shutting it down, and it does so silently. The IDV flags are
+clamped to zero or one on every call, forbidding partial-magnitude faults. The
+integrator is fixed-step Euler at one second with no error control. The
+=temain_mod.f= driver hard-codes =IDV(12) = 1= after a fixed step count. These
+are the entries where fixing changes published-benchmark comparability, so each
+one gets a full Tier 5 and Tier 6 delta report and an explicit sign-off before it
+becomes the default. The freeze-on-shutdown case in particular should become a
+typed =SimulationOutcome::Trip { condition, t }= that ends the run, which is
+better software and a genuine behavior change.
+
+The register lives in =book/src/deltas.md=, is generated from annotations in the
+source, and every entry links to the Fortran line range it came from and the test
+that measures it.
+
+* Python bindings
+
+PyO3 with maturin, targeting the stable ABI where possible. Ship an =abi3-py39=
+wheel covering the GIL-enabled interpreters, version-specific =cp313t= and
+=cp314t= wheels for the free-threaded builds (free-threaded 3.14 has no stable
+ABI), and add =abi3t= once 3.15 makes it available. Wheel matrix: manylinux and
+musllinux on x86-64 and aarch64, macOS on x86-64 and arm64, Windows on x86-64
+and arm64, built with maturin-action or cibuildwheel and published by a tagged
+GitHub Actions workflow with trusted publishing. Because the core is pure Rust
+with no C dependencies, cross-compilation is unremarkable, which was the whole
+point of the pure-Rust requirement.
+
+Additionally build an Emscripten wheel for Pyodide, so the package works in
+JupyterLite. That gives the education story a second front: browser notebooks as
+well as the browser app.
+
+The API is a clean break, designed rather than inherited:
+
+#+begin_src python
+import tepsim as tep
+
+# Simulation mode: set conditions, run forward.
+sim = tep.Simulation(scenario=tep.Scenario.baseline(seed=42, hours=48))
+run = sim.run()
+df  = run.to_polars()          # or .to_pandas(), .to_numpy(), .to_arrow()
+run.write_parquet("normal.parquet")
+
+# Control mode: user controller, stepped explicitly.
+class LevelController(tep.Controller):
+    period_s = 3
+    def on_sample(self, ctx):
+        err = ctx.setpoints.reactor_level - ctx.measurements.reactor_level
+        return tep.Action.delta(tep.Mv.SEPARATOR_UNDERFLOW, 0.8 * err)
+
+sim = tep.Simulation(
+    scenario=tep.Scenario.baseline(seed=42, hours=24),
+    control=tep.ControlScheme.braatz().replace("reactor_level", LevelController()),
+)
+for chunk in sim.stream(chunk_s=60):
+    ...                         # online detection, plotting, RL, whatever
+
+# Custom disturbance on a schedule.
+sim.scenario.add_event(
+    at_h=12.0,
+    disturbance=tep.Disturbance(
+        point=tep.Injection.heat_transfer("reactor"),
+        profile=tep.Profile.drift(rate_per_hour=-0.004),
+    ),
+)
+#+end_src
+
+Long =run()= calls release the GIL so that ensembles parallelize with threads,
+and an =ensemble()= helper runs N scenarios across a thread pool inside Rust,
+returning one Arrow table. Full type stubs and =py.typed=. Zero-copy numpy views
+over the recorder's columnar buffers where lifetimes allow, copies where they do
+not, and the distinction documented.
+
+* The browser application
+
+** Shape
+
+A Leptos client-side app compiled to wasm, built with Trunk, with the simulation
+running in a Web Worker and the UI on the main thread. Communication is
+=postMessage= with transferable =ArrayBuffer=s carrying batches of samples.
+Deliberately not =SharedArrayBuffer=: that requires COOP and COEP headers, which
+neither GitHub Pages nor a Hugging Face Static Space can set, and losing static
+hosting would defeat the purpose.
+
+Charts are uPlot, bound through a thin =wasm-bindgen= =extern=. uPlot is canvas
+based, a few tens of kilobytes, and comfortably streams dozens of series at
+display rate, which a Rust plotting crate would take real effort to match. This
+is the one place we accept a JavaScript dependency, and it is confined to a
+single module behind a Rust-side =Chart= abstraction.
+
+** Features
+
+The main view is a live process flow diagram in SVG with values annotated on
+each unit and stream, sitting above a configurable grid of trend plots. A fault
+panel lets you toggle any of the twenty canonical disturbances, set a continuous
+magnitude, and schedule onset and duration. A custom fault builder exposes the
+injection-point and profile vocabulary directly, so a student can invent a slow
+fouling fault in the reactor coil without writing code. A setpoint panel drives
+the regulatory layer. A controller editor with a Rhai buffer, live compilation,
+and inline errors lets students replace any loop and watch the consequence
+immediately.
+
+Scenarios import and export as TOML by drag and drop, and also serialize into
+the URL fragment, so an instructor can hand out an exact scenario as a link. Runs
+export to CSV and Parquet through the browser download path. A challenge mode
+starts a hidden fault at a hidden time and scores the student on detection delay
+and false alarms, with a built-in PCA detector available as a baseline to beat.
+Speed control runs from real time up to as fast as the worker manages, with the
+achieved rate displayed.
+
+** Budgets
+
+Target under 1.5 MB gzipped wasm using =opt-level = "s"=, thin LTO, =panic =
+"abort"=, and =wasm-opt -Oz=; the =no_std= core with no serde in the wasm build
+makes this reachable. Target at least 100x real time for the plant in wasm on a
+mid-range laptop, which puts a 48-hour run at under thirty seconds and makes
+interactive exploration pleasant. Deploy to GitHub Pages as primary and mirror to
+a Hugging Face Static Space, both free and both fully static.
+
+* Documentation
+
+Each unit operation gets a rustdoc module page carrying the governing equations
+in LaTeX rendered through KaTeX, a variable table mapping mathematical symbol to
+Fortran name to Rust name to unit, an explicit statement of modeling assumptions
+and their limits, the parameter values with provenance, and a link to that unit's
+validation results. Every page cites the Fortran line range it was derived from,
+which is what lets a skeptical reader check us.
+
+Around that, an mdBook site with four parts: a theory manual covering the process
+and the model, a porting and architecture guide including the delta register, the
+generated validation report, and a tutorial track. The tutorial track absorbs and
+extends the existing exercise material, adding a controller-design track and an
+anomaly-detection track, each runnable in the browser app, in JupyterLite, and
+locally.
+
+The repository keeps the original BSD-3-Clause license and the University of
+Illinois and Tennessee Eastman attribution notices intact, and states clearly
+which files are derived from the original Fortran.
+
+* Testing, CI, and release engineering
+
+Unit tests colocated with modules, integration tests in =tests/=, snapshot tests
+via =insta= for anything textual, property tests via =proptest=, differential
+tests against the oracle gated on gfortran availability, benchmarks via
+=criterion= with a regression gate on the CI machine, and doctests on every
+public API example so the documentation cannot rot.
+
+The CI matrix covers stable and beta Rust on Linux x86-64, Linux aarch64, macOS
+arm64 and Windows x86-64; wasm32 under Node and headless Chrome; the oracle
+differential job on Linux and macOS only; =cargo deny= for licenses and
+advisories; =cargo semver-checks= on the public API; and Miri on the core, which
+should be trivial because the core contains no =unsafe=. The core crate declares
+=#![forbid(unsafe_code)]=; =unsafe= is permitted only in the PyO3 and
+wasm-bindgen glue where the binding macros require it.
+
+Coverage via =cargo llvm-cov= with a floor on the core crate. Releases via
+=release-plz= or =cargo-dist=, with the Python wheels and the wasm bundle built
+from the same tag so that a version number identifies one artifact set across all
+three surfaces.
+
+* Performance targets
+
+The Fortran completes 172,800 Euler steps in well under a second, and there is
+no reason for Rust to be slower. Targets: at least 5x10^5 plant RHS evaluations
+per second single-threaded on a modern laptop core, a 48-hour Euler run in under
+half a second, a thousand-run labeled ensemble in under a minute on eight cores,
+and wasm within a factor of three of native. These are tracked by criterion in CI
+so a regression shows up as a failing build rather than as a slow simulator six
+months later.
+
+* Roadmap
+
+The phases below are ordered by dependency, with an exit criterion each. Sizes
+assume sustained part-time effort; treat them as relative rather than absolute.
+
+*Phase 0, foundations.* Workspace, CI matrix, licensing and attribution, the
+vendored Fortran, and the oracle harness. Exit criterion: a Rust test can drive
+=TEFUNC= through FFI and read back all fifty derivatives, and the =TESUB7= port
+is bit-exact over 10^7 draws against it.
+
+*Phase 1, thermodynamics and utilities.* =TESUB1= through =TESUB8= as typed Rust
+with Tier 1 passing, plus the constants table with provenance. Exit criterion:
+Tier 1 green with published ULP histograms.
+
+*Phase 2, plant model.* The full derivative function, split pure and impure as
+described, with typed state and per-unit modules. Exit criterion: Tier 2 at 1e-12
+across all three sampling pools including the full adversarial set.
+
+*Phase 3, measurements and disturbances.* Noise, sampled analyzers with dead
+time, the twelve walk channels, and all twenty IDVs re-expressed in the injection
+point and profile vocabulary. Exit criterion: Tier 3 exact and Tier 4 within noise
+for the first several hours on all twenty-two scenarios.
+
+*Phase 4, control.* The velocity-form PI implementation, the nineteen-loop Braatz
+preset, and the multi-rate scheduler. Exit criterion: closed-loop Tier 4 passing
+and the Tier 5 battery running end to end.
+
+*Phase 5, statistical validation.* The full Tier 5, 6 and 7 suite and the
+generated validation report. Exit criterion: a published report supporting a
+defensible equivalence claim, including the cross-source detector experiment.
+
+*Phase 6, modernization.* RK4 and adaptive Dormand-Prince, continuous-magnitude
+disturbances, the scenario engine with schema and hashing, ground-truth labeling,
+the recorder sinks, and the quirk fixes with their measured deltas. Exit
+criterion: the delta register complete and signed off, Tier 10 green.
+
+*Phase 7, Python.* Bindings, the full wheel matrix including free-threaded and
+Pyodide, type stubs, and the ensemble API. Exit criterion: wheels installing and
+passing the test suite on every target, published to TestPyPI.
+
+*Phase 8, browser.* TEP Studio, deployed to GitHub Pages and a Hugging Face
+Static Space. Exit criterion: the size and speed budgets met, Tier 9 including
+in-browser determinism green.
+
+*Phase 9, documentation and release.* Unit-operation pages, the mdBook, the
+tutorial and exercise tracks, and a software paper submission. Exit criterion:
+1.0 tagged with all three surfaces built from one commit.
+
+Phases 1 through 4 are strictly sequential. Phase 6 can start once Phase 4 is
+green. Phases 7 and 8 can proceed in parallel with Phase 5 as long as they track
+the core, and Phase 9 accumulates throughout rather than being deferred to the
+end.
+
+* Risks
+
+The largest technical risk is that transcendental function differences prevent
+any long-horizon trajectory match, which would be mistaken for a porting error.
+This is mitigated by making Tier 4 explicitly diagnostic rather than a gate, and
+by the libm-swap demonstration that attributes divergence to rounding rather than
+to logic.
+
+The largest process risk is the fix-quirks decision quietly breaking
+comparability with the published literature. This is mitigated by the delta
+register, per-quirk measurement, and explicit sign-off on Class C changes.
+
+Smaller risks: gfortran is awkward on Windows runners, so the oracle jobs run
+only on Linux and macOS; the browser app is the natural home for scope creep, so
+its feature list should be frozen at the start of Phase 8; Leptos moves fast
+enough that the UI layer should stay thin and the core untouched by it; and the
+Rhai scripting sandbox could be slow if misused, which is avoided by running
+scripted controllers at the three-second controller period rather than at the
+one-second integration step.
+
+* Open questions
+
+A few decisions do not need to be made now but will need making before the
+phases they affect.
+
+Whether to add Ricker's decentralized control scheme as a second validated
+preset, which would strengthen the education story and give a second independent
+check on the control layer, at the cost of a second validation target.
+
+Whether to attempt the Bathelt revision of the process model as an alternative
+plant behind the same interfaces, which is architecturally free if planned for
+now and expensive if retrofitted.
+
+Whether the browser app should support running a Python controller through
+Pyodide, which is technically possible and pedagogically attractive but adds
+several megabytes to the page and would need to be lazy-loaded.
+
+Whether to publish generated reference datasets alongside the code, and if so at
+what scale and on what host, given that a labeled corpus with scenario hashes
+would be genuinely useful to the anomaly-detection community.
+
+* References
+
+bibliography:tep-rust.bib
+
+The process and the original control problem are defined in citep:downs-1993-plant. The
+decentralized control scheme and the fault-detection framing come from
+citep:ricker-1996-decen and citep:russell-2000-fault, with the closed-loop dataset generation and
+the standard detector baselines in citep:chiang-2001-fault. Later revisions and larger
+labeled corpora are in citep:bathelt-2015-revis and citep:rieth-2017-addit.
