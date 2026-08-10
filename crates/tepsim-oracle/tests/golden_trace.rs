@@ -61,12 +61,28 @@ fn regenerate() -> Vec<Step> {
 /// Bit-equality is only meaningful against the recording compiler. Different
 /// gfortran versions, and different platform `libm` implementations behind
 /// them, evaluate `exp` and `pow` to different last bits, and 100 Euler steps
-/// amplify that. This bound is a measurement, not a preference: see the
-/// B-0002b entry in `LOG.org` for the observed figures on each CI runner.
+/// amplify that.
 ///
-/// Loosening it hides exactly the regressions this test exists to catch, so it
-/// is only ever raised alongside a recorded explanation.
-const CROSS_COMPILER_TOLERANCE: f64 = 1e-9;
+/// This bound is a measurement, not a preference. Observed over this 100-step
+/// trace, against a trace recorded with gfortran 15.2.0 on macOS:
+///
+/// | Running | Platform libm | Values differing | Worst relative deviation |
+/// |---------|---------------|------------------|--------------------------|
+/// | 15.2.0  | Apple         | 0 of 14200       | 0, bit exact             |
+/// | 16.1.0  | Apple         | under the bound  | below 1e-9               |
+/// | 13.3.0  | glibc         | 16 of 14200      | 3.307e-8 at step 91      |
+///
+/// The pattern is the point. A different compiler on the *same* platform barely
+/// moves anything, because it calls the same `libm`. A different platform moves
+/// the last bits of `exp` and `pow`, and 91 Euler steps amplify that to 3.3e-8.
+/// That is the mechanism `PLAN.org` predicts will limit cross-platform
+/// agreement, measured rather than assumed, and it is why Tier 4 is diagnostic
+/// while Tiers 5 and 6 are the gates.
+///
+/// Set at roughly three times the largest observed figure. Loosening it hides
+/// exactly the regressions this test exists to catch, so it is only ever raised
+/// alongside a recorded measurement.
+const CROSS_COMPILER_TOLERANCE: f64 = 1e-7;
 
 /// Relative difference, falling back to absolute near zero.
 fn deviation(a: f64, b: f64) -> f64 {

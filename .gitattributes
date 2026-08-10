@@ -1,12 +1,14 @@
+# NOTE ON ORDER: in gitattributes the LAST matching pattern wins. The catch-all
+# must come first so the specific overrides below actually take effect. Getting
+# this backwards is what made the first attempt at this file do nothing.
+* text=auto
+
 # Ground truth and recorded measurements. Never translate line endings.
 #
 # Git converts LF to CRLF on checkout on Windows by default, which changes the
 # bytes and so changes the SHA-256 of every vendored file. The checksums in
 # reference/CHECKSUMS.sha256 are of the exact bytes as distributed upstream, and
 # the golden trace is a recorded measurement, so neither may be rewritten by a
-# convenience feature. The first Windows CI run failed on precisely this.
+# convenience feature.
 reference/** -text
 golden/** -text
-
-# Everything else gets normalised in the repository and checked out natively.
-* text=auto
