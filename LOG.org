@@ -417,3 +417,89 @@ rather than eyeballing. And =ISD= is still unreachable because it is a local in
 the original; exposing it means instrumenting at build time into =OUT_DIR= with
 an explicit string replacement that asserts its own pre-image, since
 =reference/= is checksummed and must stay pristine.
+
+* 2026-08-09 B-0004b Oracle harness: full state access
+:PROPERTIES:
+:ITEM:     B-0004b
+:PHASE:    0
+:TIER:     none
+:COMMIT:   d44e181
+:GFORTRAN: 15.2.0
+:FFLAGS:   -c -O0 -fno-fast-math -fno-unsafe-math-optimizations -fPIC -std=legacy
+:STATUS:   DONE
+:END:
+
+** Preflight
+Clean and green. Provenance 1589 total, 0 claimed, one span 1-1589, matching the
+B-0004a baseline exactly. gfortran 15.2.0, unchanged. Fidelity still skipped;
+B-0004c turns it on.
+
+** What changed
+All seven COMMON blocks are now reachable behind the safe wrapper, plus =TESUB1=
+through =TESUB4= and =TESUB6= through =TESUB8=. =ISD= is exposed by rewriting the
+source into =OUT_DIR= at build time, leaving =reference/= untouched.
+
+** Validation numbers
+=cargo xtask ci= green. 25 tests with default features, *51 with =oracle==, up
+from 37.
+
+Block sizes, asserted against the Fortran declarations: =/TEPROC/= 4688 bytes
+(580 doubles + 12 integers), =/WLK/= 1104 (132 doubles + 12 integers),
+=/CONST/= 896 (112 doubles).
+
+Instrumentation equivalence: *all 50 derivatives and the final RNG word are
+bit-identical* between the instrumented build and the pristine original.
+
+Teeth checks on that test, both confirmed live: perturbing the state by 1e-6
+relative makes 28 of 50 derivatives disagree; changing the seed leaves the
+derivatives identical but fails the RNG-word assertion. That second result is
+itself informative: =YP= does not depend on the measurement noise within a call,
+because noise is added to =XMEAS= after the derivative-relevant quantities are
+computed and =XMEAS= does not feed back without a controller. So the derivative
+comparison is insensitive to RNG differences, and the separate word comparison is
+what covers them.
+
+Shutdown flag verified both ways: clear at nominal, and tripping on reactor
+overtemperature (=teprob.f:706=) with all 50 derivatives zeroed, which is the
+Class C freeze-rather-than-shutdown quirk the delta register must decide about.
+
+** Surprises and decisions
+*182 of the constant assignments in =TEINIT= are single-precision literals.*
+Fixed-form Fortran treats a literal with no =D= suffix as =REAL=, so assigning
+it to a =DOUBLE PRECISION= variable widens a value already rounded to 24 bits.
+=XMW(2)=25.4= at =teprob.f:942= stores 25.399999618530273, not the nearest
+double to 25.4. =CPPRMX=1.3= stores 1.2999999523162842. 166 assignments do carry
+the suffix and are full precision, so it is genuinely per-constant.
+
+The relative error is about 1.5e-8 against a Tier 1 tolerance of 1e-13: five
+orders of magnitude. A port writing =25.4_f64= would fail in a way that looks
+like a deep numerical problem and is actually clerical. Found because three
+layout tests failed on values I had assumed were exact, so the tests earned
+their keep before any model code exists. B-0006 now requires per-literal
+transcription plus a test that enumerates =D=-suffix status from the source
+rather than trusting the eye.
+
+Downstream of the same cause: the feed compositions at =teprob.f:1134-1159= are
+=0.9999= and =0.0001= without suffixes, so they sum to 1 only to about 1.7e-8.
+The composition test uses 1e-7, and that is not slack: a tighter bound would
+assert something the original does not do.
+
+*The uniqueness assertion in the instrumentation paid for itself immediately.*
+The obvious anchor for initialising =ISD= in =TEINIT= is =TNEXT(I)=0.1D0=, which
+also appears in =TEFUNC='s t=0 reset block. Matching twice would have edited both
+sites. Anchoring on the =DO 550= terminator instead is unique.
+
+*A badly chosen teeth check.* My first attempt perturbed =TIME=, and the test
+still passed. Not a broken test: with no disturbances active, =TESUB8= returns
+zero regardless of time and the analysers do not fire until t=0.1, so =TEFUNC=
+genuinely has no time dependence at small t. Worth knowing before Tier 2 picks
+sampling points, since varying time alone explores nothing.
+
+** Next
+B-0004c, the golden trace and a real fidelity preflight. Emit 100 Euler steps
+from the nominal state recording all 50 states, all 50 derivatives, the RNG word
+and the 41 measurements per step; stamp it with gfortran 15.2.0 and the flag set;
+and make =xtask fidelity= diff against it without needing gfortran. That turns
+the preflight on for every session afterwards and closes Phase 0. Store the trace
+as raw bit patterns, as the pristine probe already does, so the comparison is
+exact rather than decimal.
