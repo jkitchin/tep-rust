@@ -1,0 +1,116 @@
+#+TITLE: Reference material: ground truth for the port
+#+OPTIONS: toc:2 num:nil
+
+Everything in this directory is *ground truth and is never edited*. The Rust
+port is validated against it, so a change here silently invalidates every
+recorded validation number. =CHECKSUMS.sha256= pins all 48 files and is verified
+on every =cargo xtask ci= run. If that test fails, restore the file; do not
+re-baseline the checksum.
+
+* Provenance
+
+| Item            | Value                                                    |
+|-----------------+----------------------------------------------------------|
+| Upstream        | https://github.com/jkitchin/tennessee-eastman-profbraatz |
+| Commit          | =9a6c8e5fcef4a2850778704e7793c87b0a187005=               |
+| Commit date     | 2025-12-12                                               |
+| Retrieved       | 2026-08-09                                               |
+| License         | University of Illinois/NCSA (see =../LICENSE-NCSA=)      |
+| Original model  | J. J. Downs and E. F. Vogel, Tennessee Eastman Company   |
+| Modified code   | Large Scale Systems Research Laboratory, Univ. Illinois, |
+|                 | under Prof. Richard D. Braatz                            |
+
+"Original" throughout this project means the Braatz group's redistributed
+version, not the 1990 Downs and Vogel listing. That is the de facto standard:
+it is what generated the =d00= through =d21= datasets and what thirty years of
+published results were produced with. It already contains Braatz-era edits, most
+visibly the seed table in =teprob.f=.
+
+* Which Fortran is canonical
+
+Upstream ships *two copies* of the process model, and they are not identical.
+We vendor the ones from the repository root:
+
+| Vendored here             | Upstream path     | Lines |
+|---------------------------+-------------------+-------|
+| =fortran/teprob.f=        | =teprob.f=        |  1589 |
+| =fortran/temain.f=        | =temain.f=        |   182 |
+| =fortran/temain_mod.f=    | =temain_mod.f=    |  1408 |
+
+Upstream's =fortran/= directory holds an f2py-instrumented variant
+(=teprob.f= at 1594 lines, =temain_mod.f= at 1413). We deliberately do *not*
+vendor those. All =@port= line numbers in the Rust source refer to the files in
+this directory.
+
+The instrumented variant differs in exactly five lines, all in service of
+exposing state to Python:
+
+- =ISD= is moved into =COMMON/SHUTDN/= and declared in =TEINIT=, which is
+  initialised with =ISD=0=, so a Python caller can read the shutdown flag.
+- A new local =IRAND= takes over the =TESUB7= mode-flag role that the original
+  gives to =ISD=.
+- =COMMON/RANDSD/ G= is declared in =temain_mod.f= so the seed is reachable.
+
+That variant is *behaviourally identical* to the original. In the original,
+=ISD= is a local in =TEFUNC= serving two unrelated purposes: it is set to =-1=
+at line 387 purely as the sign flag for =TESUB7=, and it is the shutdown flag
+from line 702 onward. Line 702 assigns =ISD=0= unconditionally on every call,
+before any of the eight shutdown tests at lines 703-710 and before both reads at
+lines 711 and 807, so the earlier borrow cannot leak into the shutdown decision.
+
+This variable reuse is a Class A quirk: confusing to read, no numerical effect.
+The Rust port keeps the two concepts separate, and B-0004 applies its own
+minimal, reviewable instrumentation patch rather than inheriting upstream's.
+
+* Datasets
+
+44 files, 25 MB, vendored verbatim and uncompressed so the bytes match upstream
+and any loader works without a decompression step.
+
+Layout is 52 columns per sample, =[XMEAS(1..41), XMV(1..11)]=, at a 180-second
+sampling interval. Note that =XMV(12)= (agitator speed) is *not* recorded.
+
+** Two traps in d00.dat
+
+Both contradict =data/README.md=, which is upstream's own file and is vendored
+here unmodified. Trust this section over that one.
+
+- =d00.dat= is *transposed*: it is 52 rows by 500 columns, where every other
+  file is samples-by-52. It is the only such file.
+- =d00.dat= holds *500 samples*, not the 480 that =data/README.md= states and
+  not the 480 that every other training file holds.
+
+Every other file follows the convention: =dNN.dat= is 480 x 52, =dNN_te.dat= is
+960 x 52.
+
+* Seeds for the published datasets
+
+=teprob.f= lines 1187-1246 document the exact LCG seed used to generate each
+published file. This is unusually good fortune for Tier 7: reproducing the
+published datasets is not a search problem, because the seeds are written down.
+
+The compiled-in value is =G=4651207995.D0=. The commented table covers
+=d00_tr= through =d26_tr= and =d00_te= through =d26_te=, though only =d00=
+through =d21= ship as data. Three entries are worth noting:
+
+- an entry labelled "original" with =G=1431655765.D0=, which is =0x55555555=
+- a =d00_tr_new= entry alongside =d00_tr=, so the normal-operation training set
+  was regenerated at some point
+- line 1239, =d19_te: G=9090909232.DO=, ends in the letter =O= rather than a
+  zero. Harmless inside a comment, but it is a syntax error if uncommented, so
+  the intended value is =9090909232.D0=.
+
+Seeds for =d22= through =d26= exist in the table but correspond to extended
+fault scenarios that are not part of this repository.
+
+* Contents
+
+| Path                  | What                                              |
+|-----------------------+---------------------------------------------------|
+| =fortran/teprob.f=    | Plant model: =TEFUNC=, =TEINIT=, =TESUB1..8=      |
+| =fortran/temain.f=    | Open-loop driver                                  |
+| =fortran/temain_mod.f= | Closed-loop driver and the 19-loop PI suite      |
+| =data/dNN.dat=        | Training sets, fault NN, 480 samples (d00: 500)   |
+| =data/dNN_te.dat=     | Test sets, fault NN, 960 samples                  |
+| =data/README.md=      | Upstream's own description, vendored unmodified   |
+| =CHECKSUMS.sha256=    | SHA-256 of all 48 files above                     |

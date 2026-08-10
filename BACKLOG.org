@@ -15,11 +15,12 @@ earlier phases will change what the right decomposition is.
 Rewrite this block at the end of every iteration. Keep it to five lines.
 
 - Phase: 0, in progress
-- Last completed: B-0002a workspace skeleton, xtask, local gate
+- Last completed: B-0003 vendor the reference material
 - In flight: (none)
-- Baseline: =cargo xtask ci= green, 20 tests, 9 crates, no model code yet
+- Baseline: =cargo xtask ci= green, 24 tests; reference pinned; 0% of teprob.f
+  ported (1589 lines unclaimed)
 - Blocked on: B-0001b (install =rustup=?) and B-0002b (create a GitHub remote?).
-  Next unblocked item is B-0003, vendor the reference material.
+  Next unblocked item is B-0004, the oracle harness.
 
 * Phase 0: foundations
 
@@ -125,24 +126,29 @@ Done when:
 - [ ] A failing commit is shown to actually fail the workflow, so the gate is
       known to have teeth
 
-** TODO B-0003 Vendor the reference material
+** DONE B-0003 Vendor the reference material
 :PROPERTIES:
-:ID:    B-0003
-:PHASE: 0
-:TIER:  none
-:DEPS:  B-0002a
-:PLAN:  Validation > The oracle harness
+:ID:     B-0003
+:PHASE:  0
+:TIER:   none
+:DEPS:   B-0002a
+:PLAN:   Validation > The oracle harness
+:RESULT: 48 files, 25 MB, pinned to upstream 9a6c8e5 and checksummed. Canonical
+         Fortran is the repo-root copy (1589 lines), not upstream's f2py variant
+         (1594); `@port` line numbers refer to the former. Found: all 54 dataset
+         seeds are documented in teprob.f; d00.dat is transposed with 500
+         samples, contradicting upstream's own README.
 :END:
 
 Scope: bring the ground truth into the repo, immutably.
 
 Done when:
-- [ ] =reference/fortran/= holds unmodified =teprob.f=, =temain.f=,
+- [X] =reference/fortran/= holds unmodified =teprob.f=, =temain.f=,
       =temain_mod.f=
-- [ ] =reference/data/= holds =d00= through =d21= and the =_te= variants
-- [ ] =reference/README.org= records provenance (upstream repo, commit, license,
+- [X] =reference/data/= holds =d00= through =d21= and the =_te= variants
+- [X] =reference/README.org= records provenance (upstream repo, commit, license,
       original authors) and a SHA-256 for every file
-- [ ] A test asserts every checksum, so accidental edits fail CI
+- [X] A test asserts every checksum, so accidental edits fail CI
 
 ** TODO B-0004 Oracle harness: drive the original Fortran from Rust
 :PROPERTIES:
@@ -190,8 +196,9 @@ arithmetic.
 
 Done when:
 - [ ] =TepRng= with both call modes (=i >= 0= gives [0,1), =i < 0= gives [-1,1))
-- [ ] Bit-exact against the oracle over 1e7 successive draws from each of the
-      four documented seeds (4651207995, 5687912315, 1431655765, 4243534565)
+- [ ] Bit-exact against the oracle over 1e7 successive draws from the compiled-in
+      seed 4651207995 and a sample of the 54 dataset seeds documented at
+      =teprob.f:1187-1246= (see =reference/README.org=)
 - [ ] A committed test vector file so the check survives without gfortran
 - [ ] Doc comment explains the 2^53 overflow and why it must not be "fixed"
 

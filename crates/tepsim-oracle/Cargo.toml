@@ -17,5 +17,9 @@ publish = false
 default = []
 oracle = []
 
+[dev-dependencies]
+# Only for verifying the vendored reference material has not been edited.
+sha2 = "0.10"
+
 [lints]
 workspace = true
