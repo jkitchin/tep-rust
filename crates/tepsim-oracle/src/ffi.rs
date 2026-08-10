@@ -57,3 +57,218 @@ unsafe extern "C" {
     pub(crate) static mut dvec_: Dvec;
     pub(crate) static mut randsd_: Randsd;
 }
+
+/// `COMMON/TEPROC/`, the plant's entire working set, from `teprob.f:243-271`.
+///
+/// 580 doubles followed by 12 integers, laid out exactly in declaration order.
+/// The trailing `IVST` integers after a long run of doubles are the part most
+/// likely to be got wrong, so [`Teproc::LEN_BYTES`] pins the total and the
+/// layout tests read fields from both ends of the block.
+///
+/// # Two-dimensional arrays are column-major
+///
+/// Fortran stores `FCM(8,13)` with the first index varying fastest, so
+/// `FCM(i, j)` lives at `fcm[j - 1][i - 1]` here: the *outer* Rust index is the
+/// stream and the *inner* one is the component. Getting this backwards would
+/// still typecheck and still have the right size.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+// Every field is the Fortran name from the COMMON declaration cited above,
+// lowercased. Per-field doc comments would restate the name and nothing else;
+// the declaration and the unit-operation docs are the real documentation.
+#[allow(missing_docs)]
+pub struct Teproc {
+    pub uclr: [f64; 8],
+    pub ucvr: [f64; 8],
+    pub utlr: f64,
+    pub utvr: f64,
+    pub xlr: [f64; 8],
+    pub xvr: [f64; 8],
+    pub etr: f64,
+    pub esr: f64,
+    pub tcr: f64,
+    pub tkr: f64,
+    pub dlr: f64,
+    pub vlr: f64,
+    pub vvr: f64,
+    pub vtr: f64,
+    pub ptr: f64,
+    pub ppr: [f64; 8],
+    pub crxr: [f64; 8],
+    pub rr: [f64; 4],
+    pub rh: f64,
+    pub fwr: f64,
+    pub twr: f64,
+    pub qur: f64,
+    pub hwr: f64,
+    pub uar: f64,
+    pub ucls: [f64; 8],
+    pub ucvs: [f64; 8],
+    pub utls: f64,
+    pub utvs: f64,
+    pub xls: [f64; 8],
+    pub xvs: [f64; 8],
+    pub ets: f64,
+    pub ess: f64,
+    pub tcs: f64,
+    pub tks: f64,
+    pub dls: f64,
+    pub vls: f64,
+    pub vvs: f64,
+    pub vts: f64,
+    pub pts: f64,
+    pub pps: [f64; 8],
+    pub fws: f64,
+    pub tws: f64,
+    pub qus: f64,
+    pub hws: f64,
+    pub uclc: [f64; 8],
+    pub utlc: f64,
+    pub xlc: [f64; 8],
+    pub etc: f64,
+    pub esc: f64,
+    pub tcc: f64,
+    pub dlc: f64,
+    pub vlc: f64,
+    pub vtc: f64,
+    pub quc: f64,
+    pub ucvv: [f64; 8],
+    pub utvv: f64,
+    pub xvv: [f64; 8],
+    pub etv: f64,
+    pub esv: f64,
+    pub tcv: f64,
+    pub tkv: f64,
+    pub vtv: f64,
+    pub ptv: f64,
+    pub vcv: [f64; 12],
+    pub vrng: [f64; 12],
+    pub vtau: [f64; 12],
+    pub ftm: [f64; 13],
+    /// `FCM(8,13)`: `fcm[stream][component]`.
+    pub fcm: [[f64; 8]; 13],
+    /// `XST(8,13)`: `xst[stream][component]`.
+    pub xst: [[f64; 8]; 13],
+    pub xmws: [f64; 13],
+    pub hst: [f64; 13],
+    pub tst: [f64; 13],
+    pub sfr: [f64; 8],
+    pub cpflmx: f64,
+    pub cpprmx: f64,
+    pub cpdh: f64,
+    pub tcwr: f64,
+    pub tcws: f64,
+    pub htr: [f64; 3],
+    pub agsp: f64,
+    pub xdel: [f64; 41],
+    pub xns: [f64; 41],
+    pub tgas: f64,
+    pub tprod: f64,
+    pub vst: [f64; 12],
+    pub ivst: [i32; 12],
+}
+
+impl Teproc {
+    /// 580 doubles then 12 integers, counted from the Fortran declaration.
+    pub const LEN_BYTES: usize = 580 * 8 + 12 * 4;
+}
+
+/// `COMMON/WLK/`, the disturbance random-walk state, from `teprob.f:285-297`.
+///
+/// Eleven arrays of 12 doubles, then 12 integers. Channels 1-9 are driven by
+/// `TESUB5`; channels 10-12 use the different, spikier rule in the `DO 910`
+/// loop at `teprob.f:372`.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+// Every field is the Fortran name from the COMMON declaration cited above,
+// lowercased. Per-field doc comments would restate the name and nothing else;
+// the declaration and the unit-operation docs are the real documentation.
+#[allow(missing_docs)]
+pub struct Wlk {
+    pub adist: [f64; 12],
+    pub bdist: [f64; 12],
+    pub cdist: [f64; 12],
+    pub ddist: [f64; 12],
+    pub tlast: [f64; 12],
+    pub tnext: [f64; 12],
+    pub hspan: [f64; 12],
+    pub hzero: [f64; 12],
+    pub sspan: [f64; 12],
+    pub szero: [f64; 12],
+    pub spspan: [f64; 12],
+    pub idvwlk: [i32; 12],
+}
+
+impl Wlk {
+    /// Eleven arrays of 12 doubles, then 12 integers.
+    pub const LEN_BYTES: usize = 11 * 12 * 8 + 12 * 4;
+}
+
+/// `COMMON/CONST/`, the thermodynamic coefficients, from `teprob.f:305-311`.
+///
+/// Fourteen arrays of 8, one entry per component A through H. Antoine vapour
+/// pressure (`AVP`, `BVP`, `CVP`), liquid enthalpy (`AH`, `BH`, `CH`), vapour
+/// enthalpy (`AG`, `BG`, `CG`), heat of vaporisation (`AV`), liquid density
+/// (`AD`, `BD`, `CD`), and molecular weight (`XMW`).
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+// Every field is the Fortran name from the COMMON declaration cited above,
+// lowercased. Per-field doc comments would restate the name and nothing else;
+// the declaration and the unit-operation docs are the real documentation.
+#[allow(missing_docs)]
+pub struct Const {
+    pub avp: [f64; 8],
+    pub bvp: [f64; 8],
+    pub cvp: [f64; 8],
+    pub ah: [f64; 8],
+    pub bh: [f64; 8],
+    pub ch: [f64; 8],
+    pub ag: [f64; 8],
+    pub bg: [f64; 8],
+    pub cg: [f64; 8],
+    pub av: [f64; 8],
+    pub ad: [f64; 8],
+    pub bd: [f64; 8],
+    pub cd: [f64; 8],
+    pub xmw: [f64; 8],
+}
+
+impl Const {
+    /// Fourteen arrays of 8 doubles.
+    pub const LEN_BYTES: usize = 14 * 8 * 8;
+}
+
+/// `COMMON/SHUTDN/ ISD`, present only after build-time instrumentation.
+///
+/// The original keeps `ISD` as a local in `TEFUNC`, so there is nothing to link
+/// against until `build.rs` hoists it. See `instrument.rs`.
+#[repr(C)]
+pub(crate) struct Shutdn {
+    pub isd: i32,
+}
+
+unsafe extern "C" {
+    pub(crate) static mut teproc_: Teproc;
+    pub(crate) static mut wlk_: Wlk;
+    pub(crate) static mut const_: Const;
+    pub(crate) static mut shutdn_: Shutdn;
+
+    /// `SUBROUTINE TESUB1(Z, T, H, ITY)`: mixture enthalpy. `teprob.f:1376`.
+    pub(crate) fn tesub1_(z: *const f64, t: *const f64, h: *mut f64, ity: *const i32);
+    /// `SUBROUTINE TESUB2(Z, T, H, ITY)`: temperature from enthalpy, by Newton.
+    /// `teprob.f:1416`. Silently returns `T` unchanged if it fails to converge.
+    pub(crate) fn tesub2_(z: *const f64, t: *mut f64, h: *const f64, ity: *const i32);
+    /// `SUBROUTINE TESUB3(Z, T, DH, ITY)`: heat capacity. `teprob.f:1444`.
+    pub(crate) fn tesub3_(z: *const f64, t: *const f64, dh: *mut f64, ity: *const i32);
+    /// `SUBROUTINE TESUB4(X, T, R)`: liquid density. `teprob.f:1482`.
+    pub(crate) fn tesub4_(x: *const f64, t: *const f64, r: *mut f64);
+    /// `SUBROUTINE TESUB6(STD, X)`: Gaussian-ish noise, twelve uniforms summed.
+    /// `teprob.f:1539`.
+    pub(crate) fn tesub6_(std: *const f64, x: *mut f64);
+    /// `DOUBLE PRECISION FUNCTION TESUB7(I)`: the generator. `teprob.f:1548`.
+    /// Negative `i` gives [-1,1), non-negative gives [0,1).
+    pub(crate) fn tesub7_(i: *const i32) -> f64;
+    /// `DOUBLE PRECISION FUNCTION TESUB8(I, T)`: evaluate walk channel `i` at
+    /// time `t` as a cubic. `teprob.f:1557`.
+    pub(crate) fn tesub8_(i: *const i32, t: *const f64) -> f64;
+}

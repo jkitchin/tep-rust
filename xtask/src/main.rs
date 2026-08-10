@@ -529,6 +529,15 @@ mod tests {
         assert_eq!(r(10, 20).len(), 11);
     }
 
+    /// The oracle links the original Fortran and is `publish = false`. If a
+    /// shipped crate ever depended on it, wheels and the wasm bundle would try
+    /// to drag a Fortran toolchain along. `xtask ci` checks this as a gate
+    /// step; this makes plain `cargo test` catch it too.
+    #[test]
+    fn no_shipped_crate_depends_on_the_oracle() {
+        check_oracle_isolation(&workspace_root()).expect("oracle isolation");
+    }
+
     #[test]
     fn percent_of_an_empty_file_is_zero_not_nan() {
         // 0/0 would be NaN, which formats as "NaN%" and silently poisons any

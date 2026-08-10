@@ -15,6 +15,9 @@ use std::env;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+#[path = "instrument.rs"]
+mod instrument;
+
 /// Flags used to compile the Fortran. Deliberately conservative.
 ///
 /// `-O0` keeps the generated code as close to the source as possible, which
@@ -54,16 +57,25 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed={}", source.display());
 
+    // The vendored file is ground truth and is checksummed, so the shutdown
+    // flag is exposed by rewriting into OUT_DIR rather than by editing it. Each
+    // rewrite asserts its own pre-image; see instrument.rs.
+    let pristine = std::fs::read_to_string(&source)
+        .unwrap_or_else(|e| panic!("reading {}: {e}", source.display()));
+    let instrumented = instrument::instrument(&pristine);
+    let instrumented_path = out_dir.join("teprob_instrumented.f");
+    std::fs::write(&instrumented_path, &instrumented).expect("writing instrumented source");
+
     // Only teprob.f. temain.f and temain_mod.f each declare a PROGRAM, which
     // would collide with the Rust test harness's own entry point.
     let object = out_dir.join("teprob.o");
     run(
         Command::new(gfortran())
             .args(FORTRAN_FLAGS)
-            .arg(&source)
+            .arg(&instrumented_path)
             .arg("-o")
             .arg(&object),
-        "compiling teprob.f",
+        "compiling the instrumented teprob.f",
     );
 
     let archive = out_dir.join("libteoracle.a");
@@ -71,6 +83,29 @@ fn main() {
     run(
         Command::new("ar").arg("crs").arg(&archive).arg(&object),
         "archiving teprob.o",
+    );
+
+    // Build a standalone probe from the *pristine* source so a test can prove
+    // the instrumentation changed no numbers. Linking both copies into one
+    // process is impossible, since they define the same symbols, so the
+    // pristine one runs as a separate executable and reports its answers as
+    // raw bit patterns. Comparing bits rather than decimal text keeps the
+    // comparison exact.
+    let probe_src = out_dir.join("pristine_probe.f");
+    std::fs::write(&probe_src, PRISTINE_PROBE).expect("writing probe driver");
+    let probe_bin = out_dir.join("pristine_probe");
+    run(
+        Command::new(gfortran())
+            .args(FORTRAN_FLAGS.iter().filter(|f| **f != "-c"))
+            .arg(&source)
+            .arg(&probe_src)
+            .arg("-o")
+            .arg(&probe_bin),
+        "building the pristine probe",
+    );
+    println!(
+        "cargo:rustc-env=TEP_ORACLE_PRISTINE_PROBE={}",
+        probe_bin.display()
     );
 
     println!("cargo:rustc-link-search=native={}", out_dir.display());
@@ -142,3 +177,31 @@ fn gfortran_version() -> String {
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "unknown".to_string())
 }
+
+/// A driver compiled against the *pristine* Fortran, used to prove the
+/// instrumentation is behaviour-preserving.
+///
+/// It runs the same sequence the equivalence test runs in-process against the
+/// instrumented build: initialise, pin the generator, take one step past zero.
+/// Results are emitted as raw IEEE bit patterns via `TRANSFER`, because decimal
+/// formatting would not round-trip exactly and this comparison has to be exact.
+const PRISTINE_PROBE: &str = r#"
+      PROGRAM PROBE
+      INTEGER NN,I
+      DOUBLE PRECISION TIME, YY(50), YP(50)
+      DOUBLE PRECISION G
+      COMMON/RANDSD/G
+      INTEGER*8 IB
+      NN=50
+      CALL TEINIT(NN,TIME,YY,YP)
+      G=4651207995.D0
+      TIME=1.D0/3600.D0
+      CALL TEFUNC(NN,TIME,YY,YP)
+      DO 10 I=1,50
+      IB=TRANSFER(YP(I),IB)
+      WRITE(*,*) IB
+   10 CONTINUE
+      IB=TRANSFER(G,IB)
+      WRITE(*,*) IB
+      END
+"#;

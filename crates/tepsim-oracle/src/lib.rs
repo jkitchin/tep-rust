@@ -44,13 +44,15 @@ pub mod build_info;
 mod ffi;
 
 #[cfg(feature = "oracle")]
+pub use ffi::{Const, Teproc, Wlk};
+#[cfg(feature = "oracle")]
 pub use oracle::{N_STATES, Oracle};
 
 #[cfg(feature = "oracle")]
 mod oracle {
     use std::sync::{Mutex, MutexGuard, OnceLock};
 
-    use crate::ffi;
+    use crate::ffi::{self, Const, Teproc, Wlk};
 
     /// The original integrates 50 states. `teprob.f:24-26` invites callers to
     /// append their own beyond that; we never do, so this is exact.
@@ -155,6 +157,112 @@ mod oracle {
         pub fn set_rng(&mut self, g: f64) {
             // SAFETY: as above.
             unsafe { (&raw mut ffi::randsd_.g).write(g) };
+        }
+
+        /// A snapshot of `COMMON/TEPROC/`, the plant's whole working set.
+        pub fn teproc(&mut self) -> Teproc {
+            // SAFETY: as above.
+            unsafe { (&raw const ffi::teproc_).read() }
+        }
+
+        /// Overwrite `COMMON/TEPROC/`. This is how a differential test forces
+        /// the Fortran into a chosen state before evaluating.
+        pub fn set_teproc(&mut self, v: &Teproc) {
+            // SAFETY: as above.
+            unsafe { (&raw mut ffi::teproc_).write(*v) };
+        }
+
+        /// A snapshot of `COMMON/WLK/`, the disturbance random-walk state.
+        pub fn wlk(&mut self) -> Wlk {
+            // SAFETY: as above.
+            unsafe { (&raw const ffi::wlk_).read() }
+        }
+
+        /// Overwrite `COMMON/WLK/`. Needed to reproduce a disturbance
+        /// trajectory, since the walks carry state between calls.
+        pub fn set_wlk(&mut self, v: &Wlk) {
+            // SAFETY: as above.
+            unsafe { (&raw mut ffi::wlk_).write(*v) };
+        }
+
+        /// `COMMON/CONST/`, the thermodynamic coefficients. Read-only in
+        /// practice: `TEINIT` sets them and nothing else writes them.
+        pub fn constants(&mut self) -> Const {
+            // SAFETY: as above.
+            unsafe { (&raw const ffi::const_).read() }
+        }
+
+        /// The shutdown flag, non-zero when the plant has tripped.
+        ///
+        /// Only reachable because `build.rs` hoists `ISD` into
+        /// `COMMON/SHUTDN/`; the original keeps it as a local. A test proves
+        /// that rewrite changes no numbers.
+        pub fn shutdown_flag(&mut self) -> i32 {
+            // SAFETY: as above.
+            unsafe { (&raw const ffi::shutdn_.isd).read() }
+        }
+
+        /// `TESUB1`: mixture enthalpy of composition `z` at `t` degrees C.
+        ///
+        /// `ity` selects the correlation: 0 for liquid, 1 for vapour, 2 for
+        /// vapour with the ideal-gas correction subtracted.
+        pub fn tesub1(&mut self, z: &[f64; 8], t: f64, ity: i32) -> f64 {
+            let mut h = 0.0;
+            // SAFETY: `z` is exactly the 8 elements the Fortran indexes.
+            unsafe { ffi::tesub1_(z.as_ptr(), &t, &mut h, &ity) };
+            h
+        }
+
+        /// `TESUB2`: temperature from enthalpy, by Newton iteration.
+        ///
+        /// `t` is both the initial guess and, on failure to converge in 100
+        /// iterations, the value returned unchanged. The original reports no
+        /// error in that case; quantifying how often it happens is B-0011.
+        pub fn tesub2(&mut self, z: &[f64; 8], t_guess: f64, h: f64, ity: i32) -> f64 {
+            let mut t = t_guess;
+            // SAFETY: as above.
+            unsafe { ffi::tesub2_(z.as_ptr(), &mut t, &h, &ity) };
+            t
+        }
+
+        /// `TESUB3`: heat capacity, the temperature derivative of `TESUB1`.
+        pub fn tesub3(&mut self, z: &[f64; 8], t: f64, ity: i32) -> f64 {
+            let mut dh = 0.0;
+            // SAFETY: as above.
+            unsafe { ffi::tesub3_(z.as_ptr(), &t, &mut dh, &ity) };
+            dh
+        }
+
+        /// `TESUB4`: liquid density of composition `x` at `t` degrees C.
+        pub fn tesub4(&mut self, x: &[f64; 8], t: f64) -> f64 {
+            let mut r = 0.0;
+            // SAFETY: as above.
+            unsafe { ffi::tesub4_(x.as_ptr(), &t, &mut r) };
+            r
+        }
+
+        /// `TESUB6`: one measurement-noise sample of standard deviation `std`.
+        ///
+        /// Consumes twelve draws from the generator, summing them and
+        /// subtracting 6 to approximate a Gaussian.
+        pub fn tesub6(&mut self, std: f64) -> f64 {
+            let mut x = 0.0;
+            // SAFETY: no arrays involved.
+            unsafe { ffi::tesub6_(&std, &mut x) };
+            x
+        }
+
+        /// `TESUB7`: one draw. Negative `i` gives [-1,1), otherwise [0,1).
+        pub fn tesub7(&mut self, i: i32) -> f64 {
+            // SAFETY: no arrays involved.
+            unsafe { ffi::tesub7_(&i) }
+        }
+
+        /// `TESUB8`: evaluate disturbance walk channel `i` (1-based) at time
+        /// `t`, as a cubic in the time since the channel's last knot.
+        pub fn tesub8(&mut self, i: i32, t: f64) -> f64 {
+            // SAFETY: no arrays involved.
+            unsafe { ffi::tesub8_(&i, &t) }
         }
     }
 }

@@ -15,12 +15,12 @@ earlier phases will change what the right decomposition is.
 Rewrite this block at the end of every iteration. Keep it to five lines.
 
 - Phase: 0, in progress
-- Last completed: B-0004a oracle harness links and drives the Fortran
+- Last completed: B-0004b oracle harness has full state access
 - In flight: (none)
-- Baseline: =cargo xtask ci= green; 24 tests default, 37 with =oracle=; 0% of
+- Baseline: =cargo xtask ci= green; 25 tests default, 51 with =oracle=; 0% of
   teprob.f ported (1589 lines unclaimed)
 - Blocked on: B-0001b (install =rustup=?) and B-0002b (create a GitHub remote?).
-  Next unblocked item is B-0004b, full oracle state access.
+  Next unblocked item is B-0004c, golden trace and a real fidelity preflight.
 
 * Phase 0: foundations
 
@@ -187,29 +187,34 @@ Done when:
 - [X] =CLAUDE.md= updated: the oracle needs =unsafe= for FFI, so its
       =forbid(unsafe_code)= is lifted and the exception recorded
 
-** NEXT B-0004b Oracle harness: full state access
+** DONE B-0004b Oracle harness: full state access
 :PROPERTIES:
-:ID:    B-0004b
-:PHASE: 0
-:TIER:  none
-:DEPS:  B-0004a
-:PLAN:  Validation > The oracle harness
+:ID:     B-0004b
+:PHASE:  0
+:TIER:   none
+:DEPS:   B-0004a
+:PLAN:   Validation > The oracle harness
+:RESULT: All seven COMMON blocks and TESUB1-8 reachable; 51 tests with the
+         oracle feature. Instrumentation proven bit-identical to the pristine
+         original on all 50 derivatives and the RNG word. Found: 182 constants
+         in TEINIT are single-precision literals, so XMW(2) is 25.399999618530273
+         and not 25.4. B-0006 must transcribe per the D suffix.
 :END:
 
 Scope: everything a differential test needs to force both implementations into
 an identical state.
 
 Done when:
-- [ ] FFI for the =/TEPROC/=, =/WLK/= and =/CONST/= blocks with layouts asserted
+- [X] FFI for the =/TEPROC/=, =/WLK/= and =/CONST/= blocks with layouts asserted
       against the Fortran declarations, including the trailing =IVST(12)=
       integers after the doubles in =/TEPROC/=
-- [ ] FFI for =TESUB1= through =TESUB8=
-- [ ] =ISD= exposed. =reference/= is checksummed and must not be edited, so the
+- [X] FFI for =TESUB1= through =TESUB8=
+- [X] =ISD= exposed. =reference/= is checksummed and must not be edited, so the
       instrumentation is applied at build time into =OUT_DIR=, driven by an
       explicit string replacement that asserts its own pre-image and fails loudly
       if upstream text ever differs
-- [ ] Round-trip test: write a state through the blocks, read it back unchanged
-- [ ] Nothing shipped depends on this crate; a test asserts it
+- [X] Round-trip test: write a state through the blocks, read it back unchanged
+- [X] Nothing shipped depends on this crate; a test asserts it
 
 ** TODO B-0004c Golden trace and a real fidelity preflight
 :PROPERTIES:
@@ -262,9 +267,21 @@ Done when:
 :PLAN:  Anatomy > Unit operations
 :END:
 
+*Transcription hazard, found in B-0004b:* 182 of the constant assignments in
+=TEINIT= are written without a =D= suffix, making them *single precision*
+literals that are widened to double. =XMW(2)=25.4= at =teprob.f:942= actually
+stores 25.399999618530273. Writing =25.4_f64= in Rust is wrong by 1.5e-8
+relative, five orders of magnitude past the Tier 1 tolerance of 1e-13. Each
+constant must be transcribed according to whether its literal carries a =D=
+suffix, and the choice must be visible in the source rather than implicit.
+
 Done when:
 - [ ] =AVP/BVP/CVP=, =AH/BH/CH=, =AG/BG/CG=, =AV=, =AD/BD/CD=, =XMW= as typed
       Rust constants indexed by =Component=
+- [ ] Every constant's precision matches its Fortran literal, with the
+      single-precision ones written so the widening is explicit and auditable
+- [ ] A test enumerates the =D=-suffix status of every literal in the source and
+      cross-checks it against the Rust table, so none is transcribed by eye
 - [ ] Each block's doc comment cites its =teprob.f= line range and says what the
       coefficients mean physically
 - [ ] A test asserts equality with the oracle's =COMMON/CONST/=
