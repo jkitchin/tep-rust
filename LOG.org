@@ -503,3 +503,82 @@ and make =xtask fidelity= diff against it without needing gfortran. That turns
 the preflight on for every session afterwards and closes Phase 0. Store the trace
 as raw bit patterns, as the pristine probe already does, so the comparison is
 exact rather than decimal.
+
+* 2026-08-09 B-0004c Golden trace and a real fidelity preflight
+:PROPERTIES:
+:ITEM:     B-0004c
+:PHASE:    0
+:TIER:     none
+:COMMIT:   5426691
+:GFORTRAN: 15.2.0
+:FFLAGS:   -c -O0 -fno-fast-math -fno-unsafe-math-optimizations -fPIC -std=legacy
+:STATUS:   DONE
+:END:
+
+** Preflight
+Clean and green. Provenance 1589 total, 0 claimed, unchanged from B-0004b.
+gfortran 15.2.0, unchanged. This is the last iteration where the fidelity step
+is skipped: it works from here on.
+
+** What changed
+=golden/nominal-100-steps.trace= holds 100 Euler steps of the original from the
+nominal state, as hexadecimal IEEE-754 bit patterns, with the gfortran version,
+flag set, seed and step size that produced it. A =gen-golden-trace= binary
+behind the =oracle= feature regenerates it in one command, and =CLAUDE.md= now
+describes what each half of the preflight actually covers.
+
+** Validation numbers
+=cargo xtask ci= green. *34 tests default, 63 with =oracle==, up from 25 and 51.
+
+Trace: 100 steps, 142 values per step, 14,200 values, 240 KB, 118 lines.
+Reactor temperature 120.400000 C at step 0 and 120.384504 C at step 99, drifting
+gently as expected for 100 seconds open loop with no control and no disturbances.
+
+Teeth checks on both halves, each confirmed:
+- corrupting one value fails the oracle test, naming the field:
+  "step 1: state[3] 0.42300437096630084 vs 7.604320537028714e307"
+- corrupting one to NaN fails =xtask fidelity= with exit 2 and
+  "step 0, value 4 is not finite"
+- restored, both pass
+
+Nine parser unit tests cover missing headers, truncated lines, corrupted hex,
+out-of-order steps, non-finite values, short traces, and exact round-tripping of
+awkward values including 1/3, =f64::MIN_POSITIVE= and negative zero.
+
+** Surprises and decisions
+*The item as written could not be done honestly.* It asked for =xtask fidelity=
+to diff the trace against the Rust port, but there is no port yet, so the
+comparison would have been vacuous while looking like a passing gate. The
+responsibility splits in two, and both halves are real now: the oracle test
+catches toolchain drift by rerunning the Fortran, and =xtask fidelity= validates
+the anchor itself without needing gfortran. The command prints "0 of 100
+recorded steps diffed" so the gap is visible rather than implied.
+
+*My first teeth check tested the wrong half.* I corrupted a value in the trace
+and expected =xtask fidelity= to fail; it passed, correctly, because the
+corruption produced another valid finite number and that command checks
+structure, not values. Re-tested against the half that owns values. Twice now a
+teeth check has probed something insensitive, which is a good argument for
+always running them rather than assuming a test would have caught the thing.
+
+*Also: my exit-code check was measuring the wrong process.* =cmd | tail; echo 0=
+reports =tail='s status. The real check is running without a pipe. Worth
+remembering, since a gate that silently exits 0 is exactly the failure this
+protocol exists to prevent.
+
+=cargo deny= caught a wildcard path dependency the moment xtask picked up the
+trace format, which is the ban config earning its keep on the first real change.
+
+*Phase 0 is complete.* The workspace, the gate, the vendored reference, the
+oracle harness and the fidelity anchor all exist before a single line of the
+model has been ported. Nothing downstream has to be taken on trust.
+
+** Next
+B-0005, port =TESUB7= and prove bit-exactness: the first actual model code, and
+the first =@port= claim, so provenance moves off 0%. The arithmetic is one line,
+=G = DMOD(G*9228907, 4294967296)=, and the whole difficulty is resisting the
+urge to tidy it: the product exceeds 2^53 so the rounding is part of the
+algorithm, and integer arithmetic would give different numbers. Prove bit
+equality over 1e7 draws against the oracle, from the compiled-in seed and a
+sample of the 54 documented dataset seeds, and commit a test-vector file so the
+check survives on machines without gfortran.
