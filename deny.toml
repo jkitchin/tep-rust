@@ -1,0 +1,35 @@
+# cargo-deny configuration.
+#
+# The allow-list is deliberately narrow. A new dependency dragging in an
+# unexpected licence should fail the gate loudly rather than surface at publish
+# time. Widening this list is a decision, so it gets a log entry.
+
+[graph]
+all-features = false
+
+[licenses]
+# MIT covers new work here; NCSA covers the portions derived from the original
+# Tennessee Eastman Fortran and cannot be dropped. See NOTICE.md.
+allow = ["MIT", "NCSA"]
+confidence-threshold = 0.93
+
+[advisories]
+yanked = "deny"
+ignore = []
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+# Determinism is a hard invariant: the plant must produce identical bits on
+# x86-64, aarch64 and wasm32. Data parallelism inside the core would reorder
+# floating-point reductions, so it is banned outright rather than reviewed.
+# Parallelism belongs one level up, across independent runs.
+deny = [
+    { name = "rayon" },
+    { name = "rayon-core" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

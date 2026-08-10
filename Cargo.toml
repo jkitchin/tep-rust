@@ -1,0 +1,50 @@
+[workspace]
+resolver = "3"
+members = ["crates/*", "xtask"]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.85"
+authors = ["John Kitchin"]
+# MIT covers new work in this repository. NCSA covers the portions derived from
+# the original Tennessee Eastman Fortran and cannot be dropped. See NOTICE.md.
+license = "MIT AND NCSA"
+repository = "https://github.com/jkitchin/tep-rust"
+homepage = "https://github.com/jkitchin/tep-rust"
+keywords = ["tennessee-eastman", "simulation", "process-control", "chemical"]
+categories = ["science", "simulation"]
+
+[workspace.dependencies]
+tepsim-core = { path = "crates/tepsim-core", version = "0.0.0" }
+tepsim-control = { path = "crates/tepsim-control", version = "0.0.0" }
+tepsim-scenario = { path = "crates/tepsim-scenario", version = "0.0.0" }
+tepsim = { path = "crates/tepsim", version = "0.0.0" }
+
+[workspace.lints.rust]
+missing_docs = "warn"
+unreachable_pub = "warn"
+# Determinism is a hard invariant of this project: identical bits on x86-64,
+# aarch64 and wasm32. f32 anywhere would be a silent way to lose it.
+missing_debug_implementations = "warn"
+
+[workspace.lints.clippy]
+# Numerical code: these catch the mistakes that actually bite here.
+float_cmp = "warn"
+imprecise_flops = "warn"
+suboptimal_flops = "warn"
+todo = "warn"
+unwrap_used = "warn"
+
+# Release profile for the simulator: determinism first, speed second. No fast-math
+# equivalent exists in Rust, and none is wanted.
+[profile.release]
+lto = "thin"
+codegen-units = 1
+
+# The wasm bundle has a size budget (see PLAN.org, "Budgets").
+[profile.release-wasm]
+inherits = "release"
+opt-level = "s"
+panic = "abort"
+strip = true

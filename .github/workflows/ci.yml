@@ -1,0 +1,110 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # The gate, on every target we claim to support. gfortran is absent on the
+  # Windows runner by design, so `xtask ci` skips the oracle job there rather
+  # than failing: see the `oracle` job below, which is where that coverage lives.
+  gate:
+    name: gate (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+
+      - name: cargo xtask ci
+        run: cargo xtask ci --fast
+
+  # Differential testing against the original Fortran. Linux and macOS only:
+  # gfortran on Windows runners is a source of toolchain trouble that buys
+  # nothing, since the oracle is a development instrument and never shipped.
+  oracle:
+    name: oracle (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install gfortran (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y gfortran
+
+      - name: Install gfortran (macOS)
+        if: runner.os == 'macOS'
+        run: brew install gcc
+
+      # The reference numbers depend on the compiler, so record it. A gfortran
+      # change is a deliberate re-baseline, not a regression: see CLAUDE.md.
+      - name: Record gfortran version
+        run: gfortran --version | head -1
+
+      - name: Oracle differential tests
+        run: cargo test -p tepsim-oracle --features oracle
+
+  # Determinism is a hard invariant, so wasm32 is built on every change rather
+  # than only when the browser app is touched.
+  wasm:
+    name: wasm32 build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build core for wasm32
+        run: cargo build -p tepsim-core -p tepsim-wasm --target wasm32-unknown-unknown
+
+  # The core contains no unsafe, so this should be uneventful. It is here to
+  # stay uneventful.
+  miri:
+    name: miri (core)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: miri
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Miri on tepsim-core
+        run: cargo miri test -p tepsim-core

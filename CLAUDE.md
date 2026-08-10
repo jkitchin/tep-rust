@@ -90,8 +90,19 @@ source line range in `reference/fortran/teprob.f` *in this session*, before
 reading any existing Rust. Do not port from the upstream Python implementation,
 and do not port by analogy to a Rust function that looks similar. This exists to
 stop a misreading in one session from being copied forward through the next
-thirty. Annotate every ported function with the line range it came from, so
-`xtask provenance` can account for it.
+thirty.
+
+**Claim what you port.** Every ported function gets a claim on its own comment
+line, immediately above it:
+
+```rust
+// @port teprob.f:505-522
+fn reaction_rates(/* ... */) { /* ... */ }
+```
+
+`cargo xtask provenance` collects these and reports what nothing accounts for.
+The marker is anchored at the start of the comment on purpose, so prose about
+the convention and test fixtures cannot inflate coverage.
 
 **Constants are asserted, never retyped.** Transcribe once, then prove equality
 against the oracle's `COMMON` blocks. Digits read off a listing are a silent

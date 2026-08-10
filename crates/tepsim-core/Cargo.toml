@@ -1,0 +1,14 @@
+[package]
+name = "tepsim-core"
+description = "Tennessee Eastman Process plant model: pure, deterministic, no_std"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,14 @@
+[package]
+name = "tepsim-control"
+description = "Controllers and the multi-rate scheduler for the Tennessee Eastman Process"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[lints]
+workspace = true

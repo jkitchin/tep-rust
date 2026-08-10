@@ -1,0 +1,21 @@
+[package]
+name = "tepsim-cli"
+description = "Command-line interface to the Tennessee Eastman Process simulator"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[[bin]]
+name = "tep"
+path = "src/main.rs"
+
+[dependencies]
+tepsim.workspace = true
+
+[lints]
+workspace = true

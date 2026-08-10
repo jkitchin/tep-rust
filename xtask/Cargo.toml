@@ -1,0 +1,16 @@
+[package]
+name = "xtask"
+description = "Build, gate and validation automation for the tep-rust workspace"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+# Deliberately dependency-free. This runs at the top of every development
+# session, so its compile time is a tax on every iteration.
+
+[lints]
+workspace = true

@@ -15,11 +15,11 @@ earlier phases will change what the right decomposition is.
 Rewrite this block at the end of every iteration. Keep it to five lines.
 
 - Phase: 0, in progress
-- Last completed: B-0001a repository bootstrap
+- Last completed: B-0002a workspace skeleton, xtask, local gate
 - In flight: (none)
-- Baseline: git repo on =main=; docs and licensing only, no Rust code yet
-- Blocked on: B-0001b, permission to install =rustup=. Next unblocked item is
-  B-0002 (workspace skeleton, xtask, CI gate), which does not need it.
+- Baseline: =cargo xtask ci= green, 20 tests, 9 crates, no model code yet
+- Blocked on: B-0001b (install =rustup=?) and B-0002b (create a GitHub remote?).
+  Next unblocked item is B-0003, vendor the reference material.
 
 * Phase 0: foundations
 
@@ -63,13 +63,17 @@ Done when:
 - [ ] =rustc --version= from the pinned toolchain matches =rust-toolchain.toml=
 - [ ] =PLAN.org= and =CLAUDE.md= environment notes updated to match reality
 
-** NEXT B-0002a Workspace skeleton, xtask, and the local gate
+** DONE B-0002a Workspace skeleton, xtask, and the local gate
 :PROPERTIES:
-:ID:    B-0002a
-:PHASE: 0
-:TIER:  none
-:DEPS:  B-0001a
-:PLAN:  Architecture > Workspace layout; Testing, CI, and release engineering
+:ID:     B-0002a
+:PHASE:  0
+:TIER:   none
+:DEPS:   B-0001a
+:PLAN:   Architecture > Workspace layout; Testing, CI, and release engineering
+:RESULT: 9 crates + xtask, edition 2024. `cargo xtask ci` green, 20 tests.
+         Provenance scanner had a false-positive bug: counted its own docs and
+         fixtures as 2.6% coverage of an unported file. Marker is now anchored
+         `@port teprob.f:START-END`.
 :END:
 
 Scope: the eight crates from the plan as empty but compiling libraries, plus the
@@ -79,27 +83,28 @@ Split from B-0002: "CI matrix green" cannot be verified without a remote, so it
 is B-0002b.
 
 Done when:
-- [ ] Workspace with =tepsim-core=, =-control=, =-scenario=, =tepsim=, =-cli=,
+- [X] Workspace with =tepsim-core=, =-control=, =-scenario=, =tepsim=, =-cli=,
       =-py=, =-wasm=, =-oracle=; core is =no_std + alloc= and
       =#![forbid(unsafe_code)]=
-- [ ] =cargo xtask ci= runs fmt --check, clippy -D warnings, test, doc, deny
-- [ ] =cargo xtask ci --fast= skips the oracle differential job
-- [ ] =cargo xtask provenance= exists: scans =teprob.f=, collects the line-range
+- [X] =cargo xtask ci= runs fmt --check, clippy -D warnings, test, doc, deny
+- [X] =cargo xtask ci --fast= skips the oracle differential job
+- [X] =cargo xtask provenance= exists: scans =teprob.f=, collects the line-range
       annotations on Rust functions, and prints every unclaimed range. With no
       model code yet it should report the whole file as unclaimed, which is the
       correct answer and proves the tool works
-- [ ] =cargo xtask fidelity= exists as a stub that exits non-zero with a clear
+- [X] =cargo xtask fidelity= exists as a stub that exits non-zero with a clear
       "no golden trace yet" message; B-0004 fills it in
-- [ ] The range algebra behind =provenance= has unit tests; it is the one piece
+- [X] The range algebra behind =provenance= has unit tests; it is the one piece
       of xtask with logic worth getting wrong
-- [ ] =cargo xtask ci= is green locally
-- [ ] =cargo deny= config committed and passing
-- [ ] Every crate's =Cargo.toml= declares =license = "MIT AND NCSA"= and
+- [X] =cargo xtask ci= is green locally
+- [X] =cargo deny= config committed and passing
+- [X] Every crate's =Cargo.toml= declares =license = "MIT AND NCSA"= and
       =cargo deny= is configured to accept exactly those two
 
-Note: the provenance annotation mechanism is decided here, not later. A doc
-attribute such as =#[doc = "Ported from teprob.f:505-522"]= parsed by xtask is
-enough; whatever is chosen, every subsequent iteration depends on it.
+Decided here, since every later iteration depends on it: a provenance claim is
+its own comment line reading =@port teprob.f:START-END=, anchored at the start
+of the comment. Anchoring is load-bearing, not cosmetic; see the B-0002a log
+entry for why.
 
 ** TODO B-0002b CI matrix verified green
 :PROPERTIES:
@@ -377,6 +382,7 @@ Exit: 1.0 tagged, all three surfaces built from one commit.
 Items parked on a decision. Move them back into their phase when answered.
 
 - B-0001b toolchain pinning: may we install =rustup=?
+- B-0002b CI verified green: may we create a GitHub remote and push?
 
 * Decisions
 

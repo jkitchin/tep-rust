@@ -1,0 +1,14 @@
+[package]
+name = "tepsim-py"
+description = "PyO3 bindings for the Tennessee Eastman Process simulator"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[lints]
+workspace = true

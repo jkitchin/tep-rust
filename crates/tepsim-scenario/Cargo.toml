@@ -1,0 +1,14 @@
+[package]
+name = "tepsim-scenario"
+description = "Disturbances, schedules and reproducible scenarios for the Tennessee Eastman Process"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[lints]
+workspace = true

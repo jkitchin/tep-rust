@@ -1,0 +1,21 @@
+[package]
+name = "tepsim-oracle"
+description = "Development-only FFI harness driving the original Tennessee Eastman Fortran"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+# Never published. This crate links the original Fortran and exists only so the
+# Rust port can be differentially tested against it.
+publish = false
+
+[features]
+# Off by default: enabling it requires gfortran and the vendored Fortran sources
+# under reference/. CI runs it on Linux and macOS only, never Windows.
+default = []
+oracle = []
+
+[lints]
+workspace = true
