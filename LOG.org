@@ -812,3 +812,92 @@ index it. The hazard is already documented in the item: 182 assignments in
 status straight from =reference/fortran/teprob.f= *before* the table, so the
 transcription is machine-checked, exactly as the header-table test just did for
 names and units. =XMW(2)= must come out 25.399999618530273.
+
+* 2026-08-10 B-0002b CI matrix verified green
+:PROPERTIES:
+:ITEM:     B-0002b
+:PHASE:    0
+:TIER:     none
+:COMMIT:   20ddc18
+:GFORTRAN: 15.2.0 local; 13.3.0 Ubuntu runner; 16.1.0 macOS runner
+:RUSTC:    1.97.1
+:STATUS:   DONE
+:END:
+
+** Preflight
+Clean and green locally. Unblocked by the user asking for the repository.
+
+** What changed
+Private =jkitchin/tep-rust= created and pushed. CI green on all seven jobs at
+run 31388180377: gate on Linux, macOS and Windows; oracle on Linux and macOS;
+wasm32 build; miri.
+
+** Validation numbers
+Four CI runs. The first three failed, each on a different real defect.
+
+*Cross-compiler agreement, the useful result.* The golden trace was recorded
+with gfortran 15.2.0 on macOS. Measured against it over 100 Euler steps, 14,200
+values:
+
+| Running                | Platform libm | Values differing | Worst deviation     |
+|------------------------+---------------+------------------+---------------------|
+| 15.2.0 (local)         | Apple         | 0                | 0, bit exact        |
+| 16.1.0 (macOS runner)  | Apple         | under bound      | below 1e-9          |
+| 13.3.0 (Ubuntu runner) | glibc         | 16               | 3.307e-8 at step 91 |
+
+A different compiler on the same platform barely moves anything; a different
+platform's =libm= moves the last bits of =exp= and =pow=, and 91 Euler steps
+amplify that to 3.3e-8. This is the first direct measurement of the mechanism
+=PLAN.org= predicts will limit cross-platform agreement, and it arrived for free
+from runner variation. Tolerance set to 1e-7, about three times the largest
+observed figure.
+
+*The generator matched bit-exactly on all three compilers.* Asserted separately
+and unconditionally, because it is pure f64 arithmetic with no library calls and
+has no excuse to differ. It did not. That cleanly separates "arithmetic we
+control" from "arithmetic the platform controls".
+
+** Surprises and decisions
+*=cargo xtask= had never worked.* There was no =.cargo/config.toml= alias, so the
+command =CLAUDE.md= documents as *the* gate did not exist. Every session,
+including all of mine, had been running =cargo run -p xtask --= instead. Nobody
+noticed until a machine executed the documented command for the first time.
+Worth generalising: a command that only ever appears in documentation is
+untested documentation.
+
+*Demanding bit equality across compilers was a design error, not a CI problem.*
+The trace is a record of one (compiler, flags) pair, and CI legitimately has
+three. The fix splits the check: bit equality against the recording compiler,
+bounded agreement otherwise, with the observed deviation always printed. That
+turned an obstacle into the measurement above.
+
+*Windows failed the vendored checksums* because Git translates LF to CRLF on
+checkout, changing the bytes and so the SHA-256 of every reference file. The
+checksum test was right and Git was wrong to be helpful.
+
+*Two of my own fixes silently did nothing, and I claimed otherwise in a commit
+message.* A scripted string replacement for the tolerance constant failed to
+match, and I did not check, so 1e-9 shipped while the commit said 1e-7; Ubuntu
+failed again quoting the old bound. Separately, =.gitattributes= had correct
+content and no effect, because in gitattributes the *last* matching pattern
+wins and I had put the catch-all after the specific override. Both are the same
+error: asserting a change happened without verifying it. Replacements now assert
+they matched, and the following commit corrected the record.
+
+*The "gate has teeth" criterion was satisfied by real failures*, runs
+31385781606, 31386640152 and 31387437653, rather than by a contrived breaking
+commit. Three genuine defects caught with actionable messages is better evidence
+than a deliberate break, and it keeps main's history clean.
+
+** Next
+B-0006, the constants table, now the only item in the queue and unblocked.
+=Component= exists to index it, and the discipline is established twice over by
+the header-table test: write the machine check against
+=reference/fortran/teprob.f= *before* the table. 182 assignments in =TEINIT= are
+single-precision literals; =XMW(2)= must come out 25.399999618530273.
+
+Also worth doing soon, though not yet an item: the workspace declares
+=license = "MIT AND NCSA"= for every crate, which is broader than the facts.
+Only crates containing ported Fortran are derivative. =tepsim-scenario=,
+=xtask=, =tepsim-py=, =tepsim-wasm= and =tepsim-cli= are original work and could
+declare plain MIT.
