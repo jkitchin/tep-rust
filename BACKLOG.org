@@ -216,7 +216,7 @@ Done when:
 - [X] Round-trip test: write a state through the blocks, read it back unchanged
 - [X] Nothing shipped depends on this crate; a test asserts it
 
-** TODO B-0004c Golden trace and a real fidelity preflight
+** NEXT B-0004c Golden trace and a real fidelity preflight
 :PROPERTIES:
 :ID:    B-0004c
 :PHASE: 0
@@ -227,13 +227,36 @@ Done when:
 
 Turns the preflight on for every session after this one.
 
+*Scope clarified on starting.* The original wording assumed =xtask fidelity=
+would diff the trace against the Rust port, but no port exists yet, so that
+comparison would be vacuous. The responsibility splits in two, and both halves
+are real today:
+
+- A test in =tepsim-oracle= (needs gfortran, runs in the non-fast gate)
+  regenerates the trace and compares it to the committed file. That catches a
+  toolchain or flag change producing different numbers, which is precisely the
+  re-baseline event =CLAUDE.md= warns about.
+- =cargo xtask fidelity= (no gfortran, runs in seconds anywhere) validates the
+  trace's integrity and reports its provenance. It gains the Rust-versus-golden
+  diff in Phase 2, when there is something to diff.
+
+The trace lives in =golden/= at the workspace root, not =reference/=: it is our
+artefact and will be regenerated on a deliberate re-baseline, whereas
+=reference/= is vendored upstream material that never changes.
+
 Done when:
 - [ ] A golden trace of 100 Euler steps from the nominal initial state: all 50
       states, all 50 derivatives, the RNG word and the 41 measurements per step
-- [ ] The trace records the gfortran version and flags that produced it
-- [ ] =cargo xtask fidelity= diffs against it *without* needing gfortran, in
-      seconds, and warns loudly when the local gfortran differs
-- [ ] =CLAUDE.md= preflight section stops saying the step is skipped
+- [ ] Values stored as raw IEEE bit patterns, so comparison is exact rather than
+      decimal
+- [ ] The trace records the gfortran version, the flag set, the seed and the
+      step size that produced it
+- [ ] A generator behind the =oracle= feature, so re-baselining is one command
+- [ ] An oracle test regenerates the trace and compares it bit for bit
+- [ ] =cargo xtask fidelity= validates and reports the trace *without* gfortran,
+      in seconds, and warns loudly when the local gfortran differs from the one
+      recorded
+- [ ] =CLAUDE.md= preflight section says what the step actually covers today
 
 ** TODO B-0005 Port TESUB7 (the LCG) and prove bit-exactness
 :PROPERTIES:
