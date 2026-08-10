@@ -239,3 +239,91 @@ Fortran files and the =d00=-=d21= datasets into =reference/=, record provenance
 and SHA-256 for each, and add a checksum test so accidental edits fail the gate.
 Note the upstream repo is already cloned in this session's scratchpad, but a
 fresh clone pinned to a recorded commit is the better provenance story.
+
+* 2026-08-09 B-0003 Vendor the reference material
+:PROPERTIES:
+:ITEM:     B-0003
+:PHASE:    0
+:TIER:     none
+:COMMIT:   b8a6da4
+:GFORTRAN: 15.2.0
+:STATUS:   DONE
+:END:
+
+** Preflight
+Clean and green, =cargo xtask ci= exit 0, 20 tests. Fidelity preflight still
+skipped: no model code. =xtask provenance= still failing closed, which was the
+correct answer and is what this item fixes.
+
+** What changed
+=reference/= now holds 48 files, 25 MB, pinned to upstream commit
+=9a6c8e5fcef4a2850778704e7793c87b0a187005=: three Fortran sources and the 44
+published =d00=-=d21= datasets, verbatim and uncompressed. =CHECKSUMS.sha256=
+covers all of them. =reference/README.org= records provenance, the canonical
+Fortran decision, the seed table, and the dataset traps.
+
+Four tests in =tepsim-oracle= (=sha2= as the only dev-dependency): checksums
+match, the manifest covers every file present, =d00.dat= has its odd shape, and
+all 42 other datasets have the conventional one.
+
+** Validation numbers
+=cargo xtask ci= green, exit 0. 24 tests workspace-wide, up from 20.
+
+=xtask provenance= now works: 1589 total lines, 0 claimed (0.0%), one unclaimed
+span 1-1589. That is the correct answer with nothing ported, and it is the
+baseline every later iteration is measured against.
+
+Checksum test proven to have teeth: changing =RG=998.9= to =RG=998.90= at
+=teprob.f:475= flips the digest from =409975e0...= to =3ba7acd2...= and fails
+the test. Restored and re-verified green.
+
+All 44 dataset shapes measured, not assumed: =d00.dat= is 52 x 500, every
+=dNN.dat= is 480 x 52, every =dNN_te.dat= is 960 x 52.
+
+** Surprises and decisions
+*Upstream ships two different copies of the plant model.* The repository root
+has =teprob.f= at 1589 lines; =fortran/teprob.f= is 1594. Vendoring the wrong
+one would have silently shifted every =@port= line number by up to five, so this
+had to be settled before anything was copied.
+
+The five-line delta hoists =ISD= into =COMMON/SHUTDN/=, declares it in =TEINIT=
+with =ISD=0=, adds a local =IRAND=, and exposes =COMMON/RANDSD/ G=: all to let
+f2py see the state. It is behaviourally identical. In the original, =ISD= is a
+local in =TEFUNC= doing two unrelated jobs, set to =-1= at line 387 purely as
+the =TESUB7= sign flag and used as the shutdown flag from line 702, but line 702
+assigns =ISD=0= unconditionally before the eight shutdown tests and before both
+reads, so the borrow cannot leak. Class A quirk: confusing, no numerical effect.
+
+We vendor the root copies as canonical and B-0004 writes its own instrumentation
+patch, so "unmodified" stays literally true and every deviation is reviewable.
+
+*All 54 dataset seeds are documented in the source*, at =teprob.f:1187-1246=,
+covering =d00_tr=-=d26_tr= and =d00_te=-=d26_te=. The plan and B-0005 both said
+four; that was an artefact of my truncating a grep in the planning session. This
+materially improves Tier 7: reproducing the published datasets is not a search
+problem. B-0005 updated. Also noted: the "original" seed is =1431655765=, which
+is =0x55555555=, and the =d19_te= entry ends in the letter =O= rather than a
+zero, harmless in a comment but a syntax error if uncommented.
+
+*=d00.dat= is transposed and has 500 samples*, contradicting upstream's own
+=data/README.md= on both counts. It is the only file like this among the 44.
+Upstream's Python loader carries a silent reshape for it. Rather than inherit a
+silent fix, the shape is asserted in tests and documented, and
+=reference/README.org= says explicitly to trust it over the vendored upstream
+README.
+
+Datasets are stored uncompressed. Gzip would take 25 MB to about 4.5 MB, but it
+would add a decompression dependency to every consumer and put a transform
+between us and the published bytes. 25 MB is a few seconds of clone time and
+=reference/= is excluded from the packaged crates.
+
+** Next
+B-0004, the oracle harness, and it is the highest-leverage item in Phase 0:
+everything from B-0005 onward is differential testing against it. Four things to
+get right. Pin the gfortran flags in =build.rs= with no reassociation permitted
+and assert them. Write our own minimal instrumentation to expose the =COMMON=
+blocks, keeping it as a reviewable diff against the vendored original rather
+than editing =reference/= (which the checksum test now forbids anyway). Prove a
+Rust test can force a 50-state into =TEFUNC= and read back all 50 derivatives.
+Then make =xtask fidelity= real by emitting and committing the golden 100-step
+trace, which turns the preflight on for every session after this one.
