@@ -15,13 +15,13 @@ earlier phases will change what the right decomposition is.
 Rewrite this block at the end of every iteration. Keep it to five lines.
 
 - Phase: 1, in progress
-- Last completed: B-0005 TESUB7 ported and proven bit-exact
+- Last completed: B-0007 component and stream vocabulary
 - In flight: (none)
-- Baseline: =cargo xtask ci= green; 44 tests default, 76 with =oracle=;
-  provenance 9/1589 lines claimed (0.6%)
+- Baseline: =cargo xtask ci= green; 74 tests default, 106 with =oracle=;
+  provenance 83/1589 lines claimed (5.2%)
 - Toolchain: rustup, pinned to rustc 1.97.1, wasm32 installed
 - Blocked on: B-0002b only (create a GitHub remote?). Next unblocked item is
-  B-0007, the component and stream vocabulary (reordered ahead of B-0006).
+  B-0006, the constants table.
 
 * Phase 0: foundations
 
@@ -289,13 +289,17 @@ Done when:
 
 * Phase 1: thermodynamics and utility routines
 
-** NEXT B-0007 Component, composition, and stream vocabulary
+** DONE B-0007 Component, composition, and stream vocabulary
 :PROPERTIES:
-:ID:    B-0007
-:PHASE: 1
-:TIER:  none
-:DEPS:  B-0005
-:PLAN:  Architecture > Core data model; Anatomy > Internal streams
+:ID:     B-0007
+:PHASE:  1
+:TIER:   none
+:DEPS:   B-0005
+:PLAN:   Architecture > Core data model; Anatomy > Internal streams
+:RESULT: Component/ByComponent/Composition, the 13-stream enum with the paper
+         mapping recovered from the Fortran, and the measurement/MV tables
+         cross-checked against the header comments by a parsing test.
+         Provenance 83/1589 (5.2%), up from 9. 74 tests default, 106 with oracle.
 :END:
 
 Reordered ahead of B-0006 on starting: B-0006 requires constants "indexed by
@@ -303,13 +307,13 @@ Reordered ahead of B-0006 on starting: B-0006 requires constants "indexed by
 items depending on each other.
 
 Done when:
-- [ ] =Component=, =ByComponent<T>= with =Index<Component>=, =Composition= with a
+- [X] =Component=, =ByComponent<T>= with =Index<Component>=, =Composition= with a
       sums-to-one =debug_assert=
-- [ ] =Stream= enum for the 13 internal streams, each documented with its Downs
+- [X] =Stream= enum for the 13 internal streams, each documented with its Downs
       and Vogel paper number and its role
-- [ ] The internal-to-paper stream mapping table appears in the module rustdoc
-- [ ] =ValveId=, =MvIndex=, =MeasIndex= newtypes with names and units
-- [ ] Names and units are *cross-checked against the header comment tables in
+- [X] The internal-to-paper stream mapping table appears in the module rustdoc
+- [X] =ValveId=, =MvIndex=, =MeasIndex= newtypes with names and units
+- [X] Names and units are *cross-checked against the header comment tables in
       =teprob.f=* by a test that parses them, not transcribed by eye. Same
       discipline as the =D=-suffix check B-0006 needs.
 

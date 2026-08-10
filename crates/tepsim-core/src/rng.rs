@@ -136,6 +136,7 @@ impl TepRng {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testing::{assert_exact, assert_not_exact};
 
     /// The whole point of the module docs, made measurable.
     ///
@@ -247,9 +248,9 @@ mod tests {
         rng.advance();
         let saved = rng.state();
         rng.advance();
-        assert_ne!(rng.state().to_bits(), saved.to_bits());
+        assert_not_exact(rng.state(), saved, "state must advance");
         rng.set_state(saved);
-        assert_eq!(rng.state().to_bits(), saved.to_bits());
+        assert_exact(rng.state(), saved, "state must restore");
     }
 
     /// Both output modes read the same underlying state, so interleaving them
@@ -266,6 +267,10 @@ mod tests {
             }
             b.advance();
         }
-        assert_eq!(a.state().to_bits(), b.state().to_bits());
+        assert_exact(
+            a.state(),
+            b.state(),
+            "interleaved modes consume one draw each",
+        );
     }
 }
