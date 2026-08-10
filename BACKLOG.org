@@ -1,0 +1,367 @@
+#+TITLE: TEP-Rust Backlog
+#+TODO: TODO(t) NEXT(n) BLOCKED(b) | DONE(d) DROPPED(x)
+#+STARTUP: overview
+#+OPTIONS: toc:2 num:nil
+
+Ordered work queue. One heading per iteration-sized item. Take the topmost
+=TODO= whose =:DEPS:= are all =DONE=. See =CLAUDE.md= for the protocol.
+
+Phases 3 through 9 are deliberately coarse. Decompose a phase into
+iteration-sized items as the first action of its first iteration, not before:
+earlier phases will change what the right decomposition is.
+
+* Current state
+
+Rewrite this block at the end of every iteration. Keep it to five lines.
+
+- Phase: 0, in progress
+- Last completed: B-0001a repository bootstrap
+- In flight: (none)
+- Baseline: git repo on =main=; docs and licensing only, no Rust code yet
+- Blocked on: B-0001b, permission to install =rustup=. Next unblocked item is
+  B-0002 (workspace skeleton, xtask, CI gate), which does not need it.
+
+* Phase 0: foundations
+
+** DONE B-0001a Repository bootstrap
+:PROPERTIES:
+:ID:     B-0001a
+:PHASE:  0
+:TIER:   none
+:DEPS:
+:PLAN:   Architecture > Workspace layout
+:RESULT: Repo initialized on main, commit c54ac32. Upstream license
+         identified as University of Illinois/NCSA, not BSD-3-Clause as the
+         upstream README claims; carried as LICENSE-NCSA with NOTICE.md.
+:END:
+
+Split out of B-0001 because the toolchain half needs user permission to install
+=rustup=.
+
+Done when:
+- [X] =git init=, initial commit, sensible =.gitignore=
+- [X] =LICENSE= for new work, plus verbatim upstream license and a =NOTICE.md=
+      recording the derivation, the binary-redistribution obligation, and the
+      required citations
+- [X] =README.md= states what this is, its status, and links =PLAN.org=
+
+** BLOCKED B-0001b Toolchain pinning
+:PROPERTIES:
+:ID:       B-0001b
+:PHASE:    0
+:TIER:     none
+:DEPS:     B-0001a
+:PLAN:     Architecture > Workspace layout
+:QUESTION: May we install rustup? Rust here is Homebrew's, which cannot pin a
+           toolchain or add the wasm32 target. Alternative: skip rustup, accept
+           an unpinned host toolchain, and defer wasm to Phase 8.
+:END:
+
+Done when:
+- [ ] =rustup= installed (with permission) and =rust-toolchain.toml= pins a
+      stable version plus the =wasm32-unknown-unknown= target
+- [ ] =rustc --version= from the pinned toolchain matches =rust-toolchain.toml=
+- [ ] =PLAN.org= and =CLAUDE.md= environment notes updated to match reality
+
+** TODO B-0002 Workspace skeleton, xtask, and the CI gate
+:PROPERTIES:
+:ID:    B-0002
+:PHASE: 0
+:TIER:  none
+:DEPS:  B-0001a
+:PLAN:  Architecture > Workspace layout; Testing, CI, and release engineering
+:END:
+
+Scope: the eight crates from the plan as empty but compiling libraries, plus the
+single command every future iteration is gated on.
+
+Done when:
+- [ ] Workspace with =tepsim-core=, =-control=, =-scenario=, =tepsim=, =-cli=,
+      =-py=, =-wasm=, =-oracle=; core is =no_std + alloc= and
+      =#![forbid(unsafe_code)]=
+- [ ] =cargo xtask ci= runs fmt --check, clippy -D warnings, test, doc, deny
+- [ ] =cargo xtask ci --fast= skips the oracle differential job
+- [ ] =cargo xtask provenance= exists: scans =teprob.f=, collects the line-range
+      annotations on Rust functions, and prints every unclaimed range. With no
+      model code yet it should report the whole file as unclaimed, which is the
+      correct answer and proves the tool works
+- [ ] =cargo xtask fidelity= exists as a stub that exits non-zero with a clear
+      "no golden trace yet" message; B-0004 fills it in
+- [ ] =cargo xtask ci= is green locally
+- [ ] GitHub Actions matrix: Linux x86-64, macOS arm64, Windows x86-64; green
+- [ ] =cargo deny= config committed and passing
+
+Note: the provenance annotation mechanism is decided here, not later. A doc
+attribute such as =#[doc = "Ported from teprob.f:505-522"]= parsed by xtask is
+enough; whatever is chosen, every subsequent iteration depends on it.
+
+** TODO B-0003 Vendor the reference material
+:PROPERTIES:
+:ID:    B-0003
+:PHASE: 0
+:TIER:  none
+:DEPS:  B-0002
+:PLAN:  Validation > The oracle harness
+:END:
+
+Scope: bring the ground truth into the repo, immutably.
+
+Done when:
+- [ ] =reference/fortran/= holds unmodified =teprob.f=, =temain.f=,
+      =temain_mod.f=
+- [ ] =reference/data/= holds =d00= through =d21= and the =_te= variants
+- [ ] =reference/README.org= records provenance (upstream repo, commit, license,
+      original authors) and a SHA-256 for every file
+- [ ] A test asserts every checksum, so accidental edits fail CI
+
+** TODO B-0004 Oracle harness: drive the original Fortran from Rust
+:PROPERTIES:
+:ID:    B-0004
+:PHASE: 0
+:TIER:  none
+:DEPS:  B-0003
+:PLAN:  Validation > The oracle harness
+:END:
+
+Scope: the instrument that turns the whole port into differential testing. Build
+it before writing any model code.
+
+Done when:
+- [ ] =tepsim-oracle/build.rs= compiles the unmodified Fortran with gfortran
+- [ ] Compiler flags are pinned explicitly in =build.rs=, with no =-ffast-math=
+      or any other reassociation-permitting flag, and a test asserts the flag set
+- [ ] A C shim exposes =TEINIT=, =TEFUNC=, =TESUB1= through =TESUB8=, and
+      read/write access to =/PV/=, =/DVEC/=, =/TEPROC/=, =/WLK/=, =/CONST/=,
+      =/RANDSD/=, =/SHUTDN/=
+- [ ] A Rust test sets an arbitrary 50-state, calls =TEFUNC=, and reads back all
+      50 derivatives
+- [ ] Everything is behind the =oracle= feature; =cargo xtask ci --fast= skips it
+- [ ] CI job runs it on Linux and macOS (never Windows)
+- [ ] Nothing shipped depends on this crate; a test asserts that
+- [ ] =cargo xtask fidelity= is real: emits a golden trace of 100 Euler steps
+      from the nominal initial state (all 50 derivatives, all 50 states, the RNG
+      word, and the 41 measurements at each step), commits it, and diffs against
+      it *without needing gfortran*, so the preflight runs anywhere in seconds
+- [ ] The golden trace file records the gfortran version and flags that produced
+      it, and =xtask fidelity= warns loudly when the local gfortran differs
+
+** TODO B-0005 Port TESUB7 (the LCG) and prove bit-exactness
+:PROPERTIES:
+:ID:    B-0005
+:PHASE: 0
+:TIER:  1
+:DEPS:  B-0004
+:PLAN:  Anatomy > Random number generator
+:END:
+
+Scope: =G = DMOD(G*9228907, 4294967296)= in f64. The product exceeds 2^53, so
+rounding is *part of the algorithm*. Do not reimplement this in integer
+arithmetic.
+
+Done when:
+- [ ] =TepRng= with both call modes (=i >= 0= gives [0,1), =i < 0= gives [-1,1))
+- [ ] Bit-exact against the oracle over 1e7 successive draws from each of the
+      four documented seeds (4651207995, 5687912315, 1431655765, 4243534565)
+- [ ] A committed test vector file so the check survives without gfortran
+- [ ] Doc comment explains the 2^53 overflow and why it must not be "fixed"
+
+* Phase 1: thermodynamics and utility routines
+
+** TODO B-0006 Constants table with provenance
+:PROPERTIES:
+:ID:    B-0006
+:PHASE: 1
+:TIER:  1
+:DEPS:  B-0005
+:PLAN:  Anatomy > Unit operations
+:END:
+
+Done when:
+- [ ] =AVP/BVP/CVP=, =AH/BH/CH=, =AG/BG/CG=, =AV=, =AD/BD/CD=, =XMW= as typed
+      Rust constants indexed by =Component=
+- [ ] Each block's doc comment cites its =teprob.f= line range and says what the
+      coefficients mean physically
+- [ ] A test asserts equality with the oracle's =COMMON/CONST/=
+
+** TODO B-0007 Component, composition, and stream vocabulary
+:PROPERTIES:
+:ID:    B-0007
+:PHASE: 1
+:TIER:  none
+:DEPS:  B-0006
+:PLAN:  Architecture > Core data model; Anatomy > Internal streams
+:END:
+
+Done when:
+- [ ] =Component=, =ByComponent<T>= with =Index<Component>=, =Composition= with a
+      sums-to-one =debug_assert=
+- [ ] =Stream= enum for the 13 internal streams, each documented with its Downs
+      and Vogel paper number and its role
+- [ ] The internal-to-paper stream mapping table appears in the module rustdoc
+- [ ] =ValveId=, =MvIndex=, =MeasIndex= newtypes with names and units
+
+** TODO B-0008 Tier 1 test harness
+:PROPERTIES:
+:ID:    B-0008
+:PHASE: 1
+:TIER:  1
+:DEPS:  B-0007
+:PLAN:  Validation > Tier 1
+:END:
+
+Scope: build the measuring apparatus once, before the routines that need it.
+
+Done when:
+- [ ] Composition sweep generators: simplex grid plus random Dirichlet samples
+- [ ] Temperature sweep over the full physical range per =ITY= mode
+- [ ] A comparison helper reporting max relative error *and* a ULP histogram,
+      not a bare pass/fail
+- [ ] Output format is stable enough to paste into a =LOG.org= entry
+
+** TODO B-0009 Port TESUB1 and TESUB3: enthalpy and heat capacity
+:PROPERTIES:
+:ID:    B-0009
+:PHASE: 1
+:TIER:  1
+:DEPS:  B-0008
+:PLAN:  Validation > Tier 1
+:END:
+
+Done when:
+- [ ] Both routines ported with all three =ITY= modes, typed inputs
+- [ ] Tier 1: max relative error < 1e-13 over 1e7 samples per mode
+- [ ] ULP histogram recorded in the log
+- [ ] Rustdoc gives the polynomial forms in LaTeX and the =teprob.f= lines
+
+** TODO B-0010 Port TESUB4: liquid density
+:PROPERTIES:
+:ID:    B-0010
+:PHASE: 1
+:TIER:  1
+:DEPS:  B-0009
+:PLAN:  Validation > Tier 1
+:END:
+
+Done when:
+- [ ] Ported; Tier 1 under 1e-13; histogram logged; equations documented
+
+** TODO B-0011 Port TESUB2: temperature from enthalpy, as a Result
+:PROPERTIES:
+:ID:    B-0011
+:PHASE: 1
+:TIER:  1
+:DEPS:  B-0010
+:PLAN:  Quirk and delta register (Class B)
+:END:
+
+Scope: the Fortran runs Newton for up to 100 iterations and, on failure,
+silently resets T to its input and returns as if it succeeded. This is a Class B
+quirk: fix it, and measure that the fix is a no-op under normal operation.
+
+Done when:
+- [ ] Returns =Result<Celsius, ThermoError>=; non-convergence is an error
+- [ ] Tier 1 under 1e-13 on the converging domain
+- [ ] Delta measured: how often does the Fortran silently fail across the sweep?
+      Record the count (expected: zero in the physical range)
+- [ ] First entry written into =book/src/deltas.md=
+
+* Phase 2: the plant model
+
+Decompose into iteration-sized items when starting this phase. The intended
+shape, in dependency order:
+
+- State and Derivative types with a =VectorSpace= trait; flat view for interop
+  only, never the working representation
+- Splitting =TEFUNC= into a pure =derivatives()= and an impure
+  =advance_discrete()= (see =PLAN.org=, "Splitting the right-hand side"). This
+  is the load-bearing structural decision; get it right before porting bodies.
+- Vapor-liquid equilibrium and pressures for reactor, separator, mixing zone
+- Reaction kinetics: four reactions, Arrhenius, fractional pressure orders
+- Stream network: valve-lagged flows, square-root resistances, compressor curve
+- Heat transfer: reactor coil with level and agitator dependence, condenser
+  saturating coefficient, stripper steam duty
+- Stripper stripping factors, including both temperature breakpoints
+- Balance assembly into all 50 derivatives
+- Tier 2 harness plus the adversarial state catalog, enumerated from the source:
+  reactor level at the 10 and 50 percent heat-transfer breakpoints, stripper
+  temperature at 5.292 and 170 C, both compressor pressure-ratio clamps, every
+  =DLP < 0= sign flip, separator underflow near the 0.1 branch threshold, and
+  states tripping each of the eight shutdown conditions
+- Tier 2 acceptance at 1e-12 across all three sampling pools
+
+* Phase 3: measurements and disturbances
+
+Noise (=TESUB6=, sum of 12 uniforms), the three sampled analyzers with dead time,
+the 12 walk channels (=TESUB5= for 1-9, the =DO 910= spike rule for 10-12), and
+all 20 IDVs re-expressed as =InjectionPoint= plus =Profile= pairs. Includes the
+Tier 3 RNG call-trace instrumentation on both sides and the trace differ.
+
+Exit: Tier 3 trace diff empty; Tier 4 within =XNS(i)= for the first hours on all
+22 scenarios.
+
+* Phase 4: control layer
+
+Velocity-form PI, the 19-loop Braatz preset with its per-loop constants, and the
+multi-rate scheduler (3 s / 360 s / 900 s periods).
+
+Exit: closed-loop Tier 4 passing; the Tier 5 battery runs end to end.
+
+* Phase 5: statistical validation
+
+Tiers 5, 6 and 7, plus =cargo xtask validate= generating the report chapter.
+
+Exit: a published validation report supporting the equivalence claim, including
+the cross-source detector experiment.
+
+* Phase 6: modernization
+
+RK4 and adaptive Dormand-Prince, continuous-magnitude disturbances, the scenario
+engine with JSON Schema and content hashing, ground-truth labeling, recorder
+sinks, and the quirk fixes with measured deltas.
+
+Exit: delta register complete; Class C items signed off by the user; Tier 10
+green.
+
+* Phase 7: Python bindings and wheels
+
+PyO3, the clean-break API from the plan, abi3-py39 plus cp313t/cp314t plus a
+Pyodide wheel, type stubs, GIL release, the ensemble helper.
+
+Exit: wheels install and pass on every target; published to TestPyPI.
+
+* Phase 8: TEP Studio (browser app)
+
+Leptos client, simulation in a Web Worker, uPlot charts, SVG process flow
+diagram, fault panel, custom fault builder, Rhai controller editor, scenario
+import/export including URL-fragment sharing, challenge mode.
+
+Freeze the feature list at the start of this phase. Requires =trunk=, not
+currently installed.
+
+Exit: under 1.5 MB gzipped wasm, at least 100x real time, Tier 9 green including
+in-browser determinism, deployed to GitHub Pages and a Hugging Face Static Space.
+
+* Phase 9: documentation and release
+
+Unit-operation pages, the mdBook, tutorial and exercise tracks, software paper.
+
+Exit: 1.0 tagged, all three surfaces built from one commit.
+
+* Blocked
+
+Items parked on a decision. Move them back into their phase when answered.
+
+- B-0001b toolchain pinning: may we install =rustup=?
+- Open, non-blocking: new-code license is BSD-3-Clause for consistency with the
+  upstream Python project. The crates.io norm is dual MIT OR Apache-2.0, which
+  adds an explicit patent grant. Cheap to change until first publish.
+
+* Decisions
+
+Append-only record of choices that changed =PLAN.org=.
+
+** 2026-08-09 Initial four decisions
+Browser app is Rust-native Leptos with uPlot charts. Python API is a clean break
+with no compatibility shim. Rust core covers plant, control and scheduling, not
+detectors. Fortran quirks are fixed with documented deltas, with Class C fixes
+gated on explicit sign-off.

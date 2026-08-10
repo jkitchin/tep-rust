@@ -1,0 +1,121 @@
+#+TITLE: TEP-Rust Iteration Log
+#+STARTUP: overview
+#+OPTIONS: toc:2 num:nil
+
+Append-only. One heading per iteration, newest at the bottom. Format and rules
+are in =CLAUDE.md=. Record measured numbers, never bare verdicts.
+
+* 2026-08-09 B-0000 Project plan and session protocol
+:PROPERTIES:
+:ITEM:    B-0000
+:PHASE:   0
+:TIER:    none
+:COMMIT:  (pre-repository)
+:STATUS:  DONE
+:END:
+
+** What changed
+Reviewed the upstream Fortran (=teprob.f=, 1594 lines; =temain_mod.f=, 1413
+lines) and the existing Python port, and wrote =PLAN.org=: architecture, a
+ten-tier validation ladder, the quirk and delta register, and a nine-phase
+roadmap. Added =tep-rust.bib=, =CLAUDE.md=, =BACKLOG.org= and this log. No code
+yet; the directory is not a git repository.
+
+** Validation numbers
+Six citations verified: five DOIs against CrossRef and one against DataCite, all
+with exactly matching titles, authors, years, volumes and pages. No code to
+validate yet.
+
+Environment probe: git 2.50.1, cargo/rustc 1.89.0 (Homebrew, *not* rustup),
+gfortran 15.2.0 (Homebrew GCC), python3 3.13.0, maturin 1.12.4, cargo-deny
+present. =rustup= missing, =trunk= missing, zero wasm targets installed.
+
+** Surprises and decisions
+Three findings drove the design and are worth not rediscovering.
+
+=TEFUNC= is not a pure function of =(t, y)=: it advances the disturbance walks,
+draws measurement noise, ticks the sampled analyzers, and latches valve sticking
+on every call. Harmless under fixed-step Euler, silently wrong under any
+multi-stage integrator. Hence the pure/impure split in the plan.
+
+The RNG is bit-reproducible. =G = DMOD(G*9228907, 4294967296)= overflows 2^53, so
+rounding is part of the algorithm, but IEEE fixes both the multiply and the
+=fmod=. The existing Python port's noise divergence is therefore a *call-ordering*
+defect, not an arithmetic one, which is why Tier 3 (RNG call-trace diff) exists
+and is cheap.
+
+Exact long-horizon trajectory matching against gfortran is impossible because
+=exp= and =pow= differ by ULPs and the closed loop amplifies that. Tier 4 is
+diagnostic only. The real gates are Tier 5 (equivalence testing on means *and
+variances*, since the Python port's failure mode was variance collapse: reactor
+pressure sigma 8.10 against Fortran's 61.48) and Tier 6 (cross-source detector
+performance).
+
+Four scoping decisions recorded in =BACKLOG.org= under Decisions.
+
+** Next
+B-0001, repository bootstrap. It needs one thing from the user: permission to
+install =rustup=, which is required for toolchain pinning and the wasm32 target
+and which Homebrew's Rust cannot provide. Ask first, then =git init=, license
+with the original attribution preserved, and the toolchain file.
+
+* 2026-08-09 B-0001a Repository bootstrap
+:PROPERTIES:
+:ITEM:     B-0001a
+:PHASE:    0
+:TIER:     none
+:COMMIT:   c54ac32
+:GFORTRAN: 15.2.0
+:STATUS:   DONE
+:END:
+
+** Preflight
+Skipped per protocol: no model code exists, so there is no fidelity to protect.
+Baseline was "not a git repository". Recorded gfortran 15.2.0 (Homebrew GCC) so
+the first real Tier 1 numbers have a compiler to be attributed to.
+
+** What changed
+This is now a git repository on =main=. Added =.gitignore=, =LICENSE=
+(BSD-3-Clause for new work), =LICENSE-NCSA= (verbatim upstream), =NOTICE.md=,
+and =README.md=. B-0001 was split: the toolchain half is now B-0001b and is
+blocked on permission to install =rustup=.
+
+** Validation numbers
+None applicable. Ten files tracked, working tree clean after commit.
+
+** Surprises and decisions
+The upstream license is *not* BSD-3-Clause, despite the upstream README saying
+so. The actual text is the University of Illinois/NCSA Open Source License: an
+MIT-style grant carrying three BSD-style conditions, copyright 1998-2002 The
+Board of Trustees of the University of Illinois, developed by the Large Scale
+Systems Research Laboratory under Prof. Richard D. Braatz.
+
+This has a practical consequence that is easy to miss: the NCSA conditions
+require the notice and disclaimers to be retained in redistributions in *binary*
+form, not only source. So =LICENSE-NCSA= and =NOTICE.md= must be packaged into
+the Python wheels and the wasm bundle in Phase 7 and Phase 8. Recorded here so
+that is not discovered at publish time.
+
+=LICENSE-NCSA= is verbatim including its typographical corruption (stray =%=
+characters in the disclaimer, irregular whitespace). Deliberate: a license gets
+carried as distributed, not tidied.
+
+New-code license is BSD-3-Clause, matching the upstream Python project. The
+crates.io norm is dual MIT OR Apache-2.0 for the patent grant. Left open in the
+backlog; cheap to change before first publish.
+
+Protocol bug, found by executing it: the close-out asked for *one* commit per
+iteration *and* for =:COMMIT:= to record that commit's hash. Impossible, since a
+commit cannot contain its own hash. Amending to fix the recorded value just
+changes the hash again. =CLAUDE.md= now specifies two commits per iteration, the
+work commit followed by a bookkeeping commit that names it, with =pending= as the
+placeholder in between, and forbids =--amend= after a hash has been recorded.
+
+** Next
+B-0002, the workspace skeleton, xtask, and the CI gate. It does not depend on
+B-0001b, so the rustup question does not block it. Two things in B-0002 matter
+more than the boilerplate: decide the provenance annotation mechanism (a doc
+attribute like =#[doc = "Ported from teprob.f:505-522"]= parsed by xtask), since
+every later iteration depends on it, and make =xtask fidelity= a stub that exits
+non-zero, so the preflight can never appear to pass vacuously before B-0004
+fills it in.
