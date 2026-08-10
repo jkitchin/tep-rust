@@ -109,7 +109,7 @@ its own comment line reading =@port teprob.f:START-END=, anchored at the start
 of the comment. Anchoring is load-bearing, not cosmetic; see the B-0002a log
 entry for why.
 
-** TODO B-0002b CI matrix verified green
+** NEXT B-0002b CI matrix verified green
 :PROPERTIES:
 :ID:    B-0002b
 :PHASE: 0
