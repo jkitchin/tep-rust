@@ -102,6 +102,7 @@ name = "tepsim-oracle"
 version = "0.0.0"
 dependencies = [
  "sha2",
+ "tepsim-core",
 ]
 
 [[package]]

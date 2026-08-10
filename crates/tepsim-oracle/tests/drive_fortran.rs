@@ -75,7 +75,7 @@ fn the_nominal_operating_point_is_the_published_one() {
     );
 }
 
-/// The Fortran's generator, `teprob.f:1548-1552`.
+/// The Fortran's generator, `teprob.f:1547-1555`.
 ///
 /// Reproduced here only as a counting device, to work out how many draws a call
 /// consumed. The real port, and the argument for why this arithmetic is

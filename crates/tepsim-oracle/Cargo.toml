@@ -22,7 +22,13 @@ name = "gen-golden-trace"
 path = "src/bin/gen_golden_trace.rs"
 required-features = ["oracle"]
 
+[[bin]]
+name = "gen-rng-vectors"
+path = "src/bin/gen_rng_vectors.rs"
+required-features = ["oracle"]
+
 [dev-dependencies]
+tepsim-core.workspace = true
 # Only for verifying the vendored reference material has not been edited.
 sha2 = "0.10"
 

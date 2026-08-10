@@ -14,13 +14,13 @@ earlier phases will change what the right decomposition is.
 
 Rewrite this block at the end of every iteration. Keep it to five lines.
 
-- Phase: *0 complete*; phase 1 next
-- Last completed: B-0004c golden trace and fidelity preflight
+- Phase: 1, in progress
+- Last completed: B-0005 TESUB7 ported and proven bit-exact
 - In flight: (none)
-- Baseline: =cargo xtask ci= green; 34 tests default, 63 with =oracle=; golden
-  trace live; 0% of teprob.f ported (1589 lines unclaimed)
+- Baseline: =cargo xtask ci= green; 44 tests default, 76 with =oracle=;
+  provenance 9/1589 lines claimed (0.6%)
 - Blocked on: B-0001b (install =rustup=?) and B-0002b (create a GitHub remote?).
-  Next unblocked item is B-0005, port TESUB7 and prove bit-exactness.
+  Next unblocked item is B-0006, the constants table.
 
 * Phase 0: foundations
 
@@ -260,13 +260,17 @@ Done when:
       recorded
 - [X] =CLAUDE.md= preflight section says what the step actually covers today
 
-** NEXT B-0005 Port TESUB7 (the LCG) and prove bit-exactness
+** DONE B-0005 Port TESUB7 (the LCG) and prove bit-exactness
 :PROPERTIES:
-:ID:    B-0005
-:PHASE: 0
-:TIER:  1
-:DEPS:  B-0004c
-:PLAN:  Anatomy > Random number generator
+:ID:     B-0005
+:PHASE:  0
+:TIER:   1
+:DEPS:   B-0004c
+:PLAN:   Anatomy > Random number generator
+:RESULT: TepRng bit-exact vs the Fortran: 10^7 draws on the compiled-in seed,
+         10^6 on five dataset seeds, 200k draw-by-draw on four. First ported
+         code, so provenance is now 9/1589 lines (0.6%). Integer arithmetic
+         diverges on draw 0 (714943912 vs 714943913).
 :END:
 
 Scope: =G = DMOD(G*9228907, 4294967296)= in f64. The product exceeds 2^53, so
@@ -274,12 +278,12 @@ rounding is *part of the algorithm*. Do not reimplement this in integer
 arithmetic.
 
 Done when:
-- [ ] =TepRng= with both call modes (=i >= 0= gives [0,1), =i < 0= gives [-1,1))
-- [ ] Bit-exact against the oracle over 1e7 successive draws from the compiled-in
+- [X] =TepRng= with both call modes (=i >= 0= gives [0,1), =i < 0= gives [-1,1))
+- [X] Bit-exact against the oracle over 1e7 successive draws from the compiled-in
       seed 4651207995 and a sample of the 54 dataset seeds documented at
       =teprob.f:1187-1246= (see =reference/README.org=)
-- [ ] A committed test vector file so the check survives without gfortran
-- [ ] Doc comment explains the 2^53 overflow and why it must not be "fixed"
+- [X] A committed test vector file so the check survives without gfortran
+- [X] Doc comment explains the 2^53 overflow and why it must not be "fixed"
 
 * Phase 1: thermodynamics and utility routines
 

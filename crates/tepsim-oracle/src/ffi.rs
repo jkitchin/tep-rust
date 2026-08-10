@@ -265,7 +265,7 @@ unsafe extern "C" {
     /// `SUBROUTINE TESUB6(STD, X)`: Gaussian-ish noise, twelve uniforms summed.
     /// `teprob.f:1539`.
     pub(crate) fn tesub6_(std: *const f64, x: *mut f64);
-    /// `DOUBLE PRECISION FUNCTION TESUB7(I)`: the generator. `teprob.f:1548`.
+    /// `DOUBLE PRECISION FUNCTION TESUB7(I)`: the generator. `teprob.f:1547-1555`.
     /// Negative `i` gives [-1,1), non-negative gives [0,1).
     pub(crate) fn tesub7_(i: *const i32) -> f64;
     /// `DOUBLE PRECISION FUNCTION TESUB8(I, T)`: evaluate walk channel `i` at

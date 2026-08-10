@@ -113,6 +113,12 @@ fn reaction_rates(/* ... */) { /* ... */ }
 The marker is anchored at the start of the comment on purpose, so prose about
 the convention and test fixtures cannot inflate coverage.
 
+**Granularity:** claim the whole Fortran subroutine, declarations and
+`RETURN`/`END` included, on the type or function that ports it. Add finer claims
+inside it to pin where individual pieces came from. Claiming only the lines that
+map to executable Rust would leave boilerplate permanently unclaimed and make
+the coverage number impossible to read.
+
 **Constants are asserted, never retyped.** Transcribe once, then prove equality
 against the oracle's `COMMON` blocks. Digits read off a listing are a silent
 failure mode with no test that catches them.
