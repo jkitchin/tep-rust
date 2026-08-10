@@ -1,8 +1,15 @@
 # Notices and attribution
 
-This repository contains original work by John Kitchin (Carnegie Mellon
-University) under the BSD 3-Clause License in [`LICENSE`](LICENSE), together
-with work derived from the Tennessee Eastman Process Fortran code.
+This repository contains original work by John Kitchin under the MIT License in
+[`LICENSE`](LICENSE), together with work derived from the Tennessee Eastman
+Process Fortran code.
+
+The combined work is `MIT AND NCSA` in SPDX terms. NCSA grants the right to
+sublicense, so distributing the whole under MIT is permitted, but NCSA's
+attribution conditions cannot be dropped: they ride along with the derived
+portions in source and binary alike. In practice that means `LICENSE-NCSA` and
+this file travel with every release, and crate metadata declares
+`license = "MIT AND NCSA"`.
 
 ## Derived work
 
@@ -21,6 +28,12 @@ MIT-style grant carrying three BSD-style conditions. The file is also
 reproduced exactly as distributed, including its typographical artifacts (stray
 `%` characters and irregular whitespace in the disclaimer), because a license
 should be carried verbatim rather than tidied.
+
+Because NCSA's grant is itself MIT-style, the two licenses are compatible and
+impose no conflicting obligations. The only practical difference from a
+pure-MIT project is condition 3: neither the University of Illinois nor the
+Large Scale Systems Research Laboratory may be used to endorse or promote work
+derived from this software without prior written permission.
 
 The NCSA conditions require that the copyright notice, the list of conditions,
 and the disclaimers be retained in redistributions in **both source and binary

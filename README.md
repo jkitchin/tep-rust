@@ -57,10 +57,10 @@ from scratch against any injection point in the plant.
 
 ## License
 
-New work in this repository is BSD 3-Clause ([`LICENSE`](LICENSE)). Portions are
-derived from Fortran licensed under the University of Illinois/NCSA Open Source
-License ([`LICENSE-NCSA`](LICENSE-NCSA)), which carries attribution and citation
-requirements that apply to source and binary redistribution alike. See
+MIT ([`LICENSE`](LICENSE)). Portions are derived from Fortran licensed under the
+University of Illinois/NCSA Open Source License ([`LICENSE-NCSA`](LICENSE-NCSA)),
+whose attribution conditions apply to source and binary redistribution alike and
+cannot be dropped. The combined work is `MIT AND NCSA` in SPDX terms. See
 [`NOTICE.md`](NOTICE.md) before redistributing.
 
 The original process and control problem are due to J. J. Downs and E. F. Vogel

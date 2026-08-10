@@ -779,9 +779,13 @@ extends the existing exercise material, adding a controller-design track and an
 anomaly-detection track, each runnable in the browser app, in JupyterLite, and
 locally.
 
-The repository keeps the original BSD-3-Clause license and the University of
-Illinois and Tennessee Eastman attribution notices intact, and states clearly
-which files are derived from the original Fortran.
+New work is MIT licensed. The upstream Fortran is under the University of
+Illinois/NCSA Open Source License, whose attribution conditions survive into
+binary distributions, so =LICENSE-NCSA= and =NOTICE.md= are packaged into the
+Python wheels and the wasm bundle, not merely committed to the repository. Crate
+metadata declares =license = "MIT AND NCSA"=. The documentation states clearly
+which modules are derived from the original Fortran and cites the Downs and
+Vogel and Braatz group references the upstream license requires.
 
 * Testing, CI, and release engineering
 
