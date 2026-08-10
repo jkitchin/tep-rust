@@ -582,3 +582,85 @@ algorithm, and integer arithmetic would give different numbers. Prove bit
 equality over 1e7 draws against the oracle, from the compiled-in seed and a
 sample of the 54 documented dataset seeds, and commit a test-vector file so the
 check survives on machines without gfortran.
+
+* 2026-08-10 B-0005 Port TESUB7 and prove bit-exactness
+:PROPERTIES:
+:ITEM:     B-0005
+:PHASE:    1
+:TIER:     1
+:COMMIT:   9b4960b
+:GFORTRAN: 15.2.0
+:FFLAGS:   -c -O0 -fno-fast-math -fno-unsafe-math-optimizations -fPIC -std=legacy
+:STATUS:   DONE
+:END:
+
+** Preflight
+First session with the preflight actually running. =xtask fidelity= green: 100
+steps, 142 values each, recorded with gfortran 15.2.0, local gfortran matches,
+"0 of 100 steps diffed" as expected with no model code. Provenance 1589 total,
+0 claimed. =xtask ci --fast= green. Baseline identical to the B-0004c close.
+
+** What changed
+=TepRng= in =tepsim-core=, the first ported model code. Two committed check
+layers, =golden/tesub7-vectors.txt= for machines without gfortran and a
+draw-by-draw differential test for machines with it. Provenance claims now cover
+whole subroutines; =CLAUDE.md= records the convention.
+
+** Validation numbers
+=cargo xtask ci= green. *44 tests default, 76 with =oracle==, up from 34 and 63.
+
+*Provenance: 9 of 1589 lines claimed, 0.6%.* Two unclaimed spans, 1-1546 and
+1556-1589. First non-zero reading.
+
+Bit-exactness against the Fortran:
+- compiled-in seed 4651207995: 10^7 draws, XOR fold and final state both match
+- five dataset seeds (original, d00_tr, d00_tr_new, d01_tr, d00_te): 10^6 draws
+  each, folds and final states all match
+- draw-by-draw over 200,000 draws for four seeds: every draw and every
+  intermediate state bit-identical
+- 16 raw outputs of each output mode, per seed, all bit-identical
+- interleaved modes over 50,000 draws on an irregular pattern: all match
+
+Supporting measurements:
+- exact integer arithmetic diverges at *draw 0*: 714943912.0 against 714943913
+- products exceed 2^53 on 0.7716 of draws, against 0.7728 predicted from
+  2^53/9228907 over 2^32
+- state never reaches zero in 10^6 draws from any of four seeds
+
+Teeth check: substituting the u128 integer recurrence fails both layers, the
+differential test on draw 0 with "Rust gives 0.16646085144020617, Fortran gives
+0.16646085120737553".
+
+Vector generation cost 5.8 s wall for 1.5 x 10^7 FFI calls.
+
+** Surprises and decisions
+*Nothing surprising about the port itself*, which is the point: the analysis in
+the planning session held up exactly. The generator is bit-reproducible, and
+writing it the way the Fortran writes it was sufficient.
+
+*My guess about the overflow rate was wrong and the test caught it.* I asserted
+that over 90% of products exceed 2^53; the real figure is 77%, because the
+threshold is 2^53/9228907 which is about 22.7% of the way through the state
+range. Rather than loosen the bound I derived it: the test now computes the
+predicted fraction from the arithmetic and checks the observed one against it,
+so it explains itself instead of encoding a number I once measured.
+
+*Provenance granularity needed deciding.* Claiming only the three arithmetic
+lines gave 3/1589 and left =RETURN=, =END= and the declarations permanently
+unclaimed, which would make the coverage number unreadable by the time
+=TEFUNC='s 600 lines are ported. Claims now cover the whole subroutine on the
+type that ports it, with finer claims inside pinning individual lines.
+
+Two small lint interactions worth noting for later sessions: clippy's
+=float_cmp= fires on =assert_ne!= over floats as well as =assert_eq!=, and
+rustdoc with =-D warnings= rejects a public doc linking to a private constant.
+Both resolved by comparing =to_bits()= and by naming the value in prose.
+
+** Next
+B-0006, the constants table. This is the item B-0004b's finding was aimed at:
+182 of the assignments in =TEINIT= are single-precision literals, so each
+constant must be transcribed according to whether its Fortran literal carries a
+=D= suffix. Write the test that enumerates suffix status from
+=reference/fortran/teprob.f= *first*, then the table, so the transcription is
+checked by machine rather than by eye. =XMW(2)= is the canary: it must come out
+25.399999618530273 and not 25.4.
