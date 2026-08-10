@@ -63,9 +63,9 @@ Done when:
 - [ ] =rustc --version= from the pinned toolchain matches =rust-toolchain.toml=
 - [ ] =PLAN.org= and =CLAUDE.md= environment notes updated to match reality
 
-** TODO B-0002 Workspace skeleton, xtask, and the CI gate
+** NEXT B-0002a Workspace skeleton, xtask, and the local gate
 :PROPERTIES:
-:ID:    B-0002
+:ID:    B-0002a
 :PHASE: 0
 :TIER:  none
 :DEPS:  B-0001a
@@ -74,6 +74,9 @@ Done when:
 
 Scope: the eight crates from the plan as empty but compiling libraries, plus the
 single command every future iteration is gated on.
+
+Split from B-0002: "CI matrix green" cannot be verified without a remote, so it
+is B-0002b.
 
 Done when:
 - [ ] Workspace with =tepsim-core=, =-control=, =-scenario=, =tepsim=, =-cli=,
@@ -87,16 +90,35 @@ Done when:
       correct answer and proves the tool works
 - [ ] =cargo xtask fidelity= exists as a stub that exits non-zero with a clear
       "no golden trace yet" message; B-0004 fills it in
+- [ ] The range algebra behind =provenance= has unit tests; it is the one piece
+      of xtask with logic worth getting wrong
 - [ ] =cargo xtask ci= is green locally
-- [ ] GitHub Actions matrix: Linux x86-64, macOS arm64, Windows x86-64; green
 - [ ] =cargo deny= config committed and passing
-
 - [ ] Every crate's =Cargo.toml= declares =license = "MIT AND NCSA"= and
       =cargo deny= is configured to accept exactly those two
 
 Note: the provenance annotation mechanism is decided here, not later. A doc
 attribute such as =#[doc = "Ported from teprob.f:505-522"]= parsed by xtask is
 enough; whatever is chosen, every subsequent iteration depends on it.
+
+** TODO B-0002b CI matrix verified green
+:PROPERTIES:
+:ID:    B-0002b
+:PHASE: 0
+:TIER:  none
+:DEPS:  B-0002a
+:PLAN:  Testing, CI, and release engineering
+:END:
+
+Needs a GitHub remote, which is an outward-facing action requiring the user's
+say-so. The workflow file itself lands in B-0002a; this item is about proving it
+runs.
+
+Done when:
+- [ ] Remote exists and =main= is pushed
+- [ ] GitHub Actions matrix green on Linux x86-64, macOS arm64, Windows x86-64
+- [ ] A failing commit is shown to actually fail the workflow, so the gate is
+      known to have teeth
 
 ** TODO B-0003 Vendor the reference material
 :PROPERTIES:
