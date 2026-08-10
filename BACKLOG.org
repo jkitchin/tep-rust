@@ -260,7 +260,7 @@ Done when:
       recorded
 - [X] =CLAUDE.md= preflight section says what the step actually covers today
 
-** TODO B-0005 Port TESUB7 (the LCG) and prove bit-exactness
+** NEXT B-0005 Port TESUB7 (the LCG) and prove bit-exactness
 :PROPERTIES:
 :ID:    B-0005
 :PHASE: 0
