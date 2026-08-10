@@ -160,8 +160,12 @@ previous entry rather than by a threshold that someone quietly relaxed.
   IDV flags, fixed-step Euler, hard-coded `IDV(12)` in the driver.) Implement
   behind a flag, measure the delta with the full Tier 5 battery, log the numbers,
   mark the item `BLOCKED` on a decision, and move on. Do not make it the default.
-- **`tepsim-core` is `#![forbid(unsafe_code)]`** and `no_std + alloc`. `unsafe` is
-  allowed only in the PyO3 and wasm-bindgen glue.
+- **`tepsim-core` is `#![forbid(unsafe_code)]`** and `no_std + alloc`. `unsafe`
+  is allowed only in three places, each of which is FFI glue that cannot be
+  written in safe Rust: `tepsim-oracle` (Fortran), `tepsim-py` (PyO3), and
+  `tepsim-wasm` (wasm-bindgen). Those crates set
+  `#![deny(unsafe_op_in_unsafe_fn)]`, keep every `unsafe` block behind a safe
+  wrapper, and carry a `// SAFETY:` comment stating the actual argument.
 - **Determinism is a hard invariant.** No `f32`, no SIMD or rayon inside the core,
   no reordered reductions, no `Date`/time/randomness outside `TepRng`. The core
   uses the vendored `libm` crate for `exp`/`pow`/`ln`.

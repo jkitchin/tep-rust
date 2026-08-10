@@ -15,12 +15,12 @@ earlier phases will change what the right decomposition is.
 Rewrite this block at the end of every iteration. Keep it to five lines.
 
 - Phase: 0, in progress
-- Last completed: B-0003 vendor the reference material
-- In flight: B-0004a (oracle: link and drive the Fortran)
-- Baseline: =cargo xtask ci= green, 24 tests; reference pinned; 0% of teprob.f
-  ported (1589 lines unclaimed)
+- Last completed: B-0004a oracle harness links and drives the Fortran
+- In flight: (none)
+- Baseline: =cargo xtask ci= green; 24 tests default, 37 with =oracle=; 0% of
+  teprob.f ported (1589 lines unclaimed)
 - Blocked on: B-0001b (install =rustup=?) and B-0002b (create a GitHub remote?).
-  Next unblocked item is B-0004, the oracle harness.
+  Next unblocked item is B-0004b, full oracle state access.
 
 * Phase 0: foundations
 
@@ -150,13 +150,17 @@ Done when:
       original authors) and a SHA-256 for every file
 - [X] A test asserts every checksum, so accidental edits fail CI
 
-** NEXT B-0004a Oracle harness: link and drive the Fortran
+** DONE B-0004a Oracle harness: link and drive the Fortran
 :PROPERTIES:
-:ID:    B-0004a
-:PHASE: 0
-:TIER:  none
-:DEPS:  B-0003
-:PLAN:  Validation > The oracle harness
+:ID:     B-0004a
+:PHASE:  0
+:TIER:   none
+:DEPS:   B-0003
+:PLAN:   Validation > The oracle harness
+:RESULT: Fortran compiles, links and runs from Rust. 37 tests with the oracle
+         feature. Nominal point reproduces published values: P 2704.999984 kPa,
+         T 120.400000 C, levels 75.0/50.0/50.0. Found: TEFUNC draws zero
+         randoms at t=0, then exactly 264 on the first step past it.
 :END:
 
 Scope: get the original Fortran compiling, linking and callable from a Rust
@@ -169,18 +173,18 @@ linkable symbols, so no C shim is needed. Note =shutdn_= is absent because =ISD=
 is local in the original; exposing it is B-0004b's problem.
 
 Done when:
-- [ ] =build.rs= compiles =reference/fortran/teprob.f= with gfortran, without
+- [X] =build.rs= compiles =reference/fortran/teprob.f= with gfortran, without
       copying or editing the vendored file
-- [ ] Flags pinned explicitly, no =-ffast-math= or any other reassociation-
+- [X] Flags pinned explicitly, no =-ffast-math= or any other reassociation-
       permitting flag, and a test asserts the exact flag set
-- [ ] =libgfortran= located and linked on both Linux and macOS
-- [ ] FFI for =TEFUNC=, =TEINIT= and the =/PV/=, =/DVEC/=, =/RANDSD/= blocks,
+- [X] =libgfortran= located and linked on both Linux and macOS
+- [X] FFI for =TEFUNC=, =TEINIT= and the =/PV/=, =/DVEC/=, =/RANDSD/= blocks,
       behind a safe wrapper
-- [ ] A Rust test calls =TEINIT= then =TEFUNC= and reads back all 50 derivatives
-- [ ] The nominal initial measurements are asserted against known values
+- [X] A Rust test calls =TEINIT= then =TEFUNC= and reads back all 50 derivatives
+- [X] The nominal initial measurements are asserted against known values
       (reactor temperature about 120.4 C, pressure about 2705 kPa)
-- [ ] All behind the =oracle= feature; =cargo xtask ci --fast= still skips it
-- [ ] =CLAUDE.md= updated: the oracle needs =unsafe= for FFI, so its
+- [X] All behind the =oracle= feature; =cargo xtask ci --fast= still skips it
+- [X] =CLAUDE.md= updated: the oracle needs =unsafe= for FFI, so its
       =forbid(unsafe_code)= is lifted and the exception recorded
 
 ** TODO B-0004b Oracle harness: full state access
