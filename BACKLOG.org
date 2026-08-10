@@ -21,7 +21,7 @@ Rewrite this block at the end of every iteration. Keep it to five lines.
   provenance 9/1589 lines claimed (0.6%)
 - Toolchain: rustup, pinned to rustc 1.97.1, wasm32 installed
 - Blocked on: B-0002b only (create a GitHub remote?). Next unblocked item is
-  B-0006, the constants table.
+  B-0007, the component and stream vocabulary (reordered ahead of B-0006).
 
 * Phase 0: foundations
 
@@ -289,12 +289,36 @@ Done when:
 
 * Phase 1: thermodynamics and utility routines
 
+** NEXT B-0007 Component, composition, and stream vocabulary
+:PROPERTIES:
+:ID:    B-0007
+:PHASE: 1
+:TIER:  none
+:DEPS:  B-0005
+:PLAN:  Architecture > Core data model; Anatomy > Internal streams
+:END:
+
+Reordered ahead of B-0006 on starting: B-0006 requires constants "indexed by
+=Component=", but =Component= is defined here, so the original order had the two
+items depending on each other.
+
+Done when:
+- [ ] =Component=, =ByComponent<T>= with =Index<Component>=, =Composition= with a
+      sums-to-one =debug_assert=
+- [ ] =Stream= enum for the 13 internal streams, each documented with its Downs
+      and Vogel paper number and its role
+- [ ] The internal-to-paper stream mapping table appears in the module rustdoc
+- [ ] =ValveId=, =MvIndex=, =MeasIndex= newtypes with names and units
+- [ ] Names and units are *cross-checked against the header comment tables in
+      =teprob.f=* by a test that parses them, not transcribed by eye. Same
+      discipline as the =D=-suffix check B-0006 needs.
+
 ** TODO B-0006 Constants table with provenance
 :PROPERTIES:
 :ID:    B-0006
 :PHASE: 1
 :TIER:  1
-:DEPS:  B-0005
+:DEPS:  B-0007
 :PLAN:  Anatomy > Unit operations
 :END:
 
@@ -316,23 +340,6 @@ Done when:
 - [ ] Each block's doc comment cites its =teprob.f= line range and says what the
       coefficients mean physically
 - [ ] A test asserts equality with the oracle's =COMMON/CONST/=
-
-** TODO B-0007 Component, composition, and stream vocabulary
-:PROPERTIES:
-:ID:    B-0007
-:PHASE: 1
-:TIER:  none
-:DEPS:  B-0006
-:PLAN:  Architecture > Core data model; Anatomy > Internal streams
-:END:
-
-Done when:
-- [ ] =Component=, =ByComponent<T>= with =Index<Component>=, =Composition= with a
-      sums-to-one =debug_assert=
-- [ ] =Stream= enum for the 13 internal streams, each documented with its Downs
-      and Vogel paper number and its role
-- [ ] The internal-to-paper stream mapping table appears in the module rustdoc
-- [ ] =ValveId=, =MvIndex=, =MeasIndex= newtypes with names and units
 
 ** TODO B-0008 Tier 1 test harness
 :PROPERTIES:
