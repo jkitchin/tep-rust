@@ -664,3 +664,78 @@ constant must be transcribed according to whether its Fortran literal carries a
 =reference/fortran/teprob.f= *first*, then the table, so the transcription is
 checked by machine rather than by eye. =XMW(2)= is the canary: it must come out
 25.399999618530273 and not 25.4.
+
+* 2026-08-10 B-0001b Toolchain pinning
+:PROPERTIES:
+:ITEM:     B-0001b
+:PHASE:    0
+:TIER:     none
+:COMMIT:   149355f
+:GFORTRAN: 15.2.0
+:RUSTC:    1.97.1 (was 1.89.0 Homebrew)
+:STATUS:   DONE
+:END:
+
+** Preflight
+Clean and green. Provenance 9/1589 (0.6%), unchanged from B-0005. gfortran
+15.2.0, unchanged. Unblocked by the user approving the rustup install.
+
+** What changed
+rustup 1.29.0 installed; =rust-toolchain.toml= pins rustc 1.97.1 and the
+=wasm32-unknown-unknown= target. =xtask ci= asserts the running compiler matches
+the pin. CI jobs honour the file instead of installing their own toolchain.
+=CLAUDE.md= and =PLAN.org= environment notes corrected.
+
+** Validation numbers
+*rustc 1.89.0 to 1.97.1, an eight-version jump, and the gate is green with no
+code changes.* 50 tests default, 82 with =oracle=, up from 44 and 76; the six new
+ones are the toolchain parsers.
+
+Crucially, the RNG vectors still pass bit-exact under the new compiler: 10^7
+draws on the compiled-in seed and 10^6 on five others, all folds and final states
+matching the Fortran. IEEE f64 arithmetic is stable across the jump, which is the
+first real evidence for the Tier 9 determinism claim.
+
+wasm32 builds =tepsim-core= and =tepsim-wasm= cleanly: 17,082 and 3,228 byte
+rlibs.
+
+Disk: two toolchains now, =stable= at 1.4 GB and the pinned =1.97.1= at 669 MB.
+Both are 1.97.1 today and will diverge when stable moves. Left alone; removing
+=stable= is the user's call since other projects may want it.
+
+** Surprises and decisions
+*The eight-version jump was a non-event*, which is worth recording precisely
+because it could have eaten a session. No new clippy lints fired, no rustdoc
+complaints, no behaviour change. The codebase being lint-clean at =-D warnings=
+from the start is what made that cheap.
+
+*The toolchain guard matters more than it first appears.* =rust-toolchain.toml=
+only takes effect when =cargo= is rustup's; with any other cargo first on PATH it
+is ignored *silently*. Homebrew's Rust 1.89 is still installed here and loses
+only on PATH ordering, so a single PATH edit would switch compilers with no
+signal at all, and every validation number after that would come from an
+unrecorded compiler. The check turns that into an immediate, explicit failure.
+
+*My first teeth check on that guard was wrong again.* Pinning a bogus 1.42.0
+made rustup try to download it and fail on target availability, before my check
+ever ran. That is a third instance of a teeth check probing the wrong layer. The
+comparison logic is now two pure functions with six unit tests, which is both
+faster and actually exercises the code in question, and no toolchain download is
+involved.
+
+*=cargo +nightly= is required in the miri job.* The pin would otherwise override
+the nightly that job installs, and miri is not in the pinned stable. Easy to miss
+and would have shown up as a confusing CI failure at B-0002b.
+
+Installed with =--no-modify-path=, since =~/.cargo/bin= was already ahead of
+=/opt/homebrew/bin=. No shell profile was modified.
+
+** Next
+Back to B-0006, the constants table, unchanged by this detour. Write the test
+that enumerates =D=-suffix status straight from
+=reference/fortran/teprob.f= first, then the table, so transcription is checked
+by machine. =XMW(2)= must come out 25.399999618530273 rather than 25.4.
+
+The only remaining blocked item is B-0002b, which needs a GitHub remote. Worth
+noting that the CI workflow has now been edited twice without ever running, so
+its first execution will likely need a fixup pass.
