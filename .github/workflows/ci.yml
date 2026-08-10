@@ -107,5 +107,10 @@ jobs:
 
       # `+nightly` is required: rust-toolchain.toml would otherwise override the
       # nightly this job just installed, and miri is not in the pinned stable.
+      #
+      # `--lib` only: miri is here to check for undefined behaviour, and the
+      # integration tests read the vendored Fortran from disk, which miri
+      # forbids without disabling isolation. Relaxing isolation to run tests
+      # that cannot exhibit UB would weaken the check for nothing.
       - name: Miri on tepsim-core
-        run: cargo +nightly miri test -p tepsim-core
+        run: cargo +nightly miri test -p tepsim-core --lib

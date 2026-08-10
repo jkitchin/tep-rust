@@ -1,0 +1,7 @@
+# `cargo xtask ...` is the documented entry point for every gate and validation
+# command in this repository (see CLAUDE.md). Without this alias the command
+# does not exist, and it went missing until the first CI run caught it: local
+# sessions had all been invoking `cargo run -p xtask --` directly, so the
+# documented command had never actually been executed.
+[alias]
+xtask = "run --package xtask --quiet --"
