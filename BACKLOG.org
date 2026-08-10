@@ -16,7 +16,7 @@ Rewrite this block at the end of every iteration. Keep it to five lines.
 
 - Phase: 0, in progress
 - Last completed: B-0003 vendor the reference material
-- In flight: (none)
+- In flight: B-0004a (oracle: link and drive the Fortran)
 - Baseline: =cargo xtask ci= green, 24 tests; reference pinned; 0% of teprob.f
   ported (1589 lines unclaimed)
 - Blocked on: B-0001b (install =rustup=?) and B-0002b (create a GitHub remote?).
@@ -150,43 +150,88 @@ Done when:
       original authors) and a SHA-256 for every file
 - [X] A test asserts every checksum, so accidental edits fail CI
 
-** TODO B-0004 Oracle harness: drive the original Fortran from Rust
+** NEXT B-0004a Oracle harness: link and drive the Fortran
 :PROPERTIES:
-:ID:    B-0004
+:ID:    B-0004a
 :PHASE: 0
 :TIER:  none
 :DEPS:  B-0003
 :PLAN:  Validation > The oracle harness
 :END:
 
-Scope: the instrument that turns the whole port into differential testing. Build
-it before writing any model code.
+Scope: get the original Fortran compiling, linking and callable from a Rust
+test. Everything from B-0005 onward is differential testing against this, so it
+comes before any model code.
+
+Probed feasible: =gfortran -c -O0 -fno-fast-math -fPIC -std=legacy teprob.f=
+compiles clean and exposes =tefunc_=, =teinit_=, and the COMMON blocks as
+linkable symbols, so no C shim is needed. Note =shutdn_= is absent because =ISD=
+is local in the original; exposing it is B-0004b's problem.
 
 Done when:
-- [ ] =tepsim-oracle/build.rs= compiles the unmodified Fortran with gfortran
-- [ ] Compiler flags are pinned explicitly in =build.rs=, with no =-ffast-math=
-      or any other reassociation-permitting flag, and a test asserts the flag set
-- [ ] A C shim exposes =TEINIT=, =TEFUNC=, =TESUB1= through =TESUB8=, and
-      read/write access to =/PV/=, =/DVEC/=, =/TEPROC/=, =/WLK/=, =/CONST/=,
-      =/RANDSD/=, =/SHUTDN/=
-- [ ] A Rust test sets an arbitrary 50-state, calls =TEFUNC=, and reads back all
-      50 derivatives
-- [ ] Everything is behind the =oracle= feature; =cargo xtask ci --fast= skips it
-- [ ] CI job runs it on Linux and macOS (never Windows)
-- [ ] Nothing shipped depends on this crate; a test asserts that
-- [ ] =cargo xtask fidelity= is real: emits a golden trace of 100 Euler steps
-      from the nominal initial state (all 50 derivatives, all 50 states, the RNG
-      word, and the 41 measurements at each step), commits it, and diffs against
-      it *without needing gfortran*, so the preflight runs anywhere in seconds
-- [ ] The golden trace file records the gfortran version and flags that produced
-      it, and =xtask fidelity= warns loudly when the local gfortran differs
+- [ ] =build.rs= compiles =reference/fortran/teprob.f= with gfortran, without
+      copying or editing the vendored file
+- [ ] Flags pinned explicitly, no =-ffast-math= or any other reassociation-
+      permitting flag, and a test asserts the exact flag set
+- [ ] =libgfortran= located and linked on both Linux and macOS
+- [ ] FFI for =TEFUNC=, =TEINIT= and the =/PV/=, =/DVEC/=, =/RANDSD/= blocks,
+      behind a safe wrapper
+- [ ] A Rust test calls =TEINIT= then =TEFUNC= and reads back all 50 derivatives
+- [ ] The nominal initial measurements are asserted against known values
+      (reactor temperature about 120.4 C, pressure about 2705 kPa)
+- [ ] All behind the =oracle= feature; =cargo xtask ci --fast= still skips it
+- [ ] =CLAUDE.md= updated: the oracle needs =unsafe= for FFI, so its
+      =forbid(unsafe_code)= is lifted and the exception recorded
+
+** TODO B-0004b Oracle harness: full state access
+:PROPERTIES:
+:ID:    B-0004b
+:PHASE: 0
+:TIER:  none
+:DEPS:  B-0004a
+:PLAN:  Validation > The oracle harness
+:END:
+
+Scope: everything a differential test needs to force both implementations into
+an identical state.
+
+Done when:
+- [ ] FFI for the =/TEPROC/=, =/WLK/= and =/CONST/= blocks with layouts asserted
+      against the Fortran declarations, including the trailing =IVST(12)=
+      integers after the doubles in =/TEPROC/=
+- [ ] FFI for =TESUB1= through =TESUB8=
+- [ ] =ISD= exposed. =reference/= is checksummed and must not be edited, so the
+      instrumentation is applied at build time into =OUT_DIR=, driven by an
+      explicit string replacement that asserts its own pre-image and fails loudly
+      if upstream text ever differs
+- [ ] Round-trip test: write a state through the blocks, read it back unchanged
+- [ ] Nothing shipped depends on this crate; a test asserts it
+
+** TODO B-0004c Golden trace and a real fidelity preflight
+:PROPERTIES:
+:ID:    B-0004c
+:PHASE: 0
+:TIER:  none
+:DEPS:  B-0004b
+:PLAN:  Validation > Tier 9; CLAUDE.md > Fidelity preflight
+:END:
+
+Turns the preflight on for every session after this one.
+
+Done when:
+- [ ] A golden trace of 100 Euler steps from the nominal initial state: all 50
+      states, all 50 derivatives, the RNG word and the 41 measurements per step
+- [ ] The trace records the gfortran version and flags that produced it
+- [ ] =cargo xtask fidelity= diffs against it *without* needing gfortran, in
+      seconds, and warns loudly when the local gfortran differs
+- [ ] =CLAUDE.md= preflight section stops saying the step is skipped
 
 ** TODO B-0005 Port TESUB7 (the LCG) and prove bit-exactness
 :PROPERTIES:
 :ID:    B-0005
 :PHASE: 0
 :TIER:  1
-:DEPS:  B-0004
+:DEPS:  B-0004c
 :PLAN:  Anatomy > Random number generator
 :END:
 
