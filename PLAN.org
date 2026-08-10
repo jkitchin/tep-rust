@@ -308,6 +308,13 @@ Linux x86-64, macOS aarch64, Windows x86-64, and wasm32 under both Node and
 headless Chrome. If the digests ever diverge, the build fails and we know
 immediately.
 
+The Rust toolchain is pinned to an exact version in =rust-toolchain.toml= rather
+than tracking =stable=, for the same reason the gfortran flags are pinned: a
+digest recorded under one compiler and checked under another turns an upgrade
+into what looks like a numerical regression. =cargo xtask ci= asserts the running
+=rustc= matches the pin, because the pin is silently ignored whenever =cargo= is
+not rustup's.
+
 For validation against the Fortran specifically, a non-default =libm-system=
 feature switches to the platform libm, which lets us demonstrate that trajectory
 divergence from the Fortran is caused by transcendental rounding and nothing

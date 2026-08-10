@@ -1,0 +1,15 @@
+# Pinned exactly, not tracking `stable`.
+#
+# Cross-platform bit-identical results are a hard invariant of this project
+# (PLAN.org, "Numerics and determinism"), and Tier 9 asserts identical digests
+# across x86-64, aarch64 and wasm32. A toolchain that drifts underneath those
+# digests turns a compiler upgrade into what looks like a numerical regression,
+# which is exactly the confusion CLAUDE.md's re-baseline rule exists to prevent.
+#
+# Bumping this is a deliberate, logged re-baseline: run the full gate, compare
+# the recorded validation numbers, and say so in LOG.org.
+[toolchain]
+channel = "1.97.1"
+profile = "minimal"
+components = ["rustfmt", "clippy"]
+targets = ["wasm32-unknown-unknown"]

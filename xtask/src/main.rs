@@ -43,6 +43,9 @@ const PROVENANCE_MARKER: &str = "@port";
 /// The file a claim refers to, following the marker.
 const PROVENANCE_TAG: &str = "teprob.f:";
 
+/// The pinned toolchain manifest, relative to the workspace root.
+const TOOLCHAIN_FILE: &str = "rust-toolchain.toml";
+
 /// Path to the vendored original, relative to the workspace root.
 const REFERENCE_FORTRAN: &str = "reference/fortran/teprob.f";
 
@@ -106,6 +109,7 @@ fn workspace_root() -> PathBuf {
 // ---------------------------------------------------------------------------
 
 fn cmd_ci(root: &Path, fast: bool) -> Result<(), String> {
+    check_toolchain(root)?;
     check_oracle_isolation(root)?;
 
     step(root, "cargo", &["fmt", "--all", "--check"])?;
@@ -147,6 +151,64 @@ fn cmd_ci(root: &Path, fast: bool) -> Result<(), String> {
 
     println!("\nci: green");
     Ok(())
+}
+
+/// The running compiler must be the one `rust-toolchain.toml` pins.
+///
+/// `rust-toolchain.toml` only takes effect when `cargo` is rustup's. On a
+/// machine whose PATH reaches a distribution or Homebrew toolchain first, the
+/// file is *silently ignored* and every validation number is produced by an
+/// unknown compiler. That is precisely the kind of quiet mismatch this project
+/// refuses to tolerate, so it is checked rather than assumed.
+fn check_toolchain(root: &Path) -> Result<(), String> {
+    let manifest = root.join(TOOLCHAIN_FILE);
+    let text =
+        fs::read_to_string(&manifest).map_err(|e| format!("reading {TOOLCHAIN_FILE}: {e}"))?;
+
+    let pinned = parse_pinned_channel(&text)
+        .ok_or_else(|| format!("{TOOLCHAIN_FILE} has no `channel` entry"))?;
+
+    let output = Command::new("rustc")
+        .arg("--version")
+        .output()
+        .map_err(|e| format!("running rustc: {e}"))?;
+    let version = String::from_utf8_lossy(&output.stdout);
+    let running = parse_rustc_version(&version)
+        .ok_or_else(|| format!("could not parse `{}`", version.trim()))?;
+
+    if running != pinned {
+        return Err(format!(
+            "toolchain mismatch: {TOOLCHAIN_FILE} pins {pinned}, but `rustc` here \
+             is {running}.\n\
+             The pin only applies when cargo comes from rustup. Check `command -v \
+             cargo`;\n if it is not under ~/.cargo/bin, another toolchain is \
+             shadowing it and\n every number this gate produces would come from an \
+             unrecorded compiler."
+        ));
+    }
+    println!("[ok] toolchain: rustc {running} matches {TOOLCHAIN_FILE}");
+    Ok(())
+}
+
+/// The `channel` value from a `rust-toolchain.toml`, ignoring comments.
+fn parse_pinned_channel(text: &str) -> Option<String> {
+    text.lines()
+        .map(str::trim)
+        .filter(|line| !line.starts_with('#'))
+        .find_map(|line| line.strip_prefix("channel"))
+        .and_then(|rest| rest.trim().strip_prefix('='))
+        .map(|rest| {
+            // Strip a trailing inline comment before unquoting.
+            let value = rest.split('#').next().unwrap_or(rest).trim();
+            value.trim_matches('"').to_string()
+        })
+        .filter(|value| !value.is_empty())
+}
+
+/// The version from `rustc --version` output, e.g. `1.97.1`.
+fn parse_rustc_version(output: &str) -> Option<&str> {
+    let mut parts = output.split_whitespace();
+    (parts.next()? == "rustc").then(|| parts.next())?
 }
 
 /// The oracle links the original Fortran and must never reach a shipped
@@ -584,6 +646,56 @@ mod tests {
     /// shipped crate ever depended on it, wheels and the wasm bundle would try
     /// to drag a Fortran toolchain along. `xtask ci` checks this as a gate
     /// step; this makes plain `cargo test` catch it too.
+    #[test]
+    fn reads_the_pinned_channel_past_the_comment_block() {
+        let text = "# a comment mentioning channel = \"9.9.9\"\n\
+                    [toolchain]\n\
+                    channel = \"1.97.1\"\n\
+                    profile = \"minimal\"\n";
+        assert_eq!(parse_pinned_channel(text).as_deref(), Some("1.97.1"));
+    }
+
+    #[test]
+    fn tolerates_spacing_and_inline_comments() {
+        assert_eq!(
+            parse_pinned_channel("channel   =   \"1.90.0\"   # pinned").as_deref(),
+            Some("1.90.0")
+        );
+    }
+
+    #[test]
+    fn a_file_with_no_channel_yields_nothing() {
+        assert_eq!(
+            parse_pinned_channel("[toolchain]\nprofile = \"minimal\"\n"),
+            None
+        );
+    }
+
+    #[test]
+    fn reads_the_running_rustc_version() {
+        assert_eq!(
+            parse_rustc_version("rustc 1.97.1 (8bab26f4f 2026-07-14)\n"),
+            Some("1.97.1")
+        );
+    }
+
+    #[test]
+    fn rejects_output_that_is_not_rustc() {
+        assert_eq!(parse_rustc_version("cargo 1.97.1 (c980f4866)"), None);
+        assert_eq!(parse_rustc_version(""), None);
+        assert_eq!(parse_rustc_version("rustc"), None);
+    }
+
+    /// The failure this guard exists for: a pinned file plus a shadowing
+    /// toolchain, which otherwise passes silently.
+    #[test]
+    fn a_mismatch_is_detectable_from_the_two_parsers_alone() {
+        let pinned = parse_pinned_channel("channel = \"1.97.1\"").expect("pinned");
+        let running =
+            parse_rustc_version("rustc 1.89.0 (29483883e 2025-08-04) (Homebrew)").expect("running");
+        assert_ne!(running, pinned);
+    }
+
     #[test]
     fn no_shipped_crate_depends_on_the_oracle() {
         check_oracle_isolation(&workspace_root()).expect("oracle isolation");

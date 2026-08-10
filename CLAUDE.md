@@ -237,16 +237,20 @@ because there is no model code to protect.
 
 ## Environment
 
-Verified present on this machine: `git` 2.50, `cargo`/`rustc` 1.89 (Homebrew),
-`gfortran` 15.2 (Homebrew GCC), `python3` 3.13, `maturin` 1.12.4, `cargo-deny`.
+Verified present: `git` 2.50, `rustup` 1.29, `rustc`/`cargo` **1.97.1** pinned by
+`rust-toolchain.toml`, `wasm32-unknown-unknown` installed, `gfortran` 15.2
+(Homebrew GCC), `python3` 3.13, `maturin` 1.12.4, `cargo-deny`.
 
-Missing, and needed later:
+`cargo xtask ci` asserts the running `rustc` matches the pin. That check exists
+because `rust-toolchain.toml` is **silently ignored** when `cargo` is not
+rustup's, and Homebrew's Rust 1.89 is still installed on this machine at
+`/opt/homebrew/bin`. It loses on PATH order today, but a PATH change would
+otherwise switch compilers without a word.
 
-- **`rustup`** is not installed; Rust comes from Homebrew. This blocks
-  `rust-toolchain.toml` pinning and the `wasm32-unknown-unknown` target.
-  Handled by **B-0001**. Installing it changes the user's system, so **ask
-  before doing it.**
-- **`trunk`** is not installed. Needed only for Phase 8 (the browser app).
+Bumping the pin is a deliberate, logged re-baseline, the same as a `gfortran`
+change.
+
+Still missing: **`trunk`**, needed only for Phase 8 (the browser app).
 
 The oracle needs `gfortran`, which is present here. In CI it runs on Linux and
 macOS runners only, never Windows.

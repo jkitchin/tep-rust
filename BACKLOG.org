@@ -19,8 +19,9 @@ Rewrite this block at the end of every iteration. Keep it to five lines.
 - In flight: (none)
 - Baseline: =cargo xtask ci= green; 44 tests default, 76 with =oracle=;
   provenance 9/1589 lines claimed (0.6%)
-- Blocked on: B-0001b (install =rustup=?) and B-0002b (create a GitHub remote?).
-  Next unblocked item is B-0006, the constants table.
+- Toolchain: rustup, pinned to rustc 1.97.1, wasm32 installed
+- Blocked on: B-0002b only (create a GitHub remote?). Next unblocked item is
+  B-0006, the constants table.
 
 * Phase 0: foundations
 
@@ -46,23 +47,24 @@ Done when:
       required citations
 - [X] =README.md= states what this is, its status, and links =PLAN.org=
 
-** NEXT B-0001b Toolchain pinning
+** DONE B-0001b Toolchain pinning
 :PROPERTIES:
-:ID:       B-0001b
-:PHASE:    0
-:TIER:     none
-:DEPS:     B-0001a
-:PLAN:     Architecture > Workspace layout
-:QUESTION: May we install rustup? Rust here is Homebrew's, which cannot pin a
-           toolchain or add the wasm32 target. Alternative: skip rustup, accept
-           an unpinned host toolchain, and defer wasm to Phase 8.
+:ID:     B-0001b
+:PHASE:  0
+:TIER:   none
+:DEPS:   B-0001a
+:PLAN:   Architecture > Workspace layout
+:RESULT: rustup 1.29.0 installed with user approval; toolchain pinned to 1.97.1,
+         up from Homebrew's 1.89.0. Gate green across the 8-version jump with no
+         code changes, and the RNG vectors still bit-exact. wasm32 target
+         installed and building. `xtask ci` now asserts rustc matches the pin.
 :END:
 
 Done when:
-- [ ] =rustup= installed (with permission) and =rust-toolchain.toml= pins a
+- [X] =rustup= installed (with permission) and =rust-toolchain.toml= pins a
       stable version plus the =wasm32-unknown-unknown= target
-- [ ] =rustc --version= from the pinned toolchain matches =rust-toolchain.toml=
-- [ ] =PLAN.org= and =CLAUDE.md= environment notes updated to match reality
+- [X] =rustc --version= from the pinned toolchain matches =rust-toolchain.toml=
+- [X] =PLAN.org= and =CLAUDE.md= environment notes updated to match reality
 
 ** DONE B-0002a Workspace skeleton, xtask, and the local gate
 :PROPERTIES:
@@ -483,7 +485,6 @@ Exit: 1.0 tagged, all three surfaces built from one commit.
 
 Items parked on a decision. Move them back into their phase when answered.
 
-- B-0001b toolchain pinning: may we install =rustup=?
 - B-0002b CI verified green: may we create a GitHub remote and push?
 
 * Decisions
