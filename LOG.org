@@ -327,3 +327,93 @@ than editing =reference/= (which the checksum test now forbids anyway). Prove a
 Rust test can force a 50-state into =TEFUNC= and read back all 50 derivatives.
 Then make =xtask fidelity= real by emitting and committing the golden 100-step
 trace, which turns the preflight on for every session after this one.
+
+* 2026-08-09 B-0004a Oracle harness: link and drive the Fortran
+:PROPERTIES:
+:ITEM:     B-0004a
+:PHASE:    0
+:TIER:     none
+:COMMIT:   386c22c
+:GFORTRAN: 15.2.0
+:FFLAGS:   -c -O0 -fno-fast-math -fno-unsafe-math-optimizations -fPIC -std=legacy
+:STATUS:   DONE
+:END:
+
+** Preflight
+Clean and green. =xtask provenance= 1589 total, 0 claimed, one span 1-1589,
+identical to the B-0003 baseline. gfortran 15.2.0, unchanged. Fidelity still
+skipped; B-0004c turns it on.
+
+** What changed
+The original Fortran now compiles, links and runs from a Rust test. =build.rs=
+compiles =reference/fortran/teprob.f= in place, never copying or editing it, and
+finds =libgfortran= by asking gfortran rather than guessing at layouts. Flags are
+pinned and asserted, and the gfortran version and flag set are compiled in as env
+vars for B-0004c to record.
+
+No C shim: gfortran's =tefunc_= and =teinit_= symbols and its COMMON blocks are
+named directly from Rust. Since COMMON blocks are process-wide mutable globals
+and the Fortran is not reentrant, access goes through a mutex-guarded singleton;
+there is no way to reach the Fortran without holding the lock. B-0004 was split
+into a/b/c after a feasibility probe.
+
+** Validation numbers
+=cargo xtask ci= green. 24 tests with default features, 37 with =oracle=, up
+from 24. Both build paths verified: default features need no Fortran toolchain.
+
+Nominal operating point from =TEINIT= plus one =TEFUNC=, against the published
+values in parentheses:
+
+| XMEAS(7)  reactor pressure | 2704.999984 kPa | (2705) |
+| XMEAS(8)  reactor level    |   74.999997 %   |   (75) |
+| XMEAS(9)  reactor temp     |  120.400000 C   |(120.4) |
+| XMEAS(12) separator level  |   50.000001 %   |   (50) |
+| XMEAS(15) stripper level   |   50.000000 %   |   (50) |
+
+Derivatives at the nominal point: 38 of 50 non-zero, max magnitude 2.544261e-3.
+Not a steady state to machine precision, which is expected and is why the
+closed-loop controllers exist.
+
+Determinism confirmed: with the same state and the same RNG word, two =TEFUNC=
+calls are bit-identical and consume the same number of draws. Without that,
+nothing downstream could mean anything.
+
+RNG draw counts, which Tier 3 will have to reproduce exactly:
+- at t=0: *0 draws*
+- at the first step past zero (t = 1/3600 h): *exactly 264 draws*
+
+** Surprises and decisions
+*The original draws no random numbers at t=0.* Three guards line up to make it
+so, and assuming otherwise is easy: I wrote a test asserting the generator
+advances on the first call and it failed. =TEINIT= sets =TNEXT(I)=0.1= at
+=teprob.f:1362=, so both walk loops at =teprob.f:359= and =teprob.f:372= are
+skipped; the noise loop at =teprob.f:711= is gated on =TIME.GT.0.0=; and the
+analyser blocks do not fire until t=0.1 and t=0.25. The measurement noise
+sequence therefore begins on the *second* step. A port that starts drawing at
+t=0 would diverge from the very first sample and look like an arithmetic problem.
+
+*The first step past zero draws exactly 264 uniforms*, being the 22 continuous
+measurements times the 12 uniforms =TESUB6= sums per measurement
+(=teprob.f:1539-1546=). Predicted from reading the source, then confirmed by
+walking the LCG forward from the seed to the observed word. This is a precise,
+cheap Tier 3 checkpoint available before any model code exists.
+
+*The oracle needs =unsafe=*, which =CLAUDE.md= previously allowed only in the
+PyO3 and wasm glue. The rule now names three FFI crates and requires
+=deny(unsafe_op_in_unsafe_fn)=, a safe wrapper, and a real =// SAFETY:= argument
+on every block.
+
+Smaller: rustdoc with =-D warnings= fails on intra-doc links to =Oracle= from the
+crate-level docs, because the workspace doc build runs with default features and
+the type does not exist there. Those two references are plain code spans now,
+with a note saying why.
+
+** Next
+B-0004b, full state access: the =/TEPROC/=, =/WLK/= and =/CONST/= blocks plus
+=TESUB1= through =TESUB8=. Two things to be careful about. =/TEPROC/= is a large
+block ending in =IVST(12)= integers after a long run of doubles, so its Rust
+layout needs asserting against the Fortran declaration at =teprob.f:243-271=
+rather than eyeballing. And =ISD= is still unreachable because it is a local in
+the original; exposing it means instrumenting at build time into =OUT_DIR= with
+an explicit string replacement that asserts its own pre-image, since
+=reference/= is checksummed and must stay pristine.
