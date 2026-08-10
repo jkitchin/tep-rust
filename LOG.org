@@ -739,3 +739,76 @@ by machine. =XMW(2)= must come out 25.399999618530273 rather than 25.4.
 The only remaining blocked item is B-0002b, which needs a GitHub remote. Worth
 noting that the CI workflow has now been edited twice without ever running, so
 its first execution will likely need a fixup pass.
+
+* 2026-08-10 B-0007 Component, composition and stream vocabulary
+:PROPERTIES:
+:ITEM:     B-0007
+:PHASE:    1
+:TIER:     none
+:COMMIT:   6532e80
+:GFORTRAN: 15.2.0
+:RUSTC:    1.97.1
+:STATUS:   DONE
+:END:
+
+** Preflight
+Clean and green. =xtask fidelity= green, local gfortran 15.2.0 matches the
+trace. Provenance 9/1589 (0.6%), matching the B-0005 baseline. rustc 1.97.1
+matches the pin.
+
+** What changed
+=Component=, =ByComponent<T>=, =Composition=; the 13-variant =Stream= enum; and
+=MeasIndex=/=MvIndex=/=ValveId= with the full measurement and manipulated
+variable tables. A shared =assert_exact= test helper. B-0007 was reordered ahead
+of B-0006.
+
+** Validation numbers
+=cargo xtask ci= green. *74 tests default, 106 with =oracle==, up from 50 and 82.
+
+*Provenance 83/1589 lines claimed, 5.2%*, up from 9 (0.6%). Four unclaimed
+spans: 1-93, 108, 169-1546, 1556-1589.
+
+The header cross-check covers all 41 measurements and all 12 manipulated
+variables, comparing whitespace-normalised text against the vendored source.
+Teeth-checked twice: changing XMEAS(14)'s unit from m3/hr to kg/hr fails with
+both strings quoted, and changing "stream 10" to "stream 11" in XMV(7)'s
+description fails too.
+
+Analyser groupings verified against the header: 6 species on the reactor feed,
+8 on the purge gas, 5 on the product, with 2 analysers at 0.1 h sampling and 1
+at 0.25 h.
+
+** Surprises and decisions
+*The backlog had a dependency inversion.* B-0006 required constants "indexed by
+=Component=" while =Component= was defined in B-0007, which depended on B-0006.
+Caught at the pick step, which is what that step is for. Swapped, with the
+reason recorded in the item.
+
+*The stream mapping was re-derived rather than trusted.* =PLAN.org= already had
+the table from the planning session, but CLAUDE.md says to read the Fortran
+rather than the port, so I matched each =FTM= index against the manipulated
+variable that drives it and the measurement that reports it. It agreed, and the
+specific lines are now cited in the module docs so nobody has to redo it. Worth
+stating plainly what the trap is: only the A and C feed has an internal index
+equal to its paper number, and the A and D feeds are swapped relative to naive
+expectation.
+
+*The =Composition= tolerance is set by the original, not by taste.* 1e-6 rather
+than something tighter, because the feed compositions are single-precision
+literals that sum to 1 only to 1.7e-8. A test asserts the tolerance admits the
+original's data *and* that the data is genuinely off by more than a rounding
+error, so the tolerance cannot be quietly tightened later without failing.
+
+*=clippy::float_cmp= has now cost four separate detours.* Fixed systemically
+with a shared =assert_exact= helper rather than a fifth case-by-case patch.
+Suppressing the lint would be wrong, since it catches real mistakes, and an
+approximate comparison would be wrong too, since these values are meant to be
+exact.
+
+** Next
+B-0006, the constants table, now unblocked and with =Component= available to
+index it. The hazard is already documented in the item: 182 assignments in
+=TEINIT= are single-precision literals. Write the test that enumerates =D=-suffix
+status straight from =reference/fortran/teprob.f= *before* the table, so the
+transcription is machine-checked, exactly as the header-table test just did for
+names and units. =XMW(2)= must come out 25.399999618530273.
