@@ -35,3 +35,8 @@ __pycache__/
 *~
 \#*\#
 .\#*
+
+# Claude Code transient session state. Project-level settings, if any are added
+# later, should be tracked deliberately rather than swept in by a broad rule.
+.claude/scheduled_tasks.lock
+.claude/settings.local.json
