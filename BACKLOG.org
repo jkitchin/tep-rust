@@ -20,8 +20,8 @@ Rewrite this block at the end of every iteration. Keep it to five lines.
 - Baseline: =cargo xtask ci= green; 74 tests default, 106 with =oracle=;
   provenance 83/1589 lines claimed (5.2%)
 - Toolchain: rustup, pinned to rustc 1.97.1, wasm32 installed
-- Blocked on: B-0002b only (create a GitHub remote?). Next unblocked item is
-  B-0006, the constants table.
+- Remote: private jkitchin/tep-rust, CI green on all 7 jobs
+- Blocked on: nothing. Next item is B-0006, the constants table.
 
 * Phase 0: foundations
 
@@ -109,13 +109,18 @@ its own comment line reading =@port teprob.f:START-END=, anchored at the start
 of the comment. Anchoring is load-bearing, not cosmetic; see the B-0002a log
 entry for why.
 
-** NEXT B-0002b CI matrix verified green
+** DONE B-0002b CI matrix verified green
 :PROPERTIES:
-:ID:    B-0002b
-:PHASE: 0
-:TIER:  none
-:DEPS:  B-0002a
-:PLAN:  Testing, CI, and release engineering
+:ID:     B-0002b
+:PHASE:  0
+:TIER:   none
+:DEPS:   B-0002a
+:PLAN:   Testing, CI, and release engineering
+:RESULT: Private jkitchin/tep-rust created and pushed. All 7 jobs green on run
+         31388180377 after three failing runs exposed four real defects:
+         `cargo xtask` had no alias, the golden trace demanded bit equality
+         across three different gfortrans, Windows mangled line endings, and two
+         of my own fixes silently failed to apply.
 :END:
 
 Needs a GitHub remote, which is an outward-facing action requiring the user's
@@ -123,10 +128,12 @@ say-so. The workflow file itself lands in B-0002a; this item is about proving it
 runs.
 
 Done when:
-- [ ] Remote exists and =main= is pushed
-- [ ] GitHub Actions matrix green on Linux x86-64, macOS arm64, Windows x86-64
-- [ ] A failing commit is shown to actually fail the workflow, so the gate is
-      known to have teeth
+- [X] Remote exists and =main= is pushed
+- [X] GitHub Actions matrix green on Linux x86-64, macOS arm64, Windows x86-64
+- [X] A failing commit is shown to actually fail the workflow, so the gate is
+      known to have teeth. Satisfied by three genuinely failing runs
+      (31385781606, 31386640152, 31387437653) rather than a contrived break:
+      each failed on a different real defect with an actionable message.
 
 ** DONE B-0003 Vendor the reference material
 :PROPERTIES:
@@ -496,7 +503,7 @@ Exit: 1.0 tagged, all three surfaces built from one commit.
 
 Items parked on a decision. Move them back into their phase when answered.
 
-- B-0002b CI verified green: may we create a GitHub remote and push?
+(none)
 
 * Decisions
 
