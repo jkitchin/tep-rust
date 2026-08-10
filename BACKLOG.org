@@ -46,7 +46,7 @@ Done when:
       required citations
 - [X] =README.md= states what this is, its status, and links =PLAN.org=
 
-** BLOCKED B-0001b Toolchain pinning
+** NEXT B-0001b Toolchain pinning
 :PROPERTIES:
 :ID:       B-0001b
 :PHASE:    0
