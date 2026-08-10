@@ -14,13 +14,13 @@ earlier phases will change what the right decomposition is.
 
 Rewrite this block at the end of every iteration. Keep it to five lines.
 
-- Phase: 0, in progress
-- Last completed: B-0004b oracle harness has full state access
+- Phase: *0 complete*; phase 1 next
+- Last completed: B-0004c golden trace and fidelity preflight
 - In flight: (none)
-- Baseline: =cargo xtask ci= green; 25 tests default, 51 with =oracle=; 0% of
-  teprob.f ported (1589 lines unclaimed)
+- Baseline: =cargo xtask ci= green; 34 tests default, 63 with =oracle=; golden
+  trace live; 0% of teprob.f ported (1589 lines unclaimed)
 - Blocked on: B-0001b (install =rustup=?) and B-0002b (create a GitHub remote?).
-  Next unblocked item is B-0004c, golden trace and a real fidelity preflight.
+  Next unblocked item is B-0005, port TESUB7 and prove bit-exactness.
 
 * Phase 0: foundations
 
@@ -216,13 +216,15 @@ Done when:
 - [X] Round-trip test: write a state through the blocks, read it back unchanged
 - [X] Nothing shipped depends on this crate; a test asserts it
 
-** NEXT B-0004c Golden trace and a real fidelity preflight
+** DONE B-0004c Golden trace and a real fidelity preflight
 :PROPERTIES:
-:ID:    B-0004c
-:PHASE: 0
-:TIER:  none
-:DEPS:  B-0004b
-:PLAN:  Validation > Tier 9; CLAUDE.md > Fidelity preflight
+:ID:     B-0004c
+:PHASE:  0
+:TIER:   none
+:DEPS:   B-0004b
+:PLAN:   Validation > Tier 9; CLAUDE.md > Fidelity preflight
+:RESULT: 100-step trace committed, 14,200 values as hex bit patterns, 240 KB.
+         63 tests with the oracle. Both halves teeth-checked. Phase 0 complete.
 :END:
 
 Turns the preflight on for every session after this one.
@@ -245,18 +247,18 @@ artefact and will be regenerated on a deliberate re-baseline, whereas
 =reference/= is vendored upstream material that never changes.
 
 Done when:
-- [ ] A golden trace of 100 Euler steps from the nominal initial state: all 50
+- [X] A golden trace of 100 Euler steps from the nominal initial state: all 50
       states, all 50 derivatives, the RNG word and the 41 measurements per step
-- [ ] Values stored as raw IEEE bit patterns, so comparison is exact rather than
+- [X] Values stored as raw IEEE bit patterns, so comparison is exact rather than
       decimal
-- [ ] The trace records the gfortran version, the flag set, the seed and the
+- [X] The trace records the gfortran version, the flag set, the seed and the
       step size that produced it
-- [ ] A generator behind the =oracle= feature, so re-baselining is one command
-- [ ] An oracle test regenerates the trace and compares it bit for bit
-- [ ] =cargo xtask fidelity= validates and reports the trace *without* gfortran,
+- [X] A generator behind the =oracle= feature, so re-baselining is one command
+- [X] An oracle test regenerates the trace and compares it bit for bit
+- [X] =cargo xtask fidelity= validates and reports the trace *without* gfortran,
       in seconds, and warns loudly when the local gfortran differs from the one
       recorded
-- [ ] =CLAUDE.md= preflight section says what the step actually covers today
+- [X] =CLAUDE.md= preflight section says what the step actually covers today
 
 ** TODO B-0005 Port TESUB7 (the LCG) and prove bit-exactness
 :PROPERTIES:

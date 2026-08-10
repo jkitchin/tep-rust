@@ -39,6 +39,9 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
 pub mod build_info;
+// Deliberately not gated on `oracle`: `cargo xtask fidelity` parses the golden
+// trace on machines with no Fortran toolchain at all.
+pub mod golden;
 
 #[cfg(feature = "oracle")]
 mod ffi;

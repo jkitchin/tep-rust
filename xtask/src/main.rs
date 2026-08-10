@@ -22,6 +22,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
+use tepsim_oracle::golden::{self, Trace};
+
 /// Crates that are published or shipped, and therefore must never depend on the
 /// development-only Fortran oracle.
 const SHIPPED_CRATES: &[&str] = &[
@@ -45,7 +47,7 @@ const PROVENANCE_TAG: &str = "teprob.f:";
 const REFERENCE_FORTRAN: &str = "reference/fortran/teprob.f";
 
 /// Path to the committed golden trace, relative to the workspace root.
-const GOLDEN_TRACE: &str = "reference/golden/nominal-100-steps.json";
+const GOLDEN_TRACE: &str = tepsim_oracle::golden::PATH;
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -393,15 +395,64 @@ fn gaps(merged: &[LineRange], total: usize) -> Vec<LineRange> {
 // ---------------------------------------------------------------------------
 
 fn cmd_fidelity(root: &Path) -> Result<(), String> {
-    if !root.join(GOLDEN_TRACE).exists() {
-        return Err(format!(
-            "no golden trace at {GOLDEN_TRACE}.\n\
-             The fidelity preflight is not available until B-0004 generates one \
-             from the Fortran oracle. Failing deliberately: a preflight that \
-             passed with nothing to check would be worse than no preflight."
-        ));
+    let path = root.join(GOLDEN_TRACE);
+    let text = fs::read_to_string(&path).map_err(|e| {
+        format!(
+            "cannot read the golden trace at {GOLDEN_TRACE}: {e}\n\
+             Regenerate it with:\n  \
+             cargo run -p tepsim-oracle --features oracle --bin gen-golden-trace"
+        )
+    })?;
+
+    let trace = Trace::parse(&text).map_err(|e| format!("{GOLDEN_TRACE}: {e}"))?;
+    trace
+        .require_full_length()
+        .map_err(|e| format!("{GOLDEN_TRACE}: {e}"))?;
+
+    println!("golden trace {GOLDEN_TRACE}");
+    println!("  steps          : {}", trace.steps.len());
+    println!("  values/step    : {}", golden::VALUES_PER_STEP);
+    println!("  recorded with  : gfortran {}", trace.gfortran);
+    println!("  fflags         : {}", trace.fflags);
+    println!("  seed           : {}", trace.seed);
+    println!("  dt             : {} h", trace.dt_hours);
+
+    // The trace is only meaningful against the compiler that produced it. A
+    // mismatch is a re-baseline, not a regression, and confusing the two costs
+    // a whole session.
+    match local_gfortran_version() {
+        Some(local) if local != trace.gfortran => {
+            println!(
+                "\n  WARNING: local gfortran is {local}, the trace was recorded with \
+                 {}.\n  Numbers measured against this trace may not reproduce here. \
+                 Per CLAUDE.md\n  that is a logged re-baseline, not a regression hunt.",
+                trace.gfortran
+            );
+        }
+        Some(local) => println!("  local gfortran : {local} (matches)"),
+        None => println!("  local gfortran : absent (fine; this check needs none)"),
     }
-    Err("golden trace exists but the comparison is not implemented (B-0004)".into())
+
+    // The other half of the preflight lives in tepsim-oracle, where the Fortran
+    // can actually be re-run. This half will diff the Rust port against the
+    // trace once there is a port; today it validates the anchor itself.
+    println!(
+        "\n  no Rust model to compare yet: 0 of {} recorded steps diffed.\n  \
+         This becomes a real comparison in phase 2. Toolchain drift is covered \
+         now by\n  the oracle test, which reruns the Fortran against this file.",
+        trace.steps.len()
+    );
+    Ok(())
+}
+
+/// The local gfortran version, or `None` if there is no Fortran compiler here.
+fn local_gfortran_version() -> Option<String> {
+    let output = Command::new("gfortran")
+        .arg("-dumpfullversion")
+        .output()
+        .ok()?;
+    let version = String::from_utf8(output.stdout).ok()?.trim().to_string();
+    (!version.is_empty()).then_some(version)
 }
 
 // ---------------------------------------------------------------------------

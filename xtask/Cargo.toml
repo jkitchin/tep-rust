@@ -9,8 +9,11 @@ license.workspace = true
 repository.workspace = true
 publish = false
 
-# Deliberately dependency-free. This runs at the top of every development
-# session, so its compile time is a tax on every iteration.
+# Almost dependency-free: this runs at the top of every development session, so
+# its compile time is a tax on every iteration. The one dependency is the golden
+# trace format, taken with default features so no Fortran toolchain is involved.
+[dependencies]
+tepsim-oracle.workspace = true
 
 [lints]
 workspace = true

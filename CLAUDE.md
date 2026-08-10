@@ -35,8 +35,7 @@ Three branch points:
 
 Green says nothing about whether fidelity to the Fortran degraded. Each session
 sees only its own item, but drift is a whole-project property, so it has to be
-re-established at the top of every cycle. Skip this only while no model code
-exists yet (through B-0004).
+re-established at the top of every cycle. Run it every session.
 
 ```bash
 gfortran --version | head -1                    # record this in the log entry
@@ -47,6 +46,16 @@ cargo xtask provenance                          # unclaimed teprob.f line ranges
 
 Then read the open questions in `book/src/deltas.md`, so you do not re-litigate a
 quirk that already has a decision.
+
+**What each half of the fidelity check covers**, so you know what a pass means:
+
+| Check | Needs gfortran | Covers |
+|---|---|---|
+| `xtask fidelity` | no | The golden trace is intact and well formed, and reports which gfortran recorded it. Will also diff the Rust port against it once one exists (phase 2). |
+| `cargo test -p tepsim-oracle --features oracle` (in the non-fast gate) | yes | The Fortran still reproduces the committed trace bit for bit. This is what catches a toolchain or flag change. |
+
+`xtask fidelity` prints how many steps it actually diffed. Until phase 2 that is
+`0 of 100`, and it says so rather than reporting a bare success.
 
 Four rules make this worth running:
 

@@ -40,3 +40,6 @@ __pycache__/
 # later, should be tracked deliberately rather than swept in by a broad rule.
 .claude/scheduled_tasks.lock
 .claude/settings.local.json
+
+# The golden trace is committed on purpose: it is the fidelity preflight's
+# anchor and must work without a Fortran toolchain. Not ignored.
