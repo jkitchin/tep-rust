@@ -130,7 +130,7 @@ Done when:
 :ID:    B-0003
 :PHASE: 0
 :TIER:  none
-:DEPS:  B-0002
+:DEPS:  B-0002a
 :PLAN:  Validation > The oracle harness
 :END:
 

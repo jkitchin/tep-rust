@@ -153,3 +153,89 @@ up as a build failure rather than as a surprise at publish time.
 
 ** Next
 Unchanged: B-0002, the workspace skeleton, xtask, and the CI gate.
+
+* 2026-08-09 B-0002a Workspace skeleton, xtask, and the local gate
+:PROPERTIES:
+:ITEM:     B-0002a
+:PHASE:    0
+:TIER:     none
+:COMMIT:   db62e40
+:GFORTRAN: 15.2.0
+:STATUS:   DONE
+:END:
+
+** Preflight
+Skipped per protocol: still no model code. Baseline was clean and green (no Rust
+code at all). gfortran 15.2.0 present, so the oracle job in =xtask ci= runs
+rather than skipping, and currently passes with zero tests.
+
+** What changed
+Nine crates on edition 2024, resolver 3: =tepsim-core= (=no_std= + =alloc=,
+=#![forbid(unsafe_code)]=), =-control=, =-scenario=, =tepsim= (facade,
+re-exporting its three layers), =-cli= (=tep= binary), =-py=, =-wasm=,
+dev-only =-oracle=, plus =xtask=. The binding crates are deliberately
+dependency-free until phases 7 and 8.
+
+=xtask= is dependency-free and has three subcommands: =ci [--fast]=,
+=provenance=, and =fidelity=. =ci= runs fmt, clippy =-D warnings=, test, doc
+with =RUSTDOCFLAGS=-D warnings=, =cargo deny=, and an oracle-isolation check
+that greps every shipped crate's manifest for =tepsim-oracle=.
+
+=deny.toml= allows exactly MIT and NCSA and bans =rayon= outright. That ban is
+not stylistic: data parallelism inside the core would reorder floating-point
+reductions and break the cross-platform determinism invariant that Tier 9 tests.
+
+=.github/workflows/ci.yml= has four jobs (gate on three platforms, oracle on
+Linux and macOS only, wasm32 build, Miri on core). Unverified until B-0002b.
+
+** Validation numbers
+=cargo xtask ci= green, exit 0. 20 tests pass workspace-wide, all in =xtask=;
+the other eight crates have no code yet. =cargo deny check=: advisories ok,
+bans ok, licenses ok, sources ok.
+
+Provenance verified end-to-end against a temporary copy of =teprob.f= (not
+committed; B-0003 vendors it properly):
+- nothing ported: 1594 total lines, 0 claimed (0.0%), 1 unclaimed span 1-1594
+- two synthetic claims: 27 claimed (1.7%), spans 1-504, 523-1551, 1561-1594
+
+27 = (1560-1552+1) + (522-505+1) = 9 + 18, and the carved spans are exactly
+right, so the range algebra is correct on real input and not just in unit tests.
+
+Both preflight tools fail closed with exit 2 and an actionable message:
+=provenance= because the reference is not vendored, =fidelity= because no golden
+trace exists.
+
+** Surprises and decisions
+The provenance scanner was wrong on its first real run. Scanning for the bare
+=teprob.f:= tag anywhere in the text, it reported *2.6% of the file already
+claimed across 2 files* when nothing had been ported: it was counting its own
+documentation examples and its own test fixtures. A coverage tool that
+overstates coverage is worse than no tool, and this is exactly the class of
+error it exists to catch, so it is worth being blunt that unit tests did not
+find it and running it against reality did.
+
+A claim is now one whole comment line, anchored: =@port teprob.f:START-END=.
+Prose mentioning the convention does not match, because after the comment prefix
+the line starts with a backtick rather than the marker; string fixtures do not
+match, because the line starts with code. Four regression tests pin this, and
+=xtask= itself is no longer scanned. This is the mechanism every later iteration
+depends on, so it is recorded in =CLAUDE.md= and =BACKLOG.org= too.
+
+Second, smaller: the clippy =float_cmp= lint fired on my own test asserting
+=percent(0, 0) == 0.0=. Rather than =#[allow]= it, the assertion now compares
+=to_bits()=, which is exact and states the intent (positive zero, not NaN)
+more precisely than the original.
+
+Third: cleanup after the end-to-end check used =git checkout --= on a file that
+was untracked, so it silently failed and left a synthetic annotation in the
+source. Caught by inspecting rather than trusting the command. Worth remembering
+that =git checkout= is not a cleanup mechanism for work that has never been
+committed.
+
+** Next
+B-0003, vendor the reference material. It is the direct unblocker for
+=xtask provenance= and for B-0004, and needs no user input: copy the three
+Fortran files and the =d00=-=d21= datasets into =reference/=, record provenance
+and SHA-256 for each, and add a checksum test so accidental edits fail the gate.
+Note the upstream repo is already cloned in this session's scratchpad, but a
+fresh clone pinned to a recorded commit is the better provenance story.
