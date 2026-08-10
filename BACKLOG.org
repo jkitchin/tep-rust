@@ -91,6 +91,9 @@ Done when:
 - [ ] GitHub Actions matrix: Linux x86-64, macOS arm64, Windows x86-64; green
 - [ ] =cargo deny= config committed and passing
 
+- [ ] Every crate's =Cargo.toml= declares =license = "MIT AND NCSA"= and
+      =cargo deny= is configured to accept exactly those two
+
 Note: the provenance annotation mechanism is decided here, not later. A doc
 attribute such as =#[doc = "Ported from teprob.f:505-522"]= parsed by xtask is
 enough; whatever is chosen, every subsequent iteration depends on it.
@@ -352,13 +355,16 @@ Exit: 1.0 tagged, all three surfaces built from one commit.
 Items parked on a decision. Move them back into their phase when answered.
 
 - B-0001b toolchain pinning: may we install =rustup=?
-- Open, non-blocking: new-code license is BSD-3-Clause for consistency with the
-  upstream Python project. The crates.io norm is dual MIT OR Apache-2.0, which
-  adds an explicit patent grant. Cheap to change until first publish.
 
 * Decisions
 
 Append-only record of choices that changed =PLAN.org=.
+
+** 2026-08-09 License: MIT
+New work is MIT, replacing the BSD-3-Clause placeholder. The upstream NCSA
+conditions cannot be dropped and continue to apply to the derived portions, so
+=LICENSE-NCSA= and =NOTICE.md= remain and must ship in binary artifacts. Crate
+metadata declares =license = "MIT AND NCSA"=.
 
 ** 2026-08-09 Initial four decisions
 Browser app is Rust-native Leptos with uPlot charts. Python API is a clean break

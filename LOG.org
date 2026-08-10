@@ -119,3 +119,37 @@ attribute like =#[doc = "Ported from teprob.f:505-522"]= parsed by xtask), since
 every later iteration depends on it, and make =xtask fidelity= a stub that exits
 non-zero, so the preflight can never appear to pass vacuously before B-0004
 fills it in.
+
+* 2026-08-09 Relicense new work under MIT
+:PROPERTIES:
+:ITEM:     (user request, not a backlog item)
+:PHASE:    0
+:TIER:     none
+:COMMIT:   5b6d6ce
+:STATUS:   DONE
+:END:
+
+** What changed
+=LICENSE= is now verbatim MIT, superseding the BSD-3-Clause choice recorded in
+the B-0001a entry above. Verbatim so that GitHub, crates.io and =cargo deny=
+detect it correctly; the derived-work explanation stays in =NOTICE.md=.
+Cross-references updated in =NOTICE.md=, =README.md= and =PLAN.org=.
+
+** Validation numbers
+None applicable.
+
+** Surprises and decisions
+The NCSA obligation is unchanged by this. NCSA grants the right to sublicense,
+so shipping the combined work under MIT is permitted, but conditions 1 and 2
+require the notice and disclaimers to survive into source *and* binary
+redistribution, and condition 3 forbids using the University of Illinois or the
+Large Scale Systems Research Laboratory names for endorsement. So the correct
+SPDX expression for the combined work is =MIT AND NCSA=, not =MIT=, and
+=LICENSE-NCSA= is not removable.
+
+Added to B-0002: every crate declares =license = "MIT AND NCSA"= and =cargo deny=
+is configured to accept exactly those two, so a stray third-party license shows
+up as a build failure rather than as a surprise at publish time.
+
+** Next
+Unchanged: B-0002, the workspace skeleton, xtask, and the CI gate.
