@@ -187,7 +187,7 @@ Done when:
 - [X] =CLAUDE.md= updated: the oracle needs =unsafe= for FFI, so its
       =forbid(unsafe_code)= is lifted and the exception recorded
 
-** TODO B-0004b Oracle harness: full state access
+** NEXT B-0004b Oracle harness: full state access
 :PROPERTIES:
 :ID:    B-0004b
 :PHASE: 0
