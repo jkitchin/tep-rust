@@ -624,7 +624,7 @@ Done when, each constructed and each documented with its =teprob.f= line:
 - [X] Separator-to-stripper flow at the 0.1 branch threshold (=614=)
 - [X] A state tripping each of the reachable shutdown conditions (=702-710=)
 
-** TODO B-0017 Unpack the state: holdups, compositions, temperatures, densities
+** NEXT B-0017 Unpack the state: holdups, compositions, temperatures, densities
 :PROPERTIES:
 :ID:    B-0017
 :PHASE: 2
