@@ -15,15 +15,14 @@ earlier phases will change what the right decomposition is.
 Rewrite this block at the end of every iteration. Keep it to five lines.
 
 - Phase: 1, in progress
-- Last completed: B-0008 Tier 1 harness
+- Last completed: B-0009 TESUB1 and TESUB3, bit-exact
 - In flight: (none)
-- Baseline: =cargo xtask ci= green; 106 tests default, 145 with =oracle=;
-  provenance 195/1589 lines claimed (12.3%)
+- Baseline: =cargo xtask ci= green (29 s); 116 tests default, 159 with
+  =oracle=; =xtask validate --tiers 1= green; provenance 273/1589 (17.2%)
 - Toolchain: rustup, pinned to rustc 1.97.1, wasm32 installed
 - Remote: private jkitchin/tep-rust, CI green on all 7 jobs
-- Blocked on: nothing. Next item is B-0009, TESUB1 and TESUB3. Read the
-  B-0008 log entry first: it names the two literal-precision and conditioning
-  traps that decide whether B-0009 passes.
+- Blocked on: nothing. Next is B-0010, TESUB4. Bit equality is the standard
+  now, not 1e-13: three routines have met it, so anything less is a finding.
 
 * Phase 0: foundations
 
@@ -385,20 +384,28 @@ Done when:
       not a bare pass/fail
 - [X] Output format is stable enough to paste into a =LOG.org= entry
 
-** NEXT B-0009 Port TESUB1 and TESUB3: enthalpy and heat capacity
+** DONE B-0009 Port TESUB1 and TESUB3: enthalpy and heat capacity
 :PROPERTIES:
 :ID:    B-0009
 :PHASE: 1
 :TIER:  1
 :DEPS:  B-0008
 :PLAN:  Validation > Tier 1
+:RESULT: =tepsim-core::thermo= with =EnergyBasis= replacing =ITY=.
+         *Bit-exact against gfortran over all 59,924,940 evaluations*:
+         9,987,490 cases x 3 modes x 2 routines, max relative error 0.000e0,
+         ULP histogram 0:9987490 in every one of the six reports. The
+         single-precision =273.15= was the whole game: reading it as f64
+         gives 1.597e-5, eight orders past the gate. Provenance 273/1589
+         (17.2%). =cargo xtask validate --tiers 1= added, because the full
+         sweep is 190 s in a debug build and does not belong on every commit.
 :END:
 
 Done when:
-- [ ] Both routines ported with all three =ITY= modes, typed inputs
-- [ ] Tier 1: max relative error < 1e-13 over 1e7 samples per mode
-- [ ] ULP histogram recorded in the log
-- [ ] Rustdoc gives the polynomial forms in LaTeX and the =teprob.f= lines
+- [X] Both routines ported with all three =ITY= modes, typed inputs
+- [X] Tier 1: max relative error < 1e-13 over 1e7 samples per mode
+- [X] ULP histogram recorded in the log
+- [X] Rustdoc gives the polynomial forms in LaTeX and the =teprob.f= lines
 
 ** TODO B-0010 Port TESUB4: liquid density
 :PROPERTIES:

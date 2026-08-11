@@ -1125,3 +1125,133 @@ from it by exactly two lines.
 
 =xtask validate --tiers 1= should land with it, since B-0009 is the first
 iteration with a Tier 1 number to report.
+
+* 2026-08-11 B-0009 TESUB1 and TESUB3: enthalpy and heat capacity, bit-exact
+:PROPERTIES:
+:ITEM:     B-0009
+:PHASE:    1
+:TIER:     1
+:COMMIT:   1aa91b1
+:GFORTRAN: 15.2.0
+:STATUS:   DONE
+:END:
+** Preflight
+Clean and green. Fidelity green, local gfortran 15.2.0 matches the trace.
+Provenance 195/1589 (12.3%), *identical to the B-0008 closing number*: no
+drift. No Tier 1 numbers existed yet to compare against, since B-0008 built
+the instrument and this is the first iteration to use it.
+
+Did what the B-0008 entry said to do first: extracted every numeric literal in
+=teprob.f:1375-1414= and =1443-1480=. Seven distinct literals, six carrying a
+=D= suffix (=0.0D0=, =1.8D0=, =2.D0=, =3.D0=, =3.57696D0=, =1.D6=) and exactly
+one without: the =273.15= at =teprob.f:1411=. That confirmed the B-0008
+prediction and was the only precision hazard in either routine.
+
+** What changed
+=crates/tepsim-core/src/thermo.rs=: =enthalpy= and =heat_capacity=, with
+=EnergyBasis= replacing the bare =ITY= integer. =cargo xtask validate --tiers
+1= now exists and runs the full-volume gate in release.
+
+** Validation numbers
+=cargo xtask ci= green in *29 s*. *116 tests default, 159 with =oracle==, up
+from 106 and 145. Provenance *273/1589 (17.2%)*, up from 195 (12.3%): the two
+subroutines are 78 lines and all 78 are claimed.
+
+*Tier 1, the gate. Bit-exact, everywhere, with no exceptions:*
+
+| routine | ITY | cases | max rel err | max ulp | histogram |
+|---------+-----+-----------+-------------+---------+---------------|
+| TESUB1  |   0 | 9,987,490 | 0.000e0     |       0 | 0:9987490     |
+| TESUB1  |   1 | 9,987,490 | 0.000e0     |       0 | 0:9987490     |
+| TESUB1  |   2 | 9,987,490 | 0.000e0     |       0 | 0:9987490     |
+| TESUB3  |   0 | 9,987,490 | 0.000e0     |       0 | 0:9987490     |
+| TESUB3  |   1 | 9,987,490 | 0.000e0     |       0 | 0:9987490     |
+| TESUB3  |   2 | 9,987,490 | 0.000e0     |       0 | 0:9987490     |
+
+*59,924,940 evaluations, zero differing bits.* p50 = p90 = p99 = p100 = 0 in
+all six. The 1e-13 gate was never approached; a separate test asserts bit
+equality directly, because a 1e-13 threshold would let a drift to 1e-15 pass
+unnoticed forever.
+
+*Timing*: 1.5 to 1.9 s per mode in release, about 190 s per routine in debug.
+
+*The sabotage check.* Substituting =273.15_f64= for the widened =f32=, and
+changing nothing else: *max relative error 1.597e-5 at =grid#704 T=21.875=,
+103,098,852,352 ULP*, every one of the 7,950 smoke cases in the overflow
+bucket. That matches the 1.6e-5 B-0008 predicted from the cancellation ratio,
+to three digits.
+
+** Surprises and decisions
+*The result is bit equality, not "within tolerance", and that should now be
+the standard.* Both routines are straight-line arithmetic over constants
+B-0006 already proved bit-identical, so once the association and the literal
+precisions are right there is nothing left to differ by. Any future Tier 1
+routine that lands at 1e-15 instead of zero has something wrong with it that a
+tolerance would hide. B-0010 should expect zero from =TESUB4= too.
+
+*Three transcription traps, all of which would have passed a casual reading:*
+=CH(I)*T**2/3.D0= associates as =(CH * (T*T)) / 3=, not =((CH*T)*T)/3=;
+=BH(I)*T/2.D0= as =(BH*T)/2=; and the three-term sum left to right. Writing
+=T*T*CH/3.0= is the natural Rust and is wrong in the last bits.
+
+*Clippy actively pushes toward breaking this port.* =suboptimal_flops= wants
+=mul_add= for every polynomial term, which would fuse two roundings into one
+and produce a *more accurate* answer that no longer matches the oracle.
+=assign_op_pattern= wants =hi *= 1.8= where the Fortran writes =HI=1.8D0*HI=;
+that one is genuinely bit-identical since IEEE multiplication commutes, but it
+hides the line-for-line correspondence. Both are allowed at module scope with
+the reason recorded. *Expect this in every ported module and do not take the
+suggestion without checking Tier 1 afterwards.*
+
+*ITY=2 is internal energy, and the arithmetic proves it rather than the
+comments.* =3.57696 = 1.8 x 1.9872= exactly in decimal: the Rankine-per-Celsius
+ratio times the gas constant in Btu/(lbmol R), the same two numbers
+=teprob.f:594= uses separately. So =H - R(T+273.15)= is =U = H - RT= with the
+temperature made absolute, and the one call site (=teprob.f:465=) solves for
+=TCV= from =ESV=, an energy state. A test asserts the factorisation so the
+claim is checkable.
+
+*The original is inconsistent about the offset.* =teprob.f:1411= writes
+=273.15=, single. =teprob.f:594= writes =273.15D0=, double. The precision
+cannot be inferred from elsewhere in the file; each occurrence has to be read
+off its own line. Assume nothing about a literal seen in one place from having
+seen it in another.
+
+*=TESUB3= is exactly =d(TESUB1)/dT=*, which is what makes =TESUB2='s Newton
+iteration converge. Asserted by finite difference across all three modes
+rather than left as an observation, since B-0011 depends on it.
+
+*Split the gate from the commit path, deliberately.* The full sweep is 190 s
+per routine in debug, a 38x increase on the oracle job, and =TESUB2= in B-0011
+runs up to 100 Newton iterations per call. Leaving it in =cargo test= would
+have made the gate something a future session quietly deletes. So =cargo test=
+runs =Sweep::SMOKE= and =cargo xtask validate --tiers 1= runs =Sweep::FULL= in
+release, selected by =TEP_TIER1_SWEEP=. *Both run the same assertions at the
+same tolerance*, and the session preflight already invokes =validate=, so the
+gate runs every session. The smoke sweep still contains =grid#704=, the
+worst-case cell for every failure mode found so far. Tiers 2-10 print that they
+are unimplemented rather than passing silently.
+
+*No =Celsius= newtype yet.* =PLAN.org= calls for one at public API boundaries.
+These two functions are called from the innermost part of the derivative
+evaluation, which the plan exempts, and introducing the newtype now would
+churn the Tier 1 harness built one iteration ago. Deferred to the iteration
+that builds the public =Simulation= surface. Recorded here so it is a decision
+rather than an omission.
+
+** Next
+B-0010, =TESUB4=, liquid density, =teprob.f:1481-1505=. It is the shortest of
+the four and the harness already drives it, so the iteration is mostly reading
+the line carefully.
+
+Two things to check before writing it. First, =V=0.0= at =teprob.f:1498= is a
+*single-precision zero assigned to a double*, which is harmless for zero but
+shows the file's habit; grep the range for suffix-free literals as usual, and
+note =AD=, =BD=, =CD= are already in the constants table. Second, the
+denominator =AD(I)+(BD(I)+CD(I)*T)*T= is Horner form, not the expanded
+polynomial, so it must be transcribed as written: expanding it changes the
+rounding and =TESUB4= is the one routine with a genuine singularity nearby,
+at 208.57 C for component D, which B-0008 measured.
+
+Expect bit equality. If it comes out at 1e-16 instead of 0, the cause is
+almost certainly the Horner association.
