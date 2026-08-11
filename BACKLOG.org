@@ -324,7 +324,7 @@ Done when:
       =teprob.f=* by a test that parses them, not transcribed by eye. Same
       discipline as the =D=-suffix check B-0006 needs.
 
-** TODO B-0006 Constants table with provenance
+** NEXT B-0006 Constants table with provenance
 :PROPERTIES:
 :ID:    B-0006
 :PHASE: 1
