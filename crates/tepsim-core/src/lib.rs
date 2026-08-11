@@ -43,6 +43,7 @@ pub mod state;
 pub mod stream;
 pub mod thermo;
 pub mod variables;
+pub mod vessels;
 
 pub use component::{ByComponent, Component, Composition};
 pub use plant::{Inputs, Measurements, Plant, PlantError, Signals, SimTime};
@@ -51,3 +52,4 @@ pub use state::{Derivative, Holdup, N_STATES, State, VectorSpace, Vessel};
 pub use stream::Stream;
 pub use thermo::EnergyBasis;
 pub use variables::{Analyzer, MeasIndex, MvIndex, Unit, ValveId};
+pub use vessels::{TemperatureSeeds, Unpacked, unpack};
