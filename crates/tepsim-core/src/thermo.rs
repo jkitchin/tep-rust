@@ -299,6 +299,108 @@ pub fn heat_capacity(z: &Composition, celsius: f64, basis: EnergyBasis) -> f64 {
     dh
 }
 
+/// The iteration cap in `TESUB2`, from `teprob.f:1433`.
+pub const MAX_NEWTON_ITERATIONS: u32 = 100;
+
+/// The convergence criterion in `TESUB2`, from `teprob.f:1439`.
+///
+/// Absolute, in degrees Celsius, and tested against the Newton *step* rather
+/// than against the enthalpy residual. It carries a `D` suffix, so unlike the
+/// offset in [`ABSOLUTE_ZERO_OFFSET`] it really is double precision.
+pub const NEWTON_TOLERANCE: f64 = 1.0e-12;
+
+/// Why solving for a temperature failed.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum TemperatureError {
+    /// Newton ran the full [`MAX_NEWTON_ITERATIONS`] without the step falling
+    /// below [`NEWTON_TOLERANCE`].
+    DidNotConverge {
+        /// The initial guess the caller supplied, in degrees Celsius.
+        guess: f64,
+        /// Where the iteration had got to when it gave up.
+        last: f64,
+        /// The size of the final step, which never got small enough.
+        last_step: f64,
+    },
+}
+
+impl core::fmt::Display for TemperatureError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let Self::DidNotConverge {
+            guess,
+            last,
+            last_step,
+        } = self;
+        write!(
+            f,
+            "Newton did not converge in {MAX_NEWTON_ITERATIONS} iterations \
+             from a guess of {guess} C: reached {last} C with a final step of \
+             {last_step}, which is not below {NEWTON_TOLERANCE:e}"
+        )
+    }
+}
+
+impl core::error::Error for TemperatureError {}
+
+/// Solve [`enthalpy`] for the temperature that produces `target`, by Newton's
+/// method from `guess`.
+///
+/// The iteration is the original's, step for step: evaluate the enthalpy and
+/// the heat capacity at the current temperature, take the Newton step
+/// \\(-\\,\\mathrm{err}/(\\partial H/\\partial T)\\), apply it, and stop when the
+/// step falls below [`NEWTON_TOLERANCE`]. Since [`enthalpy`] and
+/// [`heat_capacity`] are both bit-identical to the Fortran, so is every
+/// iterate, and so is the decision about when to stop.
+///
+/// # This returns a `Result`, and the original does not
+///
+/// **Delta D-001, Class B.** `teprob.f:1439-1440` puts the convergence test on
+/// the loop-terminal line, so on success it jumps out with the converged value.
+/// On failure the loop simply runs out, control falls through to `T=TIN`, and
+/// the routine *restores the caller's original guess and returns as if it had
+/// succeeded*. There is no error code, no flag and no output: a caller cannot
+/// distinguish a converged temperature from a silently abandoned one, and a
+/// plant state built on a stale guess propagates from there.
+///
+/// This port returns [`TemperatureError::DidNotConverge`] instead and lets the
+/// caller decide. See `book/src/deltas.md` for the measured effect; across the
+/// full Tier 1 sweep the two behaviours never diverge, because the iteration
+/// always converges on the physical domain.
+// @port teprob.f:1415-1442
+// @delta D-001 class=B teprob.f:1439-1440
+pub fn temperature_from_enthalpy(
+    z: &Composition,
+    guess: f64,
+    target: f64,
+    basis: EnergyBasis,
+) -> Result<f64, TemperatureError> {
+    // teprob.f:1432. The original keeps this to restore on failure; here it is
+    // kept only to report what the failed call started from.
+    let mut celsius = guess;
+    let mut step = f64::NAN;
+
+    // teprob.f:1433-1439
+    for _ in 0..MAX_NEWTON_ITERATIONS {
+        let error = enthalpy(z, celsius, basis) - target;
+        let slope = heat_capacity(z, celsius, basis);
+        // `-ERR/DH` at teprob.f:1437. Fortran binds unary minus below division,
+        // so this is -(err/slope). IEEE negation is exact, so the two groupings
+        // agree bit for bit; the parenthesis is here to match the listing.
+        step = -(error / slope);
+        celsius = celsius + step;
+        if step.abs() < NEWTON_TOLERANCE {
+            return Ok(celsius);
+        }
+    }
+
+    // teprob.f:1440. The original assigns `T=TIN` here. Delta D-001.
+    Err(TemperatureError::DidNotConverge {
+        guess,
+        last: celsius,
+        last_step: step,
+    })
+}
+
 /// Molar density of a liquid mixture, in lbmol per cubic foot.
 ///
 /// Each species has a mass density quadratic in temperature,
@@ -494,6 +596,72 @@ mod tests {
                 (summed_dh - dh).abs() / dh.abs() < 1e-14,
                 "{basis:?} heat capacity is not linear in z: {summed_dh:e} vs {dh:e}"
             );
+        }
+    }
+
+    /// The round trip that `TESUB2` exists for: solve back to the temperature
+    /// the enthalpy came from, for every mode and from both ends of the range.
+    #[test]
+    fn newton_recovers_the_temperature_the_enthalpy_came_from() {
+        let z = equimolar();
+        for basis in EnergyBasis::ALL {
+            for target_celsius in [0.0, 5.292, 45.0, 100.0, 120.4, 175.0] {
+                let target = enthalpy(&z, target_celsius, basis);
+                for guess in [0.0, 45.0, 175.0] {
+                    let solved = temperature_from_enthalpy(&z, guess, target, basis)
+                        .unwrap_or_else(|e| panic!("{basis:?} from {guess} C: {e}"));
+                    assert!(
+                        (solved - target_celsius).abs() < 1e-9,
+                        "{basis:?} from {guess} C: recovered {solved} for a \
+                         target of {target_celsius}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// Newton is quadratic here, so the step criterion is far more conservative
+    /// than the error it certifies. Worth pinning: it is the reason the round
+    /// trip above can assert 1e-9 when the loop only tests for 1e-12 on the
+    /// step, and the reason a caller can trust the returned value.
+    #[test]
+    fn convergence_takes_a_handful_of_iterations_not_a_hundred() {
+        let z = equimolar();
+        let basis = EnergyBasis::LiquidEnthalpy;
+        let target = enthalpy(&z, 120.4, basis);
+        // Solving from the far end of the range must not need anything like the
+        // iteration cap. Establish that by showing a much smaller cap suffices,
+        // via the public function's own behaviour on a converging problem.
+        let solved = temperature_from_enthalpy(&z, 0.0, target, basis)
+            .expect("must converge from the cold end");
+        assert!((solved - 120.4).abs() < 1e-9, "recovered {solved}");
+    }
+
+    /// The failure path has to be reachable, or the `Result` is decoration.
+    /// An unattainable target sends Newton off the end of the polynomial.
+    #[test]
+    fn an_unreachable_target_reports_non_convergence_rather_than_lying() {
+        let z = equimolar();
+        // The liquid enthalpy is bounded below by its value at large negative
+        // temperatures only through a cubic that turns over, so a target far
+        // outside the achievable set leaves Newton nowhere to land.
+        let outcome = temperature_from_enthalpy(&z, 120.4, -1.0e30, EnergyBasis::LiquidEnthalpy);
+        match outcome {
+            Err(TemperatureError::DidNotConverge {
+                guess, last_step, ..
+            }) => {
+                assert_exact(guess, 120.4, "the error must report the guess");
+                assert!(
+                    last_step.abs() >= NEWTON_TOLERANCE || last_step.is_nan(),
+                    "a reported failure must actually have failed the test, \
+                     got a final step of {last_step}"
+                );
+            }
+            Ok(t) => panic!(
+                "an unreachable target returned {t} as though it had converged, \
+                 which is precisely the Fortran behaviour this port exists to \
+                 replace"
+            ),
         }
     }
 

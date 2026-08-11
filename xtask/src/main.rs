@@ -264,25 +264,29 @@ fn cmd_validate(root: &Path, flags: &[String]) -> Result<(), String> {
                     );
                 }
                 println!("\n=== tier 1: utility routines vs the Fortran ===");
-                step_with_env(
-                    root,
-                    "cargo",
-                    &[
-                        "test",
-                        "-p",
-                        "tepsim-oracle",
-                        "--features",
-                        "oracle",
-                        "--release",
-                        "--test",
-                        "tier1_enthalpy",
-                        "--",
-                        "--nocapture",
-                        "--test-threads",
-                        "1",
-                    ],
-                    &[("TEP_TIER1_SWEEP", "full")],
-                )?;
+                // One target per invocation, so a failure names which routine
+                // family broke rather than which binary did.
+                for target in TIER1_TESTS {
+                    step_with_env(
+                        root,
+                        "cargo",
+                        &[
+                            "test",
+                            "-p",
+                            "tepsim-oracle",
+                            "--features",
+                            "oracle",
+                            "--release",
+                            "--test",
+                            target,
+                            "--",
+                            "--nocapture",
+                            "--test-threads",
+                            "1",
+                        ],
+                        &[("TEP_TIER1_SWEEP", "full")],
+                    )?;
+                }
             }
             other => println!(
                 "\n[skip] tier {other}: not implemented yet. Tiers 2-10 land \
@@ -294,6 +298,9 @@ fn cmd_validate(root: &Path, flags: &[String]) -> Result<(), String> {
     println!("\nvalidate: green for tier(s) {tiers:?}");
     Ok(())
 }
+
+/// The integration tests that make up Tier 1, run at full sweep volume.
+const TIER1_TESTS: [&str; 2] = ["tier1_enthalpy", "tier1_temperature"];
 
 /// `--tiers 1,2,3`, defaulting to every tier.
 fn parse_tiers(flags: &[String]) -> Result<Vec<u8>, String> {
