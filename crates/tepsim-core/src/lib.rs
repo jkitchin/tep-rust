@@ -37,6 +37,7 @@ pub(crate) mod testing;
 
 pub mod component;
 pub mod constants;
+pub mod plant;
 pub mod rng;
 pub mod state;
 pub mod stream;
@@ -44,6 +45,7 @@ pub mod thermo;
 pub mod variables;
 
 pub use component::{ByComponent, Component, Composition};
+pub use plant::{Inputs, Measurements, Plant, PlantError, Signals, SimTime};
 pub use rng::TepRng;
 pub use state::{Derivative, Holdup, N_STATES, State, VectorSpace, Vessel};
 pub use stream::Stream;

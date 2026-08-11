@@ -283,7 +283,8 @@ vector is a function of flows the derivative evaluation computes:
   writes, so hoisting it is numerically identical and is asserted as such.
 - *Pure*: the walk evaluation (=407-416=), the whole physical model
   (=417-678=), the noise-free measurement vector and the shutdown test
-  (=679-710=), and the balance assembly (=762-793=, =807=).
+  (=679-710=), and the balance assembly (=762-792=, =805=). The latch shares
+  the =DO 9020= loop with =YP(I+38)=, so the port splits that loop in two.
 - *After*, and impure: the additive measurement noise (=711-716=) and the three
   sampled analyzers with their dead time (=717-761=). Both need the noise-free
   signals the pure phase produced, so the pure phase returns them alongside the
