@@ -385,7 +385,7 @@ Done when:
       not a bare pass/fail
 - [X] Output format is stable enough to paste into a =LOG.org= entry
 
-** TODO B-0009 Port TESUB1 and TESUB3: enthalpy and heat capacity
+** NEXT B-0009 Port TESUB1 and TESUB3: enthalpy and heat capacity
 :PROPERTIES:
 :ID:    B-0009
 :PHASE: 1
