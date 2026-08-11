@@ -1971,3 +1971,98 @@ Three things it must do that the item now records:
 
 It calls =TESUB2= four times and =TESUB4= three times, all of which are already
 bit-exact, so any Tier 2 failure is in the unpacking and nowhere else.
+
+* 2026-08-11 B-0017 State unpacking: the first physics, bit-exact
+:PROPERTIES:
+:ITEM:     B-0017
+:PHASE:    2
+:TIER:     2
+:COMMIT:   b3c34d7
+:GFORTRAN: 15.2.0
+:STATUS:   DONE
+:END:
+** Preflight
+Clean and green. Fidelity green, gfortran 15.2.0. Provenance 350/1589 (22.0%),
+unchanged from B-0016. Tier 1 thirteen reports at 0 ULP.
+
+Literal audit over =teprob.f:417-472=, as the phase now requires: two distinct
+literals, =0.0= and =273.15=. The =273.15= appears three times, at =461=, =463=
+and =466=, and *all three are written without a =D= suffix*, so all three are
+single precision, exactly like the one at =1411= that delta D-001 turns on.
+
+** What changed
+=tepsim-core::vessels=: =TemperatureSeeds=, =Liquid=, =Vapour=, =Unpacked=,
+=unpack=. Plus =tier2_unpack.rs=, the first Tier 2 differential.
+
+** Validation numbers
+=cargo xtask ci= green. *143 tests default, 216 with =oracle==, up from 139 and
+209. Provenance *382/1589 (24.0%)*, up from 350. Tier 1 unchanged.
+
+*Tier 2, all fourteen field groups, all three pools, bit-exact:*
+
+Pools: 400 nominal trajectory states, 2,000 perturbations, 17 adversarial
+boundaries = *2,417 states*. Per eight-component field that is *19,336 cases*;
+per four-component group, 9,668; per three, 7,251.
+
+| field group | cases  | max rel err | max ulp |
+|-------------+--------+-------------+---------|
+| UCLR        | 19,336 | 0.000e0     |       0 |
+| UCLS        | 19,336 | 0.000e0     |       0 |
+| UCLC        | 19,336 | 0.000e0     |       0 |
+| UCVV        | 19,336 | 0.000e0     |       0 |
+| XLR         | 19,336 | 0.000e0     |       0 |
+| XLS         | 19,336 | 0.000e0     |       0 |
+| XLC         | 19,336 | 0.000e0     |       0 |
+| XVV         | 19,336 | 0.000e0     |       0 |
+| totals      |  9,668 | 0.000e0     |       0 |
+| ESR/ESS/ESC/ESV |  9,668 | 0.000e0 |       0 |
+| TCR/TCS/TCC/TCV |  9,668 | 0.000e0 |       0 |
+| TKR/TKS/TKV |  7,251 | 0.000e0     |       0 |
+| DLR/DLS/DLC |  7,251 | 0.000e0     |       0 |
+| VLR/VLS/VLC |  7,251 | 0.000e0     |       0 |
+
+*Zero states failed to converge*, so delta D-001 still has not fired, now
+including on the seventeen adversarial boundaries and 2,000 perturbations.
+
+** Surprises and decisions
+*No surprises, and that is the point.* Both hazards in this range were named by
+earlier iterations before any code was written: B-0015 found the warm-start
+seeds, and the phase's mandatory literal audit found the three single-precision
+=273.15=. Neither cost a debugging session. The habit of ending each entry with
+the specific expected failure is now three for three.
+
+*The warm start is proved to matter, not assumed.* A test unpacks every nominal
+state twice, once with the seeds the Fortran will use and once from a perfectly
+reasonable fixed guess, and compares both against the oracle. The seeded run is
+0 ULP; the fixed-guess run is not. Without that test =TemperatureSeeds= would
+be a plausible-looking complication that nobody could justify removing or
+keeping.
+
+*The phase split is enforced by the types now, not by a comment.* Reactor and
+separator carry A/B/C as vapour and D-H as liquid; the stripper is all liquid
+and the mixing zone all vapour. =UCVR(4..8)= is deliberately left at zero,
+because it does not come from the state at all: =teprob.f:500-501= computes it
+from the equilibrium, which is B-0018.
+
+*=Composition::new_unchecked= for the mole fractions.* An adversarial state can
+drive a vessel's total to zero, and the resulting NaN is a true answer about a
+degenerate state rather than something to assert away. The original does not
+check either.
+
+** Next
+B-0018, vapour-liquid equilibrium and pressures, =teprob.f:473-499=.
+
+*This is the item where bit equality most likely ends*, and it is written up to
+measure that rather than to be surprised by it. =DEXP= first appears at
+=teprob.f:485= in the Antoine vapour pressures, and Rust's vendored =libm= is
+not gfortran's. Whatever difference it produces, every later item inherits it,
+so the number belongs in that entry in full: per-component ULP, and whether it
+is the exponential or the multiplication that carries it.
+
+The precision hazards are already located. =RG=998.9= at =teprob.f:475= is
+*single precision* and multiplies every ideal-gas partial pressure. All 24
+Antoine coefficients are single too (B-0006), and they sit inside the =DEXP=
+argument where an absolute error becomes a relative one.
+
+Fourteen of the seventeen adversarial boundaries are pressure or volume
+boundaries, so this item has unusually good coverage available from the start.

@@ -14,16 +14,17 @@ earlier phases will change what the right decomposition is.
 
 Rewrite this block at the end of every iteration. Keep it to five lines.
 
-- Phase: 2, on B-0017. All three Tier 2 pools exist. Physics starts next
-- Last completed: B-0016 the adversarial state catalogue, 17 boundaries
+- Phase: 2, on B-0018. First physics item landed bit-exact
+- Last completed: B-0017 state unpacking, 0 ULP on all 14 field groups
 - In flight: (none)
-- Baseline: =cargo xtask ci= green; 139 tests default, 209 with =oracle=;
+- Baseline: =cargo xtask ci= green; 143 tests default, 216 with =oracle=;
   =xtask validate --tiers 1= green, all thirteen reports 0 ULP;
-  provenance 350/1589 (22.0%)
+  provenance 382/1589 (24.0%)
 - Toolchain: rustup, pinned to rustc 1.97.1, wasm32 installed
 - Remote: private jkitchin/tep-rust, CI green on all 7 jobs
-- Blocked on: nothing. Next is B-0017, the first physics item. *It must carry
-  the four solved temperatures as plant state*; see the B-0015 entry.
+- Blocked on: nothing. Next is B-0018, vapour-liquid equilibrium: *the first
+  contact with =libm=*, where the run of bit-exact results may end. It is
+  written up to measure that rather than be surprised by it.
 
 * Phase 0: foundations
 
@@ -624,27 +625,34 @@ Done when, each constructed and each documented with its =teprob.f= line:
 - [X] Separator-to-stripper flow at the 0.1 branch threshold (=614=)
 - [X] A state tripping each of the reachable shutdown conditions (=702-710=)
 
-** NEXT B-0017 Unpack the state: holdups, compositions, temperatures, densities
+** DONE B-0017 Unpack the state: holdups, compositions, temperatures, densities
 :PROPERTIES:
 :ID:    B-0017
 :PHASE: 2
 :TIER:  2
 :DEPS:  B-0016
 :PLAN:  Anatomy > Unit operations
+:RESULT: =tepsim-core::vessels=. *Bit-exact on all 14 field groups across all
+         three pools*: 400 nominal states, 2000 perturbations and the 17
+         boundaries, 19,336 cases per 8-component field, 0 ULP everywhere, 0
+         non-convergences. =TemperatureSeeds= carries the warm starts, and a
+         test proves solving from a fixed guess instead breaks bit equality.
+         All three =273.15= in the range are single precision. Provenance
+         382/1589 (24.0%). 216 tests with =oracle=.
 :END:
 
 =teprob.f:417-472=. The first physics item, and the one that proves the Phase 1
 routines compose: it calls =TESUB2= four times and =TESUB4= three times.
 
 Done when:
-- [ ] =UCLR/UCVR/UCLS/UCVS/UCLC/UCVV=, the totals, the mole fractions, the
+- [X] =UCLR/UCVR/UCLS/UCVS/UCLC/UCVV=, the totals, the mole fractions, the
       specific energies, =TCR/TCS/TCC/TCV=, =DLR/DLS/DLC=, =VLR/VLS/VLC=
-- [ ] *The four solved temperatures are carried in =Plant= as warm-start
-      seeds*, not recomputed from a fixed guess. B-0015 measured the
-      difference: seeding them from another trajectory point moves up to 21 of
-      the 50 derivatives. Without this the port cannot be bit-exact
-- [ ] Tier 2 differential against each of those =COMMON/TEPROC/= fields
-- [ ] Note =TKR=TCR+273.15= at =461=: check that literal's suffix, given D-001
+- [X] The four solved temperatures are carried as =TemperatureSeeds=, and a
+      test proves a fixed guess instead breaks bit equality, so they are not
+      ceremony
+- [X] Tier 2 differential against each of those =COMMON/TEPROC/= fields
+- [X] All three =273.15= in the range (=461=, =463=, =466=) are single
+      precision, like the one D-001 turns on
 
 ** TODO B-0018 Vapour-liquid equilibrium and pressures
 :PROPERTIES:
