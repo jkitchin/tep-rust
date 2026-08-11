@@ -63,6 +63,8 @@
 //! are coverage, not evidence, and a Tier 2 result that did not say how many it
 //! contained would be overstating itself.
 
+pub mod adversarial;
+
 use tepsim_core::state::N_STATES;
 
 use crate::tier1::{Comparison, Sampler};
