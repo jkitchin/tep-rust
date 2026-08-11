@@ -14,17 +14,16 @@ earlier phases will change what the right decomposition is.
 
 Rewrite this block at the end of every iteration. Keep it to five lines.
 
-- Phase: 2, on B-0016. Tier 2 instrument built, no physics yet
-- Last completed: B-0015 the Tier 2 harness
+- Phase: 2, on B-0017. All three Tier 2 pools exist. Physics starts next
+- Last completed: B-0016 the adversarial state catalogue, 17 boundaries
 - In flight: (none)
-- Baseline: =cargo xtask ci= green; 139 tests default, 202 with =oracle=;
+- Baseline: =cargo xtask ci= green; 139 tests default, 209 with =oracle=;
   =xtask validate --tiers 1= green, all thirteen reports 0 ULP;
   provenance 350/1589 (22.0%)
 - Toolchain: rustup, pinned to rustc 1.97.1, wasm32 installed
 - Remote: private jkitchin/tep-rust, CI green on all 7 jobs
-- Blocked on: nothing. Next is B-0016, the adversarial state catalogue.
-  *B-0017 must carry the four solved temperatures as plant state*; see the
-  B-0015 entry.
+- Blocked on: nothing. Next is B-0017, the first physics item. *It must carry
+  the four solved temperatures as plant state*; see the B-0015 entry.
 
 * Phase 0: foundations
 
@@ -594,25 +593,36 @@ Done when:
       walk machinery, since =teprob.f:397-406= resets it whenever =TIME.EQ.0=
 - [X] Reports in the same format as Tier 1, so the two are diffable
 
-** NEXT B-0016 The adversarial state catalogue
+** DONE B-0016 The adversarial state catalogue
 :PROPERTIES:
 :ID:    B-0016
 :PHASE: 2
 :TIER:  2
 :DEPS:  B-0015
 :PLAN:  Validation > Tier 2
+:RESULT: =tier2::adversarial=. *17 boundaries, all constructed by bisecting
+         the oracle rather than by inverting the model, and every one verified
+         against the observable it was aimed at*: worst miss 1.7e-16 relative.
+         4 trip the shutdown, reported separately since a tripped derivative
+         is all zeros. *One branch is unreachable and that is now a measured
+         fact*: the purge clamp needs PTS below 760 mmHg and the separator
+         liquid floors it at 811.49. 209 tests with =oracle=, up from 202.
 :END:
 
 The third pool, built by hand because it is enumerable from the source and
 because Tier 1 showed the boundary pool finds most of the worst cases.
 
 Done when, each constructed and each documented with its =teprob.f= line:
-- [ ] Reactor liquid level at both heat-transfer breakpoints (=663-668=)
-- [ ] Stripper temperature at 5.292 and 170 (=615-620=), and near the 177 pole
-- [ ] Both compressor pressure-ratio clamps
-- [ ] Every =DLP < 0= sign flip (=576-598=)
-- [ ] Separator-to-stripper flow at the 0.1 branch threshold (=614=)
-- [ ] A state tripping each of the eight shutdown conditions (=702-710=)
+- [X] Reactor liquid level at both heat-transfer breakpoints (=663-668=)
+- [X] Stripper temperature at 5.292 and 170 (=615-620=), and near the 177 pole
+- [ ] Both compressor pressure-ratio clamps. *Deferred to B-0021*, which ports
+      the compressor: =CPPRMX= is a constant the catalogue cannot observe a
+      branch on until the curve exists
+- [X] Every reachable =DLP < 0= sign flip (=576-598=). Three of four. The
+      fourth, the purge clamp, is *unreachable from a nominal composition* and
+      the floor is pinned at 811.49 mmHg by its own test
+- [X] Separator-to-stripper flow at the 0.1 branch threshold (=614=)
+- [X] A state tripping each of the reachable shutdown conditions (=702-710=)
 
 ** TODO B-0017 Unpack the state: holdups, compositions, temperatures, densities
 :PROPERTIES:
@@ -714,8 +724,13 @@ their =DLP<0= clamps, the compressor curve, and =FCM=.
 
 Done when:
 - [ ] =FTM(1..13)=, =FCM=, =UAC=, =FWR=, =FWS=, =AGSP=, the compressor terms
-- [ ] Every =IF(DLP.LT.0.0)DLP=0.0= clamp reproduced, and each one covered by
-      an adversarial state from B-0016
+- [ ] Every =IF(DLP.LT.0.0)DLP=0.0= clamp reproduced. Three are covered by
+      adversarial states from B-0016; the *purge clamp is unreachable from a
+      physical state* (PTS floors at 811.49 mmHg against a 760 threshold) so it
+      needs a unit test at a chosen composition instead
+- [ ] *Both compressor pressure-ratio clamps*, deferred here from B-0016: they
+      are branches on =PR= against =CPPRMX=, which only exists once the curve
+      does. Add adversarial states for them when they do
 - [ ] The =1.0e-10= addend on stream 4 recorded as a Class B delta
 
 ** TODO B-0022 The stripper

@@ -1864,3 +1864,110 @@ Note also that several adversarial states will trip the shutdown by
 construction, especially the eight built to trip it. Those belong in the
 catalogue and must be *excluded from the derivative comparison*, since a
 tripped plant's derivative is all zeros. Count them and say so.
+
+* 2026-08-11 B-0016 The adversarial state catalogue
+:PROPERTIES:
+:ITEM:     B-0016
+:PHASE:    2
+:TIER:     2
+:COMMIT:   4e796e3
+:GFORTRAN: 15.2.0
+:STATUS:   DONE
+:END:
+** Preflight
+Clean and green. Fidelity green, gfortran 15.2.0. Provenance 350/1589 (22.0%),
+unchanged. Tier 1 thirteen reports at 0 ULP.
+
+** What changed
+=tepsim-oracle::tier2::adversarial=: =Knob=, =Target=, =Boundary=, =seek=,
+=catalogue=, =build=. Seven tests.
+
+** Validation numbers
+=cargo xtask ci= green. *139 tests default, 209 with =oracle==, up from 202.
+Provenance unchanged: nothing ported. Tier 1 unchanged.
+
+*17 of 17 boundaries constructed and verified.* Worst placement miss across the
+whole catalogue is *1.7e-16 relative*; most are exactly 0.
+
+| boundary                                   | knob setting | reached      | trips |
+|--------------------------------------------+--------------+--------------+-------|
+| VLR at the 10% heat-transfer breakpoint     |     0.133419 |       78.000 |       |
+| VLR at the 50% heat-transfer breakpoint     |     0.667094 |      390.000 |       |
+| TCC at the lower stripping-factor branch    |     0.076417 |        5.292 |       |
+| TCC at the upper stripping-factor branch    |     2.906493 |      170.000 |       |
+| TCC approaching the 177 C pole              |     3.031874 |      176.000 |       |
+| TCR at the shutdown limit                   |     1.567177 |      175.000 | yes   |
+| FTM(11) at the stripping-factor threshold   |     0.006667 |        0.100 |       |
+| VLR upper / lower shutdown limit            | 1.449729 / 0.120811 | 847.548 / 70.629 | yes / |
+| VLS upper / lower shutdown limit            | 2.456661 / 0.204722 | 423.774 / 35.315 | yes / |
+| VLC upper / lower shutdown limit            | 1.805214 / 0.225652 | 282.516 / 35.315 | yes / |
+| PTR at the pressure shutdown limit          |     1.180247 |    23261.850 |       |
+| PTV = PTR, mixing-to-reactor clamp          |     0.876008 |        0.000 |       |
+| PTR = PTS, reactor-to-separator clamp       |     1.036828 |        0.000 |       |
+| PTV = PTS, recycle clamp                    |     0.853760 |       -0.000 |       |
+
+*4 of 17 trip the shutdown*, reported separately. *37 of 50 state slots* are
+reachable by some knob.
+
+Nominal pressures, for reference: PTV 24028.5, PTR 21049.2, PTS 20514.6 mmHg.
+
+** Surprises and decisions
+*Bisecting the oracle beats inverting the model, and it is not close.* Placing
+a state at =VLR/7.8 = 50= analytically means reimplementing the liquid volume,
+density and temperature chain: a second copy of the code under test, whose
+errors would place states *near* boundaries rather than on them. Near is the
+worst possible outcome, because it exercises the ordinary branch while
+appearing in the report as boundary coverage. Sixty bisections of the real
+model land within 1.7e-16 every time.
+
+*=seek= refuses rather than approximates.* If the bracket does not straddle the
+target it returns =None= and the boundary is reported by name. That refusal
+found the one real gap immediately, rather than silently producing a state
+somewhere in the bracket.
+
+*The purge-flow clamp is unreachable, and the number is worth keeping.*
+=teprob.f:585-586= clamps =DLP = PTS - 760= at zero. Driving =PTS= as low as
+the state allows, by removing the entire separator vapour inventory and cooling
+to 0 C, floors it at *811.49 mmHg*: ideal-gas contribution 0.00, Antoine
+contribution 811.49. Two reasons it cannot go lower: the ideal-gas term is
+=UCVS*RG*TKS/VVS= and =TKS = TCS + 273.15= floors at 273.15 rather than at
+zero, and the Antoine terms depend only on =TCS= and the *liquid* composition,
+which the vapour inventory does not touch.
+
+So the branch is 7% away and unreachable from that side. It is out of the
+catalogue, the floor is pinned by its own test with a 1 mmHg tolerance, and
+B-0021 carries a note to cover the branch with a unit test at a chosen
+composition. *A named, measured gap is a finding; an unnamed one is a hole.*
+
+*The compressor clamps are deferred to B-0021, not dropped.* They are branches
+on =PR= against =CPPRMX=, and the catalogue can only aim at something it can
+observe. There is nothing to observe until the compressor curve is ported. The
+item now says so.
+
+*Knobs scale holdups and energy together.* Scaling a vessel's liquid inventory
+alone would change =ESR = ETR/UTLR= (=teprob.f:456=) and move the temperature
+as a side effect, so a state built for a volume boundary would also be at an
+unintended temperature. Scaling both leaves the specific energy fixed. The
+temperature knobs move the energy alone, for the same reason in reverse.
+
+** Next
+B-0017, and it is the *first physics item in the phase*: unpack the state into
+holdups, mole fractions, temperatures, densities and volumes,
+=teprob.f:417-472=.
+
+Three things it must do that the item now records:
+
+1. *Carry the four solved temperatures in =Plant= as warm-start seeds.* B-0015
+   measured what happens otherwise: seeding them from a different trajectory
+   point moves up to 21 of the 50 derivatives. A port that recomputed them from
+   a fixed guess would be more principled and would not be bit-exact.
+2. *Extract the literals in =417-472= first.* Note =TKR=TCR+273.15= at =461=
+   in particular: D-001 showed the same constant is single precision in one
+   place and double in another, so it has to be read off this line.
+3. *Use the intermediate differ.* =UCLR=, =XLR=, =ESR=, =TCR=, =DLR=, =VLR= and
+   their separator and stripper counterparts are all in =COMMON/TEPROC/=, so
+   the item can be verified field by field the moment it is written, against
+   all three pools including the seventeen boundaries built here.
+
+It calls =TESUB2= four times and =TESUB4= three times, all of which are already
+bit-exact, so any Tier 2 failure is in the unpacking and nowhere else.
