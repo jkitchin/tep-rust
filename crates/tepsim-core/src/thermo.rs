@@ -1,8 +1,9 @@
-//! Mixture enthalpy, internal energy and heat capacity.
+//! Mixture enthalpy, internal energy, heat capacity and liquid density.
 //!
-//! Ported from `TESUB1` (`teprob.f:1375-1414`) and `TESUB3`
-//! (`teprob.f:1443-1480`). Between them these two are called from almost every
-//! balance in the plant, so Tier 1 exists to prove them exactly.
+//! Ported from `TESUB1` (`teprob.f:1375-1414`), `TESUB3`
+//! (`teprob.f:1443-1480`) and `TESUB4` (`teprob.f:1481-1505`). Between them
+//! these are called from almost every balance in the plant, so Tier 1 exists to
+//! prove them exactly.
 //!
 //! # The correlations
 //!
@@ -52,6 +53,9 @@
 //! | `AH,BH,CH` | [`crate::constants::AH`] etc. | liquid heat capacity coefficients | - |
 //! | `AG,BG,CG` | [`crate::constants::AG`] etc. | vapour heat capacity coefficients | - |
 //! | `AV` | [`crate::constants::AV`] | latent heat | - |
+//! | `AD,BD,CD` | [`crate::constants::AD`] etc. | liquid density coefficients | lb/ft^3 |
+//! | `X(8)` | `x` | liquid mole fractions | dimensionless |
+//! | `R` | return of [`liquid_density`] | mixture molar density | lbmol/ft^3 |
 //! | `XMW` | [`crate::constants::XMW`] | molecular weight | lb/lbmol |
 //!
 //! The original never states an energy unit. The `1.0D-6` scaling folded into
@@ -86,7 +90,7 @@
 )]
 
 use crate::component::{Component, Composition};
-use crate::constants::{AG, AH, AV, BG, BH, CG, CH, XMW, single};
+use crate::constants::{AD, AG, AH, AV, BD, BG, BH, CD, CG, CH, XMW, single};
 
 /// The gas constant in the model's units, from `teprob.f:1410`.
 ///
@@ -295,6 +299,63 @@ pub fn heat_capacity(z: &Composition, celsius: f64, basis: EnergyBasis) -> f64 {
     dh
 }
 
+/// Molar density of a liquid mixture, in lbmol per cubic foot.
+///
+/// Each species has a mass density quadratic in temperature,
+/// \\(\\rho_i(T) = a^d_i + (b^d_i + c^d_i T) T\\) in pounds per cubic foot, and
+/// the mixture is combined by ideal volume additivity: the volumes add, so the
+/// reciprocals do.
+///
+/// \\[
+///   \\rho = \\left( \\sum_i \\frac{x_i M_i}{\\rho_i(T)} \\right)^{-1}
+/// \\]
+///
+/// The units follow from the one call site. `teprob.f:467-469` divides a molar
+/// holdup by this to get a volume, and `teprob.f:704` divides that volume by
+/// 35.3145, the cubic feet in a cubic metre, before comparing it against a
+/// level limit. So the denominator is cubic feet and this is lbmol per cubic
+/// foot.
+///
+/// # Only five species have a real density
+///
+/// `AD` is 1.0 and `BD` and `CD` are zero for A, B and C (`teprob.f:973-996`),
+/// so those three contribute \\(x_i M_i\\) unchanged. They are the
+/// non-condensibles, and the model never puts them in a liquid phase in any
+/// quantity, so the entry is a placeholder that keeps the sum finite rather
+/// than a density anyone fitted.
+///
+/// # The correlation has a pole, outside the operating range
+///
+/// \\(\\rho_i(T)\\) is a downward parabola for every real species, so each has a
+/// temperature where it crosses zero and the reciprocal blows up. The nearest
+/// is component D at 208.57 degrees, comfortably above the 175 degree reactor
+/// shutdown limit at `teprob.f:706`. The original does not guard against it and
+/// neither does this, since a guard would be behaviour the oracle does not
+/// have. A Tier 1 harness test asserts the sweep ceiling stays below it.
+///
+/// ```
+/// use tepsim_core::{Composition, thermo::liquid_density};
+///
+/// // Pure H at its nominal separator temperature: a plausible liquid density.
+/// let pure_h = Composition::new([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]);
+/// let rho = liquid_density(&pure_h, 80.0);
+/// assert!(rho > 0.0 && rho < 1.0, "lbmol/ft^3, got {rho}");
+/// ```
+// @port teprob.f:1481-1505
+#[must_use]
+pub fn liquid_density(x: &Composition, celsius: f64) -> f64 {
+    // teprob.f:1498-1502. The denominator is Horner form in the original and
+    // stays that way here: expanding it to `AD + BD*T + CD*T*T` is the same
+    // polynomial and a different set of roundings.
+    let mut v = 0.0_f64;
+    for component in Component::ALL {
+        v += x[component] * XMW[component]
+            / (AD[component] + (BD[component] + CD[component] * celsius) * celsius);
+    }
+    // teprob.f:1503
+    1.0 / v
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -432,6 +493,80 @@ mod tests {
             assert!(
                 (summed_dh - dh).abs() / dh.abs() < 1e-14,
                 "{basis:?} heat capacity is not linear in z: {summed_dh:e} vs {dh:e}"
+            );
+        }
+    }
+
+    /// Volumes add, so the reciprocal densities do. Mixing two species must give
+    /// a specific volume between the two pure ones, which is the defining
+    /// property of `teprob.f:1500-1503` and the reason it is written as a
+    /// reciprocal sum rather than a weighted average of densities.
+    #[test]
+    fn liquid_volumes_are_additive() {
+        let celsius = 80.0;
+        let mut pure_g = [0.0; Component::COUNT];
+        pure_g[Component::G.index()] = 1.0;
+        let mut pure_h = [0.0; Component::COUNT];
+        pure_h[Component::H.index()] = 1.0;
+        let mut half = [0.0; Component::COUNT];
+        half[Component::G.index()] = 0.5;
+        half[Component::H.index()] = 0.5;
+
+        let volume = |x: [f64; Component::COUNT]| {
+            let composition = Composition::new(x);
+            let moles_per_volume = liquid_density(&composition, celsius);
+            1.0 / moles_per_volume
+        };
+
+        let (vg, vh, vmix) = (volume(pure_g), volume(pure_h), volume(half));
+        let predicted = 0.5 * vg + 0.5 * vh;
+        assert!(
+            (vmix - predicted).abs() / predicted < 1e-14,
+            "specific volume is not additive: {vmix:e} vs {predicted:e}"
+        );
+    }
+
+    /// A, B and C carry `AD = 1` and no temperature dependence
+    /// (`teprob.f:973`, `983`, `993`), so their contribution is `x * M` flat.
+    /// That is a placeholder, not a fitted density, and the port must reproduce
+    /// it rather than tidy it away.
+    #[test]
+    fn the_non_condensibles_have_a_flat_placeholder_density() {
+        let mut pure_a = [0.0; Component::COUNT];
+        pure_a[Component::A.index()] = 1.0;
+        let pure_a = Composition::new(pure_a);
+
+        let cold = liquid_density(&pure_a, 0.0);
+        let hot = liquid_density(&pure_a, 175.0);
+        assert_exact(cold, hot, "A's density must not vary with temperature");
+        assert_exact(
+            cold,
+            1.0 / XMW[Component::A],
+            "and it must be 1 / molecular weight, from AD = 1",
+        );
+    }
+
+    /// Every real species' density stays positive across the whole sweep range,
+    /// so the reciprocal never blows up inside it. The pole exists, at 208.57 C
+    /// for D, but not where the plant operates.
+    #[test]
+    fn the_density_correlation_stays_positive_over_the_operating_range() {
+        for step in 0..=175 {
+            let celsius = f64::from(step);
+            for component in Component::ALL {
+                let rho = AD[component] + (BD[component] + CD[component] * celsius) * celsius;
+                assert!(
+                    rho > 0.0,
+                    "{component:?} density is {rho} at {celsius} C, inside the \
+                     operating range"
+                );
+            }
+            let mut equal = [0.125; Component::COUNT];
+            equal[0] = 0.125;
+            let mixture = liquid_density(&Composition::new(equal), celsius);
+            assert!(
+                mixture.is_finite() && mixture > 0.0,
+                "mixture density is {mixture} at {celsius} C"
             );
         }
     }

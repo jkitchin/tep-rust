@@ -1,5 +1,5 @@
-//! Tier 1 for `TESUB1` and `TESUB3`: the ported enthalpy and heat capacity
-//! against the original Fortran, over the full sweep.
+//! Tier 1 for `TESUB1`, `TESUB3` and `TESUB4`: the ported enthalpy, heat
+//! capacity and liquid density against the original Fortran.
 //!
 //! The gate is a maximum relative error below 1e-13, from `PLAN.org`. What is
 //! actually expected is zero: both routines are straight-line arithmetic over
@@ -14,7 +14,7 @@
 
 use std::time::Instant;
 
-use tepsim_core::thermo::{EnergyBasis, enthalpy, heat_capacity};
+use tepsim_core::thermo::{EnergyBasis, enthalpy, heat_capacity, liquid_density};
 use tepsim_oracle::{
     Oracle,
     tier1::{Case, Comparison, Sweep},
@@ -71,6 +71,33 @@ fn tesub3_matches_the_fortran_over_the_full_sweep() {
     }
 }
 
+#[test]
+fn tesub4_matches_the_fortran_over_the_full_sweep() {
+    let sweep = Sweep::from_env();
+    println!("{}", sweep.provenance_note());
+    let mut oracle = Oracle::lock();
+    oracle.init();
+
+    let started = Instant::now();
+    let mut comparison: Comparison<Case> = Comparison::new("TESUB4");
+    for case in sweep.cases() {
+        comparison.observe(
+            case,
+            liquid_density(&case.composition, case.celsius),
+            oracle.tesub4(&case.z(), case.celsius),
+        );
+    }
+    println!("{comparison}  [{:.1} s]", started.elapsed().as_secs_f64());
+    assert_eq!(comparison.cases(), sweep.len() as u64);
+    let (non_finite, _) = comparison.non_finite();
+    assert_eq!(
+        non_finite, 0,
+        "the density correlation went singular inside the sweep range, which \
+         it must not: the nearest pole is 208.57 C\n{comparison}"
+    );
+    comparison.assert_within(TIER1_TOLERANCE);
+}
+
 /// The tolerance above is a backstop, not the claim. The claim is bit equality,
 /// which is much stronger and would be invisible under a 1e-13 gate: a port
 /// that drifted to 1e-15 would still pass every day while something real had
@@ -97,6 +124,13 @@ fn both_routines_are_bit_identical_to_the_fortran() {
                     heat_capacity(&case.composition, case.celsius, basis),
                     oracle.tesub3(&case.z(), case.celsius, basis.ity()),
                 ),
+                // TESUB4 takes no ITY, so it is re-checked once per mode.
+                // Redundant, and cheaper than a second pass over the sweep.
+                (
+                    "TESUB4",
+                    liquid_density(&case.composition, case.celsius),
+                    oracle.tesub4(&case.z(), case.celsius),
+                ),
             ];
             for (name, ours, theirs) in pairs {
                 if ours.to_bits() != theirs.to_bits() {
@@ -118,7 +152,7 @@ fn both_routines_are_bit_identical_to_the_fortran() {
         differing,
         0,
         "{differing} of {} evaluations differ; first: {}",
-        6 * sweep.len(),
+        9 * sweep.len(),
         first.unwrap_or_default()
     );
 }
