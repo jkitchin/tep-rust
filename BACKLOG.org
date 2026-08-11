@@ -563,7 +563,7 @@ Done when:
       against the oracle. A dynamic proof was not available: =reference/= may
       never be edited, so the reordered variant cannot be built and run
 
-** TODO B-0015 Tier 2 harness: state forcing and the COMMON differ
+** NEXT B-0015 Tier 2 harness: state forcing and the COMMON differ
 :PROPERTIES:
 :ID:    B-0015
 :PHASE: 2
