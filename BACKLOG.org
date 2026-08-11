@@ -426,7 +426,7 @@ Done when:
 Done when:
 - [X] Ported; Tier 1 under 1e-13; histogram logged; equations documented
 
-** TODO B-0011 Port TESUB2: temperature from enthalpy, as a Result
+** NEXT B-0011 Port TESUB2: temperature from enthalpy, as a Result
 :PROPERTIES:
 :ID:    B-0011
 :PHASE: 1
