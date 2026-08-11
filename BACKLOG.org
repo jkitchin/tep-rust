@@ -531,7 +531,7 @@ Done when:
 - [X] A flat view for oracle interop only, pinned *semantically* rather than by
       round trip: a bijection test would pass with two vessels swapped
 
-** TODO B-0014 The three-phase RHS skeleton
+** NEXT B-0014 The three-phase RHS skeleton
 :PROPERTIES:
 :ID:    B-0014
 :PHASE: 2
