@@ -15,14 +15,16 @@ earlier phases will change what the right decomposition is.
 Rewrite this block at the end of every iteration. Keep it to five lines.
 
 - Phase: 1, in progress
-- Last completed: B-0009 TESUB1 and TESUB3, bit-exact
+- Last completed: B-0010 TESUB4, bit-exact
 - In flight: (none)
-- Baseline: =cargo xtask ci= green (29 s); 116 tests default, 159 with
-  =oracle=; =xtask validate --tiers 1= green; provenance 273/1589 (17.2%)
+- Baseline: =cargo xtask ci= green; 120 tests default, 164 with =oracle=;
+  =xtask validate --tiers 1= green, all seven reports 0 ULP; provenance
+  298/1589 (18.8%)
 - Toolchain: rustup, pinned to rustc 1.97.1, wasm32 installed
 - Remote: private jkitchin/tep-rust, CI green on all 7 jobs
-- Blocked on: nothing. Next is B-0010, TESUB4. Bit equality is the standard
-  now, not 1e-13: three routines have met it, so anything less is a finding.
+- Blocked on: nothing. Next is B-0011, TESUB2, the first Class B quirk fix
+  and the first =book/src/deltas.md= entry. Bit equality is the standard now,
+  not 1e-13: seven Tier 1 reports have met it.
 
 * Phase 0: foundations
 
@@ -407,17 +409,22 @@ Done when:
 - [X] ULP histogram recorded in the log
 - [X] Rustdoc gives the polynomial forms in LaTeX and the =teprob.f= lines
 
-** NEXT B-0010 Port TESUB4: liquid density
+** DONE B-0010 Port TESUB4: liquid density
 :PROPERTIES:
 :ID:    B-0010
 :PHASE: 1
 :TIER:  1
 :DEPS:  B-0009
 :PLAN:  Validation > Tier 1
+:RESULT: =thermo::liquid_density=. *Bit-exact*: 9,987,490 cases, max relative
+         error 0.000e0, histogram 0:9987490, no non-finite values. The Horner
+         denominator was transcribed as written, which the B-0009 entry
+         predicted was the only thing that could go wrong. Units pinned from
+         the call sites: lbmol/ft^3. Provenance 298/1589 (18.8%).
 :END:
 
 Done when:
-- [ ] Ported; Tier 1 under 1e-13; histogram logged; equations documented
+- [X] Ported; Tier 1 under 1e-13; histogram logged; equations documented
 
 ** TODO B-0011 Port TESUB2: temperature from enthalpy, as a Result
 :PROPERTIES:

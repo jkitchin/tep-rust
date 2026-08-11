@@ -1255,3 +1255,106 @@ at 208.57 C for component D, which B-0008 measured.
 
 Expect bit equality. If it comes out at 1e-16 instead of 0, the cause is
 almost certainly the Horner association.
+
+* 2026-08-11 B-0010 TESUB4: liquid density, bit-exact
+:PROPERTIES:
+:ITEM:     B-0010
+:PHASE:    1
+:TIER:     1
+:COMMIT:   dafa54a
+:GFORTRAN: 15.2.0
+:STATUS:   DONE
+:END:
+** Preflight
+Clean and green. Fidelity green, local gfortran 15.2.0 matches. Provenance
+273/1589 (17.2%), identical to the B-0009 close: no drift.
+
+*Tier 1 re-run at full volume and unchanged*: all six reports from B-0009 still
+read max rel err 0.000e0, max ulp 0, histogram 0:9987490. The sabotage probe
+still reads 1.597e-5 at =grid#704=. Nothing moved.
+
+Literal extraction over =teprob.f:1481-1505=, as usual: two literals, =0.0= and
+=1.0=, both without a =D= suffix and both *exactly representable in f32*, so
+for once the missing suffix costs nothing. Worth recording that the check was
+run and came back clean rather than leaving it silent.
+
+** What changed
+=thermo::liquid_density=, and the Tier 1 differential extended to cover it.
+The module now covers three of the four Phase 1 utility routines.
+
+** Validation numbers
+=cargo xtask ci= green. *120 tests default, 164 with =oracle==, up from 116 and
+159. Provenance *298/1589 (18.8%)*, up from 273: =TESUB4= is 25 lines, all
+claimed.
+
+*Tier 1, TESUB4*: 9,987,490 cases, *max relative error 0.000e0, max ulp 0*,
+histogram 0:9987490, p50 = p90 = p99 = p100 = 0, 0 non-finite. 1.4 s in
+release.
+
+Seven Tier 1 reports now exist and every one of them reads zero. The bit
+equality test covers all three routines across all three modes, 89.9 million
+evaluations per full run, with no differing bits.
+
+** Surprises and decisions
+*No surprises, which is itself the result worth recording.* The B-0009 entry
+predicted the single hazard, the Horner denominator =AD(I)+(BD(I)+CD(I)*T)*T=,
+and predicted that getting it wrong would show up as 1e-16 rather than zero.
+Transcribed as written, it came out at zero on the first run. The habit of
+naming the specific expected failure in the previous entry is doing real work;
+keep doing it.
+
+*The units are recoverable from the call sites, not guessable.*
+=teprob.f:467-469= divides a molar holdup by this to get a volume and
+=teprob.f:704= divides that volume by 35.3145, the cubic feet in a cubic
+metre, before a level comparison. So the denominator is cubic feet, the
+=AD/BD/CD= coefficients are mass densities in lb/ft^3, and the return is
+*lbmol/ft^3*. Recorded because Phase 2 will need it for the level equations
+and re-deriving it is ten minutes each time.
+
+*A, B and C have no real density.* =AD= is 1.0 with =BD=CD=0= for all three
+(=teprob.f:973=, =983=, =993=), so they contribute =x*M= flat and
+temperature-independent. They are the non-condensibles and the model never puts
+them in a liquid phase in quantity. It is a placeholder that keeps the sum
+finite, not a fitted number, and a test pins it so nobody later "fixes" it.
+
+*Volumes add, densities do not.* The correlation is a reciprocal sum precisely
+because ideal volume additivity is the mixing rule. A unit test asserts a 50/50
+G/H mixture has the mean of the two pure specific volumes, which is the
+property that would break first if the expression were ever rewritten as a
+weighted average of densities.
+
+*No pole inside the operating range, checked rather than assumed.* Every
+species density stays positive at every integer degree from 0 to 175. The
+nearest root is component D at 208.57 C, which B-0008 measured and the harness
+already asserts the sweep ceiling clears.
+
+** Next
+B-0011, =TESUB2=, =teprob.f:1415-1442=, and it is a different kind of item
+from the last three: the first *Class B quirk fix* and the first
+=book/src/deltas.md= entry, not a transcription.
+
+The quirk, read off the listing: the loop runs =DO 250 J=1,100= and the
+convergence test =IF(DABS(DT).LT.1.D-12)GO TO 300= is *on the loop-terminal
+line*, so it is evaluated after each update. If the loop runs to exhaustion,
+control falls through to =T=TIN=, which *silently restores the input guess and
+returns as if nothing happened*. The caller cannot tell a converged answer from
+a failed one.
+
+Three things to get right. First, the port returns =Result= and
+non-convergence is an error, per the backlog. Second, *Tier 1 must be compared
+against the Fortran on the converging domain only*, so the sweep has to be
+partitioned rather than gated wholesale, and the count of non-converging cases
+is itself the delta measurement the item asks for. Third, =TESUB2= calls
+=TESUB1= and =TESUB3= internally, both now bit-exact, so any Tier 1 failure is
+in the iteration logic and nowhere else, which is a much easier debugging
+position than the last three items had.
+
+Expect the non-convergence count to be zero across the physical range. If it
+is not, that is a genuine finding about the original and belongs in the delta
+register with the exact cases that produced it.
+
+Note on cost: =TESUB2= runs up to 100 Newton iterations per call, each calling
+=TESUB1= and =TESUB3=. At =Sweep::FULL= that is up to 2x10^9 evaluations. The
+=validate=/=ci= split from B-0009 was put in for exactly this, but B-0011
+should measure before assuming =FULL= is affordable even in release, and say so
+in its entry.
