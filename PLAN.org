@@ -269,25 +269,49 @@ is fine for fixed-step Euler, where the RHS is evaluated exactly once per step,
 but it makes any multi-stage integrator wrong: RK4 would draw noise four times
 per step and advance the walks four times.
 
-The Rust port therefore splits it:
+The Rust port therefore splits it. Revised in B-0012 after enumerating the
+impure sites in the source; see the decision entry of 2026-08-11. The discrete
+work is *not one block*. It falls into a phase that must run before the
+derivative and a phase that can only run after it, because the measurement
+vector is a function of flows the derivative evaluation computes:
+
+- *Before*, and impure: the =IDV= clamp (=teprob.f:341-344=), the =IDVWLK=
+  mapping (=347-358=), the disturbance walk advance and the channel 10-12 spike
+  draws (=359-396=), the =TIME.EQ.0= initialization (=397-406=), and the valve
+  command latch (=794-806=). The latch is written at the end of =TEFUNC= but
+  reads only =XMV=, =VST=, =IVST= and =TIME=, none of which anything between
+  writes, so hoisting it is numerically identical and is asserted as such.
+- *Pure*: the walk evaluation (=407-416=), the whole physical model
+  (=417-678=), the noise-free measurement vector and the shutdown test
+  (=679-710=), and the balance assembly (=762-793=, =807=).
+- *After*, and impure: the additive measurement noise (=711-716=) and the three
+  sampled analyzers with their dead time (=717-761=). Both need the noise-free
+  signals the pure phase produced, so the pure phase returns them alongside the
+  derivative rather than being run twice.
 
 #+begin_src rust
 impl Plant {
-    /// Pure. Same inputs always give the same derivative. No RNG, no mutation.
-    pub fn derivatives(&self, t: SimTime, y: &State, u: &Inputs)
-        -> Result<Derivative, PlantError>;
+    /// Impure. Exactly once per outer step, *before* any derivative call.
+    /// Advances the disturbance walks and latches the valve commands.
+    pub fn advance_discrete(&mut self, t: SimTime, u: &Inputs);
 
-    /// Impure, called exactly once per outer step: advances disturbance walks,
-    /// samples analyzers, draws measurement noise, applies valve sticking.
-    pub fn advance_discrete(&mut self, t: SimTime, y: &State, u: &Inputs)
+    /// Pure. Same inputs always give the same answer. No RNG, no mutation.
+    /// `Signals` carries the noise-free measurements the next call needs.
+    pub fn derivatives(&self, t: SimTime, y: &State, u: &Inputs)
+        -> Result<(Derivative, Signals), PlantError>;
+
+    /// Impure. Exactly once per outer step, *after* the derivative call.
+    /// Adds measurement noise and ticks the sampled analyzers.
+    pub fn sample_measurements(&mut self, t: SimTime, signals: &Signals)
         -> Measurements;
 }
 #+end_src
 
-With this split, Euler reproduces the Fortran exactly, and RK4 or an adaptive
-Dormand-Prince becomes meaningful rather than merely different. It also makes the
-derivative function testable in isolation, which is what Tier 2 of the validation
-plan depends on.
+A Euler step is then =advance_discrete=, =derivatives=, =sample_measurements=,
+and reproduces the Fortran exactly. RK4 calls =derivatives= four times between
+the same two impure calls, which is what makes it meaningful rather than merely
+different. It also makes the derivative function testable in isolation, which is
+what Tier 2 of the validation plan depends on.
 
 ** Numerics and determinism
 
