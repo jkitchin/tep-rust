@@ -36,6 +36,7 @@ extern crate alloc;
 pub(crate) mod testing;
 
 pub mod component;
+pub mod constants;
 pub mod rng;
 pub mod stream;
 pub mod variables;

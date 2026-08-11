@@ -15,13 +15,13 @@ earlier phases will change what the right decomposition is.
 Rewrite this block at the end of every iteration. Keep it to five lines.
 
 - Phase: 1, in progress
-- Last completed: B-0007 component and stream vocabulary
+- Last completed: B-0006 constants table
 - In flight: (none)
-- Baseline: =cargo xtask ci= green; 74 tests default, 106 with =oracle=;
-  provenance 83/1589 lines claimed (5.2%)
+- Baseline: =cargo xtask ci= green; 78 tests default, 112 with =oracle=;
+  provenance 195/1589 lines claimed (12.3%)
 - Toolchain: rustup, pinned to rustc 1.97.1, wasm32 installed
 - Remote: private jkitchin/tep-rust, CI green on all 7 jobs
-- Blocked on: nothing. Next item is B-0006, the constants table.
+- Blocked on: nothing. Next item is B-0008, the Tier 1 test harness.
 
 * Phase 0: foundations
 
@@ -324,13 +324,17 @@ Done when:
       =teprob.f=* by a test that parses them, not transcribed by eye. Same
       discipline as the =D=-suffix check B-0006 needs.
 
-** NEXT B-0006 Constants table with provenance
+** DONE B-0006 Constants table with provenance
 :PROPERTIES:
-:ID:    B-0006
-:PHASE: 1
-:TIER:  1
-:DEPS:  B-0007
-:PLAN:  Anatomy > Unit operations
+:ID:     B-0006
+:PHASE:  1
+:TIER:   1
+:DEPS:   B-0007
+:PLAN:   Anatomy > Unit operations
+:RESULT: All 112 constants transcribed and bit-exact against gfortran's stored
+         COMMON/CONST/. 62 single-precision literals wrapped in single(), 50
+         double. Provenance 195/1589 (12.3%). All 24 Antoine coefficients are
+         single precision, which matters most since they feed exp().
 :END:
 
 *Transcription hazard, found in B-0004b:* 182 of the constant assignments in
@@ -342,15 +346,15 @@ constant must be transcribed according to whether its literal carries a =D=
 suffix, and the choice must be visible in the source rather than implicit.
 
 Done when:
-- [ ] =AVP/BVP/CVP=, =AH/BH/CH=, =AG/BG/CG=, =AV=, =AD/BD/CD=, =XMW= as typed
+- [X] =AVP/BVP/CVP=, =AH/BH/CH=, =AG/BG/CG=, =AV=, =AD/BD/CD=, =XMW= as typed
       Rust constants indexed by =Component=
-- [ ] Every constant's precision matches its Fortran literal, with the
+- [X] Every constant's precision matches its Fortran literal, with the
       single-precision ones written so the widening is explicit and auditable
-- [ ] A test enumerates the =D=-suffix status of every literal in the source and
+- [X] A test enumerates the =D=-suffix status of every literal in the source and
       cross-checks it against the Rust table, so none is transcribed by eye
-- [ ] Each block's doc comment cites its =teprob.f= line range and says what the
+- [X] Each block's doc comment cites its =teprob.f= line range and says what the
       coefficients mean physically
-- [ ] A test asserts equality with the oracle's =COMMON/CONST/=
+- [X] A test asserts equality with the oracle's =COMMON/CONST/=
 
 ** TODO B-0008 Tier 1 test harness
 :PROPERTIES:
