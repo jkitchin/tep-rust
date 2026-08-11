@@ -407,7 +407,7 @@ Done when:
 - [X] ULP histogram recorded in the log
 - [X] Rustdoc gives the polynomial forms in LaTeX and the =teprob.f= lines
 
-** TODO B-0010 Port TESUB4: liquid density
+** NEXT B-0010 Port TESUB4: liquid density
 :PROPERTIES:
 :ID:    B-0010
 :PHASE: 1
