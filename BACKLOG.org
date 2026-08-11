@@ -509,7 +509,7 @@ of =COMMON/TEPROC/=, which the oracle already exposes in full: =PPR=, =RR=,
 =CRXR=, =FTM=, =FCM=, =HST=, =SFR=, =QUR=, =VCV= and the rest. Phase 2 does not
 have to be written blind and integrated at the end.
 
-** TODO B-0013 State and Derivative types
+** NEXT B-0013 State and Derivative types
 :PROPERTIES:
 :ID:    B-0013
 :PHASE: 2
