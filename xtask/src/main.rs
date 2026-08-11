@@ -67,6 +67,7 @@ fn main() -> ExitCode {
         "ci" => cmd_ci(&root, flags.iter().any(|f| f == "--fast")),
         "provenance" => cmd_provenance(&root),
         "fidelity" => cmd_fidelity(&root),
+        "validate" => cmd_validate(&root, flags),
         "help" | "--help" | "-h" => {
             usage();
             return ExitCode::SUCCESS;
@@ -92,6 +93,8 @@ usage: cargo xtask <command>
                 --fast skips the Fortran oracle differential job
   provenance    teprob.f line ranges not claimed by any Rust function
   fidelity      diff a short run against the committed golden oracle trace
+  validate [--tiers 1,2,3] [--compare-to-log]
+                run the validation ladder at full volume, in release
   help          this message"
     );
 }
@@ -227,6 +230,93 @@ fn check_oracle_isolation(root: &Path) -> Result<(), String> {
     }
     println!("[ok] oracle isolation: no shipped crate depends on tepsim-oracle");
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// validate
+// ---------------------------------------------------------------------------
+
+/// The validation ladder at full volume.
+///
+/// Split out of `ci` deliberately. The Tier 1 sweep is ten million cases per
+/// mode, about three minutes per routine in a debug build and growing with
+/// every routine ported, which is the wrong thing to put on every commit. `ci`
+/// runs the same assertions over the smoke sweep; this runs the gate, in
+/// release, and the session protocol invokes it at every preflight.
+fn cmd_validate(root: &Path, flags: &[String]) -> Result<(), String> {
+    let tiers = parse_tiers(flags)?;
+    if flags.iter().any(|f| f == "--compare-to-log") {
+        println!(
+            "[note] --compare-to-log is accepted but does nothing yet: it needs\n\
+             the recorded numbers parsed out of LOG.org, which lands with the\n\
+             validation report. Compare against the previous log entry by hand."
+        );
+    }
+
+    for tier in &tiers {
+        match tier {
+            1 => {
+                if which("gfortran").is_none() {
+                    return Err(
+                        "tier 1 needs gfortran, which is not on PATH. Per CLAUDE.md, \
+                         a session without it must not do model work."
+                            .to_string(),
+                    );
+                }
+                println!("\n=== tier 1: utility routines vs the Fortran ===");
+                step_with_env(
+                    root,
+                    "cargo",
+                    &[
+                        "test",
+                        "-p",
+                        "tepsim-oracle",
+                        "--features",
+                        "oracle",
+                        "--release",
+                        "--test",
+                        "tier1_enthalpy",
+                        "--",
+                        "--nocapture",
+                        "--test-threads",
+                        "1",
+                    ],
+                    &[("TEP_TIER1_SWEEP", "full")],
+                )?;
+            }
+            other => println!(
+                "\n[skip] tier {other}: not implemented yet. Tiers 2-10 land \
+                 with their phases; see BACKLOG.org."
+            ),
+        }
+    }
+
+    println!("\nvalidate: green for tier(s) {tiers:?}");
+    Ok(())
+}
+
+/// `--tiers 1,2,3`, defaulting to every tier.
+fn parse_tiers(flags: &[String]) -> Result<Vec<u8>, String> {
+    let Some(position) = flags.iter().position(|f| f == "--tiers") else {
+        return Ok((1..=10).collect());
+    };
+    let list = flags
+        .get(position + 1)
+        .ok_or_else(|| "--tiers needs a value, for example `--tiers 1,2`".to_string())?;
+    list.split(',')
+        .map(|t| {
+            t.trim()
+                .parse::<u8>()
+                .map_err(|_| format!("`{t}` is not a tier number"))
+                .and_then(|n| {
+                    if (1..=10).contains(&n) {
+                        Ok(n)
+                    } else {
+                        Err(format!("tier {n} does not exist; they run 1 to 10"))
+                    }
+                })
+        })
+        .collect()
 }
 
 fn step(root: &Path, program: &str, args: &[&str]) -> Result<(), String> {

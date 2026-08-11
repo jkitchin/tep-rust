@@ -391,6 +391,52 @@ impl Sweep {
         seed: 0x07E9_5EED,
     };
 
+    /// The environment variable that selects between [`Sweep::SMOKE`] and
+    /// [`Sweep::FULL`].
+    pub const ENV: &'static str = "TEP_TIER1_SWEEP";
+
+    /// Which sweep a differential test should run, from [`Sweep::ENV`].
+    ///
+    /// `full` selects [`Sweep::FULL`]; anything else, including the variable
+    /// being absent, selects [`Sweep::SMOKE`].
+    ///
+    /// # Why the gate is not the default
+    ///
+    /// [`Sweep::FULL`] takes about three minutes per routine in a debug build,
+    /// and `cargo xtask ci` runs on every commit. Ten million cases on every
+    /// commit would buy tail coverage that has never once differed from what
+    /// the first ten thousand cases already showed, at a cost that grows with
+    /// every routine ported. So `cargo test` runs the smoke sweep and
+    /// `cargo xtask validate --tiers 1` runs the real one, in release, which
+    /// the session protocol invokes at every preflight.
+    ///
+    /// This is a split, not a weakening: both sweeps assert the same tolerance
+    /// and the same bit equality, and the smoke sweep still contains the
+    /// worst-case cell for every failure mode found so far, `grid#704`
+    /// included.
+    #[must_use]
+    pub fn from_env() -> Self {
+        match std::env::var(Self::ENV).as_deref() {
+            Ok("full") => Self::FULL,
+            _ => Self::SMOKE,
+        }
+    }
+
+    /// A one-line note naming which sweep this is and how to run the other.
+    #[must_use]
+    pub fn provenance_note(&self) -> String {
+        if self.dirichlet_samples == Self::FULL.dirichlet_samples {
+            format!("sweep: FULL, {} cases", self.len())
+        } else {
+            format!(
+                "sweep: SMOKE, {} cases. The {}-case gate is \
+                 `cargo xtask validate --tiers 1`.",
+                self.len(),
+                Self::FULL.len()
+            )
+        }
+    }
+
     /// The temperatures the grid pool is crossed with: a uniform ladder over
     /// [`Sweep::range`] plus every [`BREAKPOINTS`] entry inside it, ascending,
     /// with duplicates removed.

@@ -39,9 +39,11 @@ pub mod component;
 pub mod constants;
 pub mod rng;
 pub mod stream;
+pub mod thermo;
 pub mod variables;
 
 pub use component::{ByComponent, Component, Composition};
 pub use rng::TepRng;
 pub use stream::Stream;
+pub use thermo::EnergyBasis;
 pub use variables::{Analyzer, MeasIndex, MvIndex, Unit, ValveId};
