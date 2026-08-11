@@ -14,18 +14,17 @@ earlier phases will change what the right decomposition is.
 
 Rewrite this block at the end of every iteration. Keep it to five lines.
 
-- Phase: 1 *complete*. Phase 2 next, and its first action is decomposition
-- Last completed: B-0011 TESUB2 with delta D-001 measured at zero
+- Phase: 2, decomposed into B-0013 to B-0026. No plant code yet
+- Last completed: B-0012 Phase 2 decomposition and the RHS split decision
 - In flight: (none)
 - Baseline: =cargo xtask ci= green; 123 tests default, 169 with =oracle=;
   =xtask validate --tiers 1= green in 78 s, all thirteen reports 0 ULP;
   provenance 326/1589 (20.5%)
 - Toolchain: rustup, pinned to rustc 1.97.1, wasm32 installed
 - Remote: private jkitchin/tep-rust, CI green on all 7 jobs
-- Blocked on: nothing. Next iteration decomposes Phase 2 into items and takes
-  the first one. Do the decomposition as its own item; the plant model is
-  where the load-bearing structural decision lives (=PLAN.org=, "Splitting the
-  right-hand side").
+- Blocked on: nothing, but *the RHS split changed shape*: three impure/pure
+  phases instead of two. Recorded as a decision and applied to =PLAN.org=;
+  worth a look before B-0014 builds on it. Next item is B-0013.
 
 * Phase 0: foundations
 
@@ -460,13 +459,22 @@ Done when:
 
 * Phase 2: the plant model
 
-** NEXT B-0012 Decompose Phase 2 and settle the RHS split
+** DONE B-0012 Decompose Phase 2 and settle the RHS split
 :PROPERTIES:
 :ID:    B-0012
 :PHASE: 2
 :TIER:  none
 :DEPS:  B-0011
 :PLAN:  Architecture > Splitting the right-hand side
+:RESULT: 14 items, B-0013 to B-0026, each naming its teprob.f range.
+         The split is *three* phases, not two: the measurement vector is built
+         from flows the pure evaluation computes, so noise and analyzers can
+         only run after it while the walk advance must run before it.
+         PLAN.org updated, decision entry recorded. Two findings that reshape
+         the phase: COMMON/TEPROC/ exposes every intermediate, so each item is
+         differentially testable on its own rather than blind until the end;
+         and in teprob.f:473-520 exactly one literal of twelve carries a D
+         suffix, with most of the rest inside DEXP arguments.
 :END:
 
 Produces backlog items, not code. =BACKLOG.org= says to decompose a phase as
@@ -475,36 +483,305 @@ decision is the pure/impure split of =TEFUNC=. Settle both before any balance
 equation is ported, because every later item inherits them.
 
 Done when:
-- [ ] The impure sites in =TEFUNC= are enumerated by line number, from the
+- [X] The impure sites in =TEFUNC= are enumerated by line number, from the
       source, so the split rests on evidence rather than on the plan's summary
-- [ ] The split is settled, and =PLAN.org= updated if it turns out to be wrong
-- [ ] It is established whether Phase 2 can be verified incrementally or only
-      at the end; if incrementally, by what
-- [ ] Phase 2 exists as sized items with =:DEPS:=, each naming its =teprob.f=
+- [X] The split is settled; =PLAN.org= updated, since it turned out to be
+      underspecified rather than wrong
+- [X] It is established whether Phase 2 can be verified incrementally or only
+      at the end: *incrementally*, against =COMMON/TEPROC/=
+- [X] Phase 2 exists as sized items with =:DEPS:=, each naming its =teprob.f=
       line range
 
 
-Decompose into iteration-sized items when starting this phase. The intended
-shape, in dependency order:
+Decomposed in B-0012. =TEFUNC= is =teprob.f:196-816=; the ranges below
+partition its body and each item pins its own exactly as its first action.
 
-- State and Derivative types with a =VectorSpace= trait; flat view for interop
-  only, never the working representation
-- Splitting =TEFUNC= into a pure =derivatives()= and an impure
-  =advance_discrete()= (see =PLAN.org=, "Splitting the right-hand side"). This
-  is the load-bearing structural decision; get it right before porting bodies.
-- Vapor-liquid equilibrium and pressures for reactor, separator, mixing zone
-- Reaction kinetics: four reactions, Arrhenius, fractional pressure orders
-- Stream network: valve-lagged flows, square-root resistances, compressor curve
-- Heat transfer: reactor coil with level and agitator dependence, condenser
-  saturating coefficient, stripper steam duty
-- Stripper stripping factors, including both temperature breakpoints
-- Balance assembly into all 50 derivatives
-- Tier 2 harness plus the adversarial state catalog, enumerated from the source:
-  reactor level at the 10 and 50 percent heat-transfer breakpoints, stripper
-  temperature at 5.292 and 170 C, both compressor pressure-ratio clamps, every
-  =DLP < 0= sign flip, separator underflow near the 0.1 branch threshold, and
-  states tripping each of the eight shutdown conditions
-- Tier 2 acceptance at 1e-12 across all three sampling pools
+*Every item in this phase begins by extracting its range's numeric literals and
+checking each for a =D= suffix.* This is not boilerplate. In =teprob.f:473-520=
+exactly one literal of twelve carries one; =RG=998.9=, the three Arrhenius
+pre-exponentials, the three activation energies, =1.987=, and both fractional
+pressure orders are all *single precision*, and most of them sit inside a
+=DEXP= argument where the error is amplified rather than carried. See the
+B-0012 log entry.
+
+*Every item is differentially testable on its own*, against the matching field
+of =COMMON/TEPROC/=, which the oracle already exposes in full: =PPR=, =RR=,
+=CRXR=, =FTM=, =FCM=, =HST=, =SFR=, =QUR=, =VCV= and the rest. Phase 2 does not
+have to be written blind and integrated at the end.
+
+** TODO B-0013 State and Derivative types
+:PROPERTIES:
+:ID:    B-0013
+:PHASE: 2
+:TIER:  none
+:DEPS:  B-0012
+:PLAN:  Architecture > Core data model
+:END:
+
+Done when:
+- [ ] =State= with named fields for the four holdups, the two cooling-water
+      temperatures and the twelve valve positions; =Derivative= likewise
+- [ ] A small =VectorSpace= trait (=zip_with=, =scale=, =add_scaled=) so
+      integrators never flatten to =[f64; 50]=
+- [ ] A flat view for oracle interop only, with a round-trip test against the
+      golden trace's recorded state layout, which pins the index mapping
+      (=teprob.f:417-440=) rather than assuming it
+
+** TODO B-0014 The three-phase RHS skeleton
+:PROPERTIES:
+:ID:    B-0014
+:PHASE: 2
+:TIER:  none
+:DEPS:  B-0013
+:PLAN:  Architecture > Splitting the right-hand side
+:END:
+
+Structure only, no physics. The load-bearing item: everything after inherits
+this shape.
+
+Done when:
+- [ ] =advance_discrete=, =derivatives=, =sample_measurements= exist with the
+      signatures in =PLAN.org=, bodies stubbed
+- [ ] A test calls =derivatives= twice with identical arguments and asserts
+      bit-identical results, which is the property the whole split exists for
+      and the one Tier 2 depends on
+- [ ] A test asserts the valve-command latch may be hoisted: nothing between
+      =teprob.f:341= and =798= writes =XMV=, =VCV=, =VST= or =IVST=, so running
+      it early changes no number. Prove it against the oracle, do not assert it
+      from reading
+
+** TODO B-0015 Tier 2 harness: state forcing and the COMMON differ
+:PROPERTIES:
+:ID:    B-0015
+:PHASE: 2
+:TIER:  2
+:DEPS:  B-0014
+:PLAN:  Validation > Tier 2
+:END:
+
+The B-0008 analogue, and the same reasoning: build the instrument before the
+thing it measures, so no tolerance is chosen to fit a result.
+
+Done when:
+- [ ] Force the Fortran into an arbitrary state: all 50 states, 12 MVs, 20 IDV
+      flags, the full walk state and the RNG word
+- [ ] Compare *any named =COMMON/TEPROC/= field*, not just =YP=, reusing
+      =tier1::Comparison= unchanged
+- [ ] Two of the three sampling pools: nominal-trajectory states, and random
+      perturbations scaled across several orders of magnitude
+- [ ] Reports in the same format as Tier 1, so the two are diffable
+
+** TODO B-0016 The adversarial state catalogue
+:PROPERTIES:
+:ID:    B-0016
+:PHASE: 2
+:TIER:  2
+:DEPS:  B-0015
+:PLAN:  Validation > Tier 2
+:END:
+
+The third pool, built by hand because it is enumerable from the source and
+because Tier 1 showed the boundary pool finds most of the worst cases.
+
+Done when, each constructed and each documented with its =teprob.f= line:
+- [ ] Reactor liquid level at both heat-transfer breakpoints (=663-668=)
+- [ ] Stripper temperature at 5.292 and 170 (=615-620=), and near the 177 pole
+- [ ] Both compressor pressure-ratio clamps
+- [ ] Every =DLP < 0= sign flip (=576-598=)
+- [ ] Separator-to-stripper flow at the 0.1 branch threshold (=614=)
+- [ ] A state tripping each of the eight shutdown conditions (=702-710=)
+
+** TODO B-0017 Unpack the state: holdups, compositions, temperatures, densities
+:PROPERTIES:
+:ID:    B-0017
+:PHASE: 2
+:TIER:  2
+:DEPS:  B-0016
+:PLAN:  Anatomy > Unit operations
+:END:
+
+=teprob.f:417-472=. The first physics item, and the one that proves the Phase 1
+routines compose: it calls =TESUB2= four times and =TESUB4= three times.
+
+Done when:
+- [ ] =UCLR/UCVR/UCLS/UCVS/UCLC/UCVV=, the totals, the mole fractions, the
+      specific energies, =TCR/TCS/TCC/TCV=, =DLR/DLS/DLC=, =VLR/VLS/VLC=
+- [ ] Tier 2 differential against each of those =COMMON/TEPROC/= fields
+- [ ] Note =TKR=TCR+273.15= at =461=: check that literal's suffix, given D-001
+
+** TODO B-0018 Vapour-liquid equilibrium and pressures
+:PROPERTIES:
+:ID:    B-0018
+:PHASE: 2
+:TIER:  2
+:DEPS:  B-0017
+:PLAN:  Anatomy > Unit operations
+:END:
+
+=teprob.f:473-499=. A/B/C are ideal-gas partial pressures; D-H are Antoine
+vapour pressures times liquid mole fraction.
+
+*First contact with =libm=.* =DEXP= enters here, so this is where bit equality
+with gfortran may stop and Tier 2's 1e-12 starts doing real work. Record
+whether it does. =RG=998.9= and all 24 Antoine coefficients are single
+precision (B-0006), and they feed an exponent argument.
+
+Done when:
+- [ ] =PPR=, =PPS=, =PTR=, =PTS=, =PTV=, =XVR=, =XVS=, =UTVR=, =UTVS=, =UCVR=,
+      =UCVS=
+- [ ] Tier 2 differential per field, with the ULP histogram recorded
+- [ ] The =exp= difference against gfortran quantified and logged, since every
+      later item inherits it
+
+** TODO B-0019 Reaction kinetics
+:PROPERTIES:
+:ID:    B-0019
+:PHASE: 2
+:TIER:  2
+:DEPS:  B-0018
+:PLAN:  Anatomy > Unit operations
+:END:
+
+=teprob.f:500-520=. Four reactions, Arrhenius in =TKR=, fractional pressure
+orders on A and C.
+
+*Two hazards, both already located.* Every literal here except
+=0.767488334D0= is single precision, including three pre-exponentials and
+three activation energies inside =DEXP=. And =R1F=/=R2F= arrive as disturbance
+drift factors from =TESUB8= and are *reassigned in place* as pressure powers
+at =507-508=: the Class A naming quirk, which must be read carefully rather
+than tidied.
+
+Done when:
+- [ ] =RR(1..4)=, =CRXR(1..8)=, =RH=; the =PPR(1)>0 .AND. PPR(3)>0= branch
+- [ ] =**1.1544= and =**0.3735= go through the vendored =libm= =pow=
+- [ ] Tier 2 differential; delta entry for the =R1F=/=R2F= rename
+
+** TODO B-0020 Stream compositions, molecular weights and enthalpies
+:PROPERTIES:
+:ID:    B-0020
+:PHASE: 2
+:TIER:  2
+:DEPS:  B-0019
+:PLAN:  Anatomy > Internal streams
+:END:
+
+=teprob.f:521-564=. Assembles =XST=, =XMWS=, =TST= and =HST= for the streams
+known at this point, via nine =TESUB1= calls.
+
+Done when:
+- [ ] Tier 2 differential on =XST=, =XMWS=, =TST=, =HST=
+- [ ] =HST(10)=HST(9)= at =562= reproduced as the aliasing it is
+
+** TODO B-0021 Valve-lagged flows, pressure-driven flows and the compressor
+:PROPERTIES:
+:ID:    B-0021
+:PHASE: 2
+:TIER:  2
+:DEPS:  B-0020
+:PLAN:  Anatomy > Unit operations
+:END:
+
+=teprob.f:565-611=. Valve openings to flows, the square-root resistances with
+their =DLP<0= clamps, the compressor curve, and =FCM=.
+
+Done when:
+- [ ] =FTM(1..13)=, =FCM=, =UAC=, =FWR=, =FWS=, =AGSP=, the compressor terms
+- [ ] Every =IF(DLP.LT.0.0)DLP=0.0= clamp reproduced, and each one covered by
+      an adversarial state from B-0016
+- [ ] The =1.0e-10= addend on stream 4 recorded as a Class B delta
+
+** TODO B-0022 The stripper
+:PROPERTIES:
+:ID:    B-0022
+:PHASE: 2
+:TIER:  2
+:DEPS:  B-0021
+:PLAN:  Anatomy > Unit operations
+:END:
+
+=teprob.f:612-662=. Stripping factors, both temperature breakpoints, and the
+=FTM(11)>0.1= branch that switches the whole block to fixed factors.
+
+Done when:
+- [ ] =SFR(4..8)=, =FIN=, =FCM(I,5)=, =FCM(I,12)=, =FTM(5)=, =FTM(12)=,
+      =XST(I,5)=, =XST(I,12)=, =HST(5)=, =HST(12)=
+- [ ] All three =TMPFAC= branches and both sides of the =0.1= threshold
+      covered by B-0016 states
+
+** TODO B-0023 Heat transfer
+:PROPERTIES:
+:ID:    B-0023
+:PHASE: 2
+:TIER:  2
+:DEPS:  B-0022
+:PLAN:  Anatomy > Unit operations
+:END:
+
+=teprob.f:663-678=. Reactor coil with the level ramp and the agitator
+quadratic, the condenser saturating coefficient, and the stripper steam duty.
+
+Done when:
+- [ ] =UARLEV=, =UAR=, =QUR=, =UAS=, =QUS=, =QUC=
+- [ ] All three =UARLEV= branches and the =TCC<100= steam cutoff covered
+- [ ] =AGSP**2= and =(FTM(8)/3528.73)**4= are integer powers, so they must
+      expand to multiplication, not =pow=
+
+** TODO B-0024 Measurements, shutdown detection and the sampled analyzers
+:PROPERTIES:
+:ID:    B-0024
+:PHASE: 2
+:TIER:  2
+:DEPS:  B-0023
+:PLAN:  Anatomy > Unit operations
+:END:
+
+=teprob.f:679-761=. The pure part is =679-710=; the noise and the analyzers are
+the post-phase of the split and are impure.
+
+Done when:
+- [ ] =XMEAS(1..22)= noise-free, and the eight shutdown conditions as a typed
+      condition rather than a bare flag
+- [ ] The =XMEAS(20)= double assignment at =698-699= recorded as a Class A
+      delta: the first is dead
+- [ ] The analyzers' dead time as the previous-sample latch it is, with the
+      0.1 and 0.25 hour schedules
+- [ ] Noise draws land in the post-phase, and Tier 3 will check their order
+
+** TODO B-0025 Balance assembly and valve dynamics
+:PROPERTIES:
+:ID:    B-0025
+:PHASE: 2
+:TIER:  2
+:DEPS:  B-0024
+:PLAN:  Anatomy > Unit operations
+:END:
+
+=teprob.f:762-816=. All 50 derivative components, and the valve first-order
+lags.
+
+Done when:
+- [ ] =YP(1..38)= from the component and energy balances
+- [ ] =YP(39..50)= from the valve lags, with the latch hoisted per B-0014
+- [ ] The shutdown derivative-zeroing at =807-811= is *not* the default: it is
+      a Class C quirk, so it lands behind a flag with a =BLOCKED= item for
+      sign-off, and =derivatives= reports the trip instead
+
+** TODO B-0026 Tier 2 acceptance
+:PROPERTIES:
+:ID:    B-0026
+:PHASE: 2
+:TIER:  2
+:DEPS:  B-0025
+:PLAN:  Validation > Tier 2
+:END:
+
+Done when:
+- [ ] Max relative error below 1e-12 on all 50 components across all three
+      pools, with per-component ULP histograms recorded
+- [ ] The worst component named, with the state that produced it
+- [ ] =xtask validate --tiers 2= runs it, and the fidelity preflight starts
+      diffing the golden trace for real
 
 * Phase 3: measurements and disturbances
 
@@ -579,6 +856,24 @@ New work is MIT, replacing the BSD-3-Clause placeholder. The upstream NCSA
 conditions cannot be dropped and continue to apply to the derived portions, so
 =LICENSE-NCSA= and =NOTICE.md= remain and must ship in binary artifacts. Crate
 metadata declares =license = "MIT AND NCSA"=.
+
+** 2026-08-11 The RHS split is three phases, not two
+=PLAN.org= described =TEFUNC= as splitting into a pure =derivatives()= and one
+impure =advance_discrete()= returning =Measurements=. Enumerating the impure
+sites by line number in B-0012 showed that cannot work as written: the
+measurement vector is built at =teprob.f:679-701= from flows the pure
+evaluation computes, so the noise and analyzer work at =711-761= can only
+happen *after* the derivative, while the walk advance at =359-396= must happen
+*before* it. One impure call cannot sit on both sides.
+
+The split is therefore =advance_discrete= (pre), =derivatives= (pure, also
+returning the noise-free signals), =sample_measurements= (post). The valve
+command latch at =794-806= is hoisted into the pre-phase, which is numerically
+free because nothing between =341= and =798= writes =XMV=, =VCV=, =VST= or
+=IVST=; B-0014 proves that against the oracle rather than asserting it.
+
+The pure/impure distinction the plan called for is unchanged and so is the
+reason for it. Only the number of impure entry points moved.
 
 ** 2026-08-09 Initial four decisions
 Browser app is Rust-native Leptos with uPlot charts. Python API is a clean break

@@ -1477,3 +1477,103 @@ Three things the decomposition should account for that this phase learned:
 3. *Expect bit equality and treat anything less as a finding.* Thirteen Tier 1
    reports read zero. Phase 2 will not manage that everywhere, since =exp= and
    =pow= enter through =libm=, but the burden of proof is on the difference.
+
+* 2026-08-11 B-0012 Phase 2 decomposition and the RHS split decision
+:PROPERTIES:
+:ITEM:     B-0012
+:PHASE:    2
+:TIER:     none
+:COMMIT:   3024a89
+:GFORTRAN: 15.2.0
+:STATUS:   DONE
+:END:
+** Preflight
+Clean and green. Fidelity green, gfortran 15.2.0 matches. Provenance 326/1589
+(20.5%), identical to the B-0011 close. Tier 1 re-run at full volume, *all
+thirteen reports still 0 ULP*. No drift.
+
+** What changed
+No code. =BACKLOG.org= gained fourteen items, B-0013 to B-0026, each naming
+its =teprob.f= range. =PLAN.org='s "Splitting the right-hand side" section was
+rewritten, with a decision entry recording why.
+
+** Validation numbers
+=cargo xtask ci= green, unchanged at 123 tests default and 169 with =oracle=.
+Provenance unchanged at 326/1589: nothing was ported.
+
+** Surprises and decisions
+*The plan's two-way split cannot work as written, and the reason is one line
+number.* =PLAN.org= had =advance_discrete(t, y, u) -> Measurements= as a single
+impure call. But =XMEAS= is assembled at =teprob.f:679-701= out of =FTM=,
+=PTR=, =VLR= and the rest, all of which the *pure* evaluation produces. So the
+noise addition at =711-716= and the analyzer latching at =717-761= cannot run
+before the derivative, while the walk advance at =359-396= cannot run after
+it. One impure entry point cannot be on both sides of the pure one.
+
+Three phases: =advance_discrete= (pre), =derivatives= (pure, returning
+=(Derivative, Signals)=), =sample_measurements= (post). Returning the
+noise-free signals from the pure call is what stops the post-phase from having
+to recompute the model, which would have doubled the cost of every Euler step.
+
+This is a refinement, not a pivot: the pure/impure boundary and the reason for
+it are exactly as the plan had them. *Recorded as a decision and applied to
+=PLAN.org= rather than worked around, and it is the thing to review before
+B-0014 builds on it.*
+
+*The valve latch hoist is free, and is a claim to be proved, not assumed.*
+=teprob.f:798-806= latches =VCV= from =XMV= at the very end of =TEFUNC=, just
+before the valve derivatives at =807=. It reads only =XMV=, =VST=, =IVST= and
+=TIME=. Nothing between =341= and =798= writes any of those, so hoisting it
+into the pre-phase changes no number. B-0014 asserts this against the oracle;
+reasoning about 450 lines of Fortran by eye is exactly how a silent divergence
+gets in.
+
+*=COMMON/TEPROC/= exposes every intermediate, which changes the shape of the
+whole phase.* The oracle's =Teproc= mirror already carries =PPR=, =RR=,
+=CRXR=, =FTM=, =FCM=, =HST=, =TST=, =SFR=, =QUR=, =QUS=, =QUC=, =UAR=, =VCV=,
+=XDEL=, =TGAS=, =TPROD= and the rest. Tier 2 was written up as a
+fifty-component derivative comparison, which is all-or-nothing and would have
+meant nine items of unverified work before the first signal. It does not have
+to be: *each item can diff its own =COMMON= field the moment it is written.*
+That is the single most useful thing found this iteration, and it is what makes
+a fourteen-item decomposition sized rather than reckless.
+
+*The precision hazard is much denser in Phase 2 than in Phase 1.* Over
+=teprob.f:473-520= there are twelve distinct numeric literals and *exactly one*
+carries a =D= suffix, =0.767488334D0=. Single precision: =RG=998.9= (which
+multiplies every ideal-gas partial pressure), the three Arrhenius
+pre-exponentials =31.5859536=, =3.00094014=, =53.4060443=, the three
+activation energies =40000.0=, =20000.0=, =60000.0=, the gas constant
+=1.987=, and the fractional pressure orders =1.1544= and =0.3735=.
+
+Six of those sit *inside a =DEXP= argument*. An =f32= ULP at 31.6 is about
+1.9e-6 absolute, and =exp= turns an absolute error in its argument into a
+relative error in its result, so reading =31.5859536= as =f64= would put the
+first rate constant out by roughly 1e-6 relative: six orders past Tier 2's
+1e-12 gate. Phase 1 found one such literal in four routines; Phase 2 has
+eleven in forty-eight lines. The per-range literal audit is now written into
+every item as its first action.
+
+*Where bit equality will end.* =DEXP= first appears at =teprob.f:485=, in the
+Antoine vapour pressures, and =**= with a fractional exponent at =507=. Those
+go through the vendored =libm=, which is not gfortran's. B-0018 is therefore
+the item where the thirteen-consecutive-zeros run most likely stops, and it is
+written up to *quantify* that difference rather than to be surprised by it,
+because every later item inherits whatever it turns out to be.
+
+** Next
+B-0013, the =State= and =Derivative= types. Small, structural, no oracle
+needed for most of it.
+
+The one thing worth care: the flat =[f64; 50]= view exists only for oracle
+interop, and its index mapping must be pinned *against the golden trace*,
+not transcribed from =teprob.f:417-440= by eye. The trace already records 50
+states per step, so a round-trip test has ground truth available with no
+Fortran toolchain required. Getting this mapping wrong would silently
+mis-attribute every Tier 2 component for the rest of the phase.
+
+After that B-0014 and B-0015 are both structural, and B-0016 is the
+adversarial catalogue. *Resist starting the physics until B-0015 exists.* That
+ordering is what made Phase 1 land thirteen bit-exact reports in four
+iterations, and the temptation to port a balance equation first will be
+strongest exactly when the harness is the thing that would have caught it.
