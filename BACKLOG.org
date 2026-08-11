@@ -14,17 +14,17 @@ earlier phases will change what the right decomposition is.
 
 Rewrite this block at the end of every iteration. Keep it to five lines.
 
-- Phase: 2, on B-0015. Structure complete, no physics yet
-- Last completed: B-0014 the three-phase RHS skeleton
+- Phase: 2, on B-0016. Tier 2 instrument built, no physics yet
+- Last completed: B-0015 the Tier 2 harness
 - In flight: (none)
-- Baseline: =cargo xtask ci= green; 139 tests default, 188 with =oracle=;
+- Baseline: =cargo xtask ci= green; 139 tests default, 202 with =oracle=;
   =xtask validate --tiers 1= green, all thirteen reports 0 ULP;
   provenance 350/1589 (22.0%)
 - Toolchain: rustup, pinned to rustc 1.97.1, wasm32 installed
 - Remote: private jkitchin/tep-rust, CI green on all 7 jobs
-- Blocked on: nothing. Next is B-0015, the Tier 2 harness. Build it before
-  any physics; that ordering is what made Phase 1 land thirteen bit-exact
-  reports in four iterations.
+- Blocked on: nothing. Next is B-0016, the adversarial state catalogue.
+  *B-0017 must carry the four solved temperatures as plant state*; see the
+  B-0015 entry.
 
 * Phase 0: foundations
 
@@ -563,26 +563,36 @@ Done when:
       against the oracle. A dynamic proof was not available: =reference/= may
       never be edited, so the reordered variant cannot be built and run
 
-** NEXT B-0015 Tier 2 harness: state forcing and the COMMON differ
+** DONE B-0015 Tier 2 harness: state forcing and the COMMON differ
 :PROPERTIES:
 :ID:    B-0015
 :PHASE: 2
 :TIER:  2
 :DEPS:  B-0014
 :PLAN:  Validation > Tier 2
+:RESULT: =tepsim-oracle::tier2=. *Found that the four solved temperatures are
+         hidden state*: =TESUB2= takes its argument as both guess and result,
+         so =TCR/TCS/TCC/TCV= warm-start from the previous call and =TEFUNC= is
+         path-dependent at the 1e-13 level. A =Scenario= therefore carries the
+         whole =COMMON/TEPROC/= block. Seeding the temperatures from a
+         different trajectory point moves up to 21 of the 50 derivatives.
+         14 harness tests. 202 tests with =oracle=, up from 188.
 :END:
 
 The B-0008 analogue, and the same reasoning: build the instrument before the
 thing it measures, so no tolerance is chosen to fit a result.
 
 Done when:
-- [ ] Force the Fortran into an arbitrary state: all 50 states, 12 MVs, 20 IDV
-      flags, the full walk state and the RNG word
-- [ ] Compare *any named =COMMON/TEPROC/= field*, not just =YP=, reusing
-      =tier1::Comparison= unchanged
-- [ ] Two of the three sampling pools: nominal-trajectory states, and random
-      perturbations scaled across several orders of magnitude
-- [ ] Reports in the same format as Tier 1, so the two are diffable
+- [X] Force the Fortran into an arbitrary state: all 50 states, 12 MVs, 20 IDV
+      flags, the walk state, the RNG word *and the whole =COMMON/TEPROC/=
+      block*, which turned out to be necessary and was not in the original plan
+- [X] Compare *any named =COMMON/TEPROC/= field*, not just =YP=, reusing
+      =tier1::Comparison= unchanged. The generic case type paid off exactly as
+      intended
+- [X] Two of the three sampling pools, each carrying the *time* its state was
+      visited at: evaluating them all at t=0 would have silently skipped the
+      walk machinery, since =teprob.f:397-406= resets it whenever =TIME.EQ.0=
+- [X] Reports in the same format as Tier 1, so the two are diffable
 
 ** TODO B-0016 The adversarial state catalogue
 :PROPERTIES:
@@ -619,6 +629,10 @@ routines compose: it calls =TESUB2= four times and =TESUB4= three times.
 Done when:
 - [ ] =UCLR/UCVR/UCLS/UCVS/UCLC/UCVV=, the totals, the mole fractions, the
       specific energies, =TCR/TCS/TCC/TCV=, =DLR/DLS/DLC=, =VLR/VLS/VLC=
+- [ ] *The four solved temperatures are carried in =Plant= as warm-start
+      seeds*, not recomputed from a fixed guess. B-0015 measured the
+      difference: seeding them from another trajectory point moves up to 21 of
+      the 50 derivatives. Without this the port cannot be bit-exact
 - [ ] Tier 2 differential against each of those =COMMON/TEPROC/= fields
 - [ ] Note =TKR=TCR+273.15= at =461=: check that literal's suffix, given D-001
 

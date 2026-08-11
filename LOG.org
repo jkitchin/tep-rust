@@ -1751,3 +1751,116 @@ calling it twice on the same state does *not* give the same answer. Every
 comparison must reset the RNG word and the walk state first, or the harness
 will report differences that are its own fault. =Oracle::set_rng= and
 =Oracle::set_wlk= exist for this. Get it wrong and Tier 2 becomes noise.
+
+* 2026-08-11 B-0015 Tier 2 harness, and TEFUNC's hidden state
+:PROPERTIES:
+:ITEM:     B-0015
+:PHASE:    2
+:TIER:     2
+:COMMIT:   336b8e8
+:GFORTRAN: 15.2.0
+:STATUS:   DONE
+:END:
+** Preflight
+Clean and green. Fidelity green, gfortran 15.2.0. Provenance 350/1589 (22.0%),
+identical to B-0014's close. Tier 1 thirteen reports at 0 ULP.
+
+** What changed
+=tepsim-oracle::tier2=: =Scenario=, =Snapshot=, =Pools=, =compare_field=,
+=reproducible=. Fourteen harness tests.
+
+** Validation numbers
+=cargo xtask ci= green. *139 tests default, 202 with =oracle==, up from 139 and
+188. Provenance unchanged at 350/1589: nothing ported. Tier 1 unchanged.
+
+*The measurement that matters this iteration*: seeding =TCR/TCS/TCC/TCV= from
+another point on the nominal trajectory, *changing nothing else*, moves this
+many of the fifty derivatives:
+
+| seed taken from | YP components moved |
+|-----------------+---------------------|
+| step 1          | none                |
+| step 10         | 21                  |
+| step 50         | 16                  |
+| step 100        | 14                  |
+| step 199        | 4                   |
+
+Worst-affected components across the sweep: 9-18 (separator holdups and
+energy), 28-38 (mixing zone and cooling water), and 22, 27, 36.
+
+Other numbers: the generator word moves *22 of 41 measurements*; a one-degree
+shift in =ADIST(5)= moves =TCWR= from 35 to 36 and *1 of 50 derivatives*; the
+nominal trajectory moves *38 of 50 states* over 100 steps and *never trips*;
+the perturbed pool spans *1.0e-9 to 9.96e-2* relative with *0 of 200 tripping*.
+
+** Surprises and decisions
+*=TEFUNC= has hidden state, and the harness found it by failing.* =TESUB2=
+takes its temperature argument as both the initial guess and the result
+(=teprob.f:1432=, =1438=), and the four call sites at =460-465= pass =TCR=,
+=TCS=, =TCC= and =TCV= straight out of =COMMON/TEPROC/=. Every evaluation
+warm-starts its Newton solves from the previous evaluation's answers. Since
+Newton stops when the *step* falls below 1e-12, the converged value depends on
+where it started, so the derivative is path-dependent at the 1e-13 level even
+with the walks and the generator pinned.
+
+The first failure was =TST(6)=, which is =TCV=, moving from 86.12011310855937
+to 86.12011310855931 between two evaluations of the same state. That
+propagated through =PTV= into =FTM(6)= and on into =YP(27)=.
+
+*This is a finding about the port, not only about the harness.* The four
+temperatures are genuinely part of the plant's persistent state, alongside the
+latched valve commands. B-0017 must carry them, and the item now says so. A
+port that recomputed them from a fixed initial guess would be *more* principled
+and would not be bit-exact.
+
+*A =Scenario= carries the whole =COMMON/TEPROC/= block, not a chosen subset.*
+Deciding which fields carry over is precisely the judgement that was wrong the
+first time. Restoring all of it cannot be wrong, costs one memcpy, and picks up
+=VCV= and the analyser state without anyone having to think about them.
+
+*Second bug, same shape: the pool evaluated every state at t=0.*
+=teprob.f:397-406= resets the entire walk state whenever =TIME.EQ.0.D0=, so a
+pool built that way would have exercised the disturbance machinery *not at
+all*, and Tier 2 would have looked healthy while covering none of it. Each
+recorded state now carries the time it was visited at.
+
+*Two tests were testing false premises, and were replaced rather than
+weakened.* "Evaluating twice without restoring the walks changes the answer"
+is false on a short run: =TNEXT= starts at 0.1 hours (=teprob.f:404=), which is
+360 one-second steps, so =TESUB5= never fires and the coefficients never move.
+And "a differently seeded temperature changes a derivative" is false for a seed
+a hundredth of a degree away, which converges to the same bits. Both
+replacements prove the property directly instead: perturb =ADIST(5)= and watch
+=TCWR= move, and walk the trajectory until a seed distance propagates.
+
+Worth naming the pattern, because it recurred three times this iteration: *a
+test that fails because its premise is wrong is not a test to relax.* Each time
+the right move was to find what the property actually depends on and assert
+that.
+
+*Tripped states are counted, never hidden.* =teprob.f:807-811= zeroes all fifty
+derivatives on a trip, so a tripped state is reproduced by any port, correct or
+not. A Tier 2 result that did not report how many of its cases were tripped
+would be overstating itself by exactly that many.
+
+** Next
+B-0016, the adversarial state catalogue: the third pool, built by hand from the
+source.
+
+Two things make it worth its own iteration rather than a paragraph in B-0017.
+Tier 1 showed the boundary pool found most of the worst cases despite being an
+eighth of the sweep, and every branch in Phase 2 is enumerable from the
+listing, so this is a transcription job with a checklist rather than a design
+job.
+
+The checklist is already in the item. One addition from this iteration:
+*construct each adversarial state and assert it actually reaches the branch it
+was built for*, by reading the =COMMON= field that the branch writes. A state
+intended to sit at =TCC = 5.292= that misses by a degree is worse than no state
+at all, because it looks like coverage in the report. The harness can already
+observe every one of those fields.
+
+Note also that several adversarial states will trip the shutdown by
+construction, especially the eight built to trip it. Those belong in the
+catalogue and must be *excluded from the derivative comparison*, since a
+tripped plant's derivative is all zeros. Count them and say so.
