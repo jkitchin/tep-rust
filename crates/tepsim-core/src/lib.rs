@@ -38,12 +38,14 @@ pub(crate) mod testing;
 pub mod component;
 pub mod constants;
 pub mod rng;
+pub mod state;
 pub mod stream;
 pub mod thermo;
 pub mod variables;
 
 pub use component::{ByComponent, Component, Composition};
 pub use rng::TepRng;
+pub use state::{Derivative, Holdup, N_STATES, State, VectorSpace, Vessel};
 pub use stream::Stream;
 pub use thermo::EnergyBasis;
 pub use variables::{Analyzer, MeasIndex, MvIndex, Unit, ValveId};
