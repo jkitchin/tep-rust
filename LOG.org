@@ -1358,3 +1358,122 @@ Note on cost: =TESUB2= runs up to 100 Newton iterations per call, each calling
 =validate=/=ci= split from B-0009 was put in for exactly this, but B-0011
 should measure before assuming =FULL= is affordable even in release, and say so
 in its entry.
+
+* 2026-08-11 B-0011 TESUB2 as a Result, delta D-001 measured at zero
+:PROPERTIES:
+:ITEM:     B-0011
+:PHASE:    1
+:TIER:     1
+:COMMIT:   3b4ee51
+:GFORTRAN: 15.2.0
+:STATUS:   DONE
+:END:
+** Preflight
+Clean and green. Fidelity green, local gfortran 15.2.0 matches. Provenance
+298/1589 (18.8%), identical to the B-0010 close: no drift. Tier 1 re-run at
+full volume, *all seven reports still 0 ULP*, unchanged from B-0010.
+
+Literal extraction over =teprob.f:1415-1442=: exactly one, =1.D-12=, and it
+carries the =D= suffix. No precision hazard in this routine.
+
+** What changed
+=thermo::temperature_from_enthalpy=, the Newton solve, returning
+=Result<f64, TemperatureError>=. =book/src/deltas.md= now exists, with the
+class table, the =@delta= annotation convention and D-001 as its first entry.
+=xtask validate= runs each Tier 1 test target separately.
+
+*Phase 1 is complete.* =teprob.f:1375-1505= is claimed end to end.
+
+** Validation numbers
+=cargo xtask ci= green. *123 tests default, 169 with =oracle==, up from 120 and
+164. Provenance *326/1589 (20.5%)*, up from 298. =xtask validate --tiers 1=
+green in *78 s* wall clock, thirteen reports, every one 0 ULP.
+
+*Tier 1, TESUB2. Bit-exact in all six combinations:*
+
+| ITY | start | cases     | max rel err | max ulp | abandoned | round trip  |
+|-----+-------+-----------+-------------+---------+-----------+-------------|
+|   0 | warm  | 9,987,490 | 0.000e0     |       0 |         0 | 0e0         |
+|   0 | cold  | 9,987,490 | 0.000e0     |       0 |         0 | 8.53e-14 C  |
+|   1 | warm  | 9,987,490 | 0.000e0     |       0 |         0 | 0e0         |
+|   1 | cold  | 9,987,490 | 0.000e0     |       0 |         0 | 3.69e-13 C  |
+|   2 | warm  | 9,987,490 | 0.000e0     |       0 |         0 | 0e0         |
+|   2 | cold  | 9,987,490 | 0.000e0     |       0 |         0 | 5.12e-13 C  |
+
+*59,924,940 solves, zero differing bits, zero abandoned.* Worst cold-start
+round trips at =dirichlet#720561 T=171.86=, =face#1309309 T=146.56= and
+=face#96 T=144.14=; the boundary pool again produced two of the three.
+
+*Delta D-001 measured effect: zero.* The Class B claim holds on the physical
+domain.
+
+** Surprises and decisions
+*Two start strategies, and only one of them is a test.* A warm start, which is
+what every call site does (=teprob.f:460-465= passes the previous step's
+temperature), converges in one step and recovers the answer *exactly*: round
+trip 0e0, not merely small. That is a realistic measurement and a useless
+test, because the iteration never has to work. The cold start, from the far
+end of the range, is what actually exercises Newton, and it costs 4x the wall
+clock (12.1 s against 3.1 s) precisely because it is doing the iterating.
+Measuring only the realistic case would have proved nothing about convergence.
+
+*The cost fear from the B-0010 entry was wrong, and worth recording as wrong.*
+That entry warned =TESUB2= could reach 2x10^9 evaluations at =Sweep::FULL= and
+told this session to measure before assuming =FULL= was affordable. Measured:
+the whole Tier 1 ladder is 78 s in release, of which =TESUB2= is about 46 s.
+Newton converges in a handful of iterations, not the hundred the cap allows,
+so the worst case never happens. The advice to measure was right; the estimate
+behind it was pessimistic by two orders of magnitude.
+
+*The delta is an assertion, not a paragraph.* =total_abandoned == 0= is checked
+in the Tier 1 test, so if a future change to the sweep, the constants or the
+iteration ever reaches the non-convergence path, it fails there. A measured
+delta recorded only in prose decays into a claim about the past.
+
+*The quirk is demonstrated, not just described.* A second test drives an
+unreachable target through both implementations and asserts that the Fortran
+returns the guess *bit for bit* while the port returns an error. That is what
+makes the register entry checkable: the reconciliation rule the sweep uses
+("where the port errors, the Fortran must have returned exactly the guess") is
+itself verified against a case that actually takes the path.
+
+*Fortran binds unary minus below division.* =DT=-ERR/DH= at =teprob.f:1437= is
+=-(ERR/DH)=, not =(-ERR)/DH=. The two agree bit for bit because IEEE negation
+is exact and round-to-nearest is symmetric, so this one is harmless, but the
+parse differs from Rust's and the next routine's might not be so forgiving.
+*Check operator precedence against Fortran's rules, not Rust's, every time.*
+
+*=Result<f64, ...>= rather than =Result<Celsius, ...>=* as the backlog wrote
+it. The =Celsius= newtype is still deferred, per the B-0009 decision; changing
+that here would have meant touching all four routines and the harness. The
+backlog item was ticked with the substitution noted in place.
+
+** Next
+*Phase 2, and its first action is decomposition, not porting.* =BACKLOG.org=
+says to decompose a phase as the first action of its first iteration, and
+=PLAN.org= is explicit that the load-bearing decision is "Splitting the right
+-hand side": =TEFUNC= is not a pure function, since it advances the
+disturbance walks, draws measurement noise and ticks the sampled analysers, so
+it has to become a pure =derivatives()= plus an impure =advance_discrete()=.
+Get that split right before porting a single balance equation, because every
+subsequent item inherits it and Tier 2 depends on being able to evaluate the
+derivative twice with the same answer.
+
+*Make the decomposition its own iteration.* It should produce backlog items,
+not code. The intended shape is already listed under "Phase 2" in
+=BACKLOG.org=; the work is turning those ten bullets into sized items with
+=:DEPS:= and picking the order.
+
+Three things the decomposition should account for that this phase learned:
+
+1. *Tier 2 needs the adversarial state catalogue before it needs volume.*
+   Tier 1's =face= pool, an eighth of the sweep, produced most of the worst
+   cases. The Tier 2 equivalent is the enumerable list already in =PLAN.org=,
+   and it should be built by hand early rather than bolted on.
+2. *The precision audit is per line range, not per file.* Three of the four
+   routines had no suffix-free literal; the one that did cost 1.6e-5. Every
+   Phase 2 item that touches =teprob.f= should extract its own range's literals
+   as its first action, and =TEFUNC= at 169-940 is 772 lines of them.
+3. *Expect bit equality and treat anything less as a finding.* Thirteen Tier 1
+   reports read zero. Phase 2 will not manage that everywhere, since =exp= and
+   =pow= enter through =libm=, but the burden of proof is on the difference.

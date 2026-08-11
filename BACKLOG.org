@@ -14,17 +14,18 @@ earlier phases will change what the right decomposition is.
 
 Rewrite this block at the end of every iteration. Keep it to five lines.
 
-- Phase: 1, in progress
-- Last completed: B-0010 TESUB4, bit-exact
+- Phase: 1 *complete*. Phase 2 next, and its first action is decomposition
+- Last completed: B-0011 TESUB2 with delta D-001 measured at zero
 - In flight: (none)
-- Baseline: =cargo xtask ci= green; 120 tests default, 164 with =oracle=;
-  =xtask validate --tiers 1= green, all seven reports 0 ULP; provenance
-  298/1589 (18.8%)
+- Baseline: =cargo xtask ci= green; 123 tests default, 169 with =oracle=;
+  =xtask validate --tiers 1= green in 78 s, all thirteen reports 0 ULP;
+  provenance 326/1589 (20.5%)
 - Toolchain: rustup, pinned to rustc 1.97.1, wasm32 installed
 - Remote: private jkitchin/tep-rust, CI green on all 7 jobs
-- Blocked on: nothing. Next is B-0011, TESUB2, the first Class B quirk fix
-  and the first =book/src/deltas.md= entry. Bit equality is the standard now,
-  not 1e-13: seven Tier 1 reports have met it.
+- Blocked on: nothing. Next iteration decomposes Phase 2 into items and takes
+  the first one. Do the decomposition as its own item; the plant model is
+  where the load-bearing structural decision lives (=PLAN.org=, "Splitting the
+  right-hand side").
 
 * Phase 0: foundations
 
@@ -426,13 +427,21 @@ Done when:
 Done when:
 - [X] Ported; Tier 1 under 1e-13; histogram logged; equations documented
 
-** NEXT B-0011 Port TESUB2: temperature from enthalpy, as a Result
+** DONE B-0011 Port TESUB2: temperature from enthalpy, as a Result
 :PROPERTIES:
 :ID:    B-0011
 :PHASE: 1
 :TIER:  1
 :DEPS:  B-0010
 :PLAN:  Quirk and delta register (Class B)
+:RESULT: =thermo::temperature_from_enthalpy= returning
+         =Result<f64, TemperatureError>=. *Bit-exact against the Fortran over
+         59,924,940 solves* (3 modes x 2 start strategies x 9,987,490 cases),
+         and *delta D-001 fired zero times*, so the Class B fix is a no-op on
+         the physical domain. Round trip: exact from a warm start, within
+         3.7e-13 C from a cold one. =book/src/deltas.md= created with D-001 as
+         its first entry. Provenance 326/1589 (20.5%); teprob.f:1375-1505 is
+         now claimed end to end. *Phase 1 complete.*
 :END:
 
 Scope: the Fortran runs Newton for up to 100 iterations and, on failure,
@@ -440,11 +449,14 @@ silently resets T to its input and returns as if it succeeded. This is a Class B
 quirk: fix it, and measure that the fix is a no-op under normal operation.
 
 Done when:
-- [ ] Returns =Result<Celsius, ThermoError>=; non-convergence is an error
-- [ ] Tier 1 under 1e-13 on the converging domain
-- [ ] Delta measured: how often does the Fortran silently fail across the sweep?
-      Record the count (expected: zero in the physical range)
-- [ ] First entry written into =book/src/deltas.md=
+- [X] Returns =Result=; non-convergence is an error. =f64= rather than
+      =Celsius=: the newtype is deferred with the rest of the unit wrappers,
+      logged as a decision in B-0009
+- [X] Tier 1 under 1e-13 on the converging domain. Came out at 0 ULP, and the
+      converging domain turned out to be the whole domain
+- [X] Delta measured: *zero* silent failures in 59,924,940 solves, from both
+      warm and cold starts
+- [X] First entry written into =book/src/deltas.md=
 
 * Phase 2: the plant model
 
