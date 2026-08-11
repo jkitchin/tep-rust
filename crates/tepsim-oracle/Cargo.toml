@@ -27,8 +27,13 @@ name = "gen-rng-vectors"
 path = "src/bin/gen_rng_vectors.rs"
 required-features = ["oracle"]
 
-[dev-dependencies]
+[dependencies]
+# The Tier 1 pools produce `Composition` values, so the harness needs the core
+# vocabulary. The dependency runs this way only: nothing shipped may depend on
+# the oracle, and `cargo xtask ci` asserts it.
 tepsim-core.workspace = true
+
+[dev-dependencies]
 # Only for verifying the vendored reference material has not been edited.
 sha2 = "0.10"
 

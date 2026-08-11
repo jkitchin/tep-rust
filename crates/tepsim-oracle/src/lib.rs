@@ -42,6 +42,9 @@ pub mod build_info;
 // Deliberately not gated on `oracle`: `cargo xtask fidelity` parses the golden
 // trace on machines with no Fortran toolchain at all.
 pub mod golden;
+// Likewise: the Tier 1 pools and the ULP report are pure Rust, so they can be
+// proved correct without a Fortran compiler present.
+pub mod tier1;
 
 #[cfg(feature = "oracle")]
 mod ffi;
