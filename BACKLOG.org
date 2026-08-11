@@ -356,7 +356,7 @@ Done when:
       coefficients mean physically
 - [X] A test asserts equality with the oracle's =COMMON/CONST/=
 
-** TODO B-0008 Tier 1 test harness
+** NEXT B-0008 Tier 1 test harness
 :PROPERTIES:
 :ID:    B-0008
 :PHASE: 1
