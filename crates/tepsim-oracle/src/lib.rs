@@ -45,6 +45,9 @@ pub mod golden;
 // Likewise: the Tier 1 pools and the ULP report are pure Rust, so they can be
 // proved correct without a Fortran compiler present.
 pub mod tier1;
+// Gated: forcing the Fortran into a chosen state needs the Fortran.
+#[cfg(feature = "oracle")]
+pub mod tier2;
 
 #[cfg(feature = "oracle")]
 mod ffi;
