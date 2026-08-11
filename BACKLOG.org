@@ -460,6 +460,30 @@ Done when:
 
 * Phase 2: the plant model
 
+** NEXT B-0012 Decompose Phase 2 and settle the RHS split
+:PROPERTIES:
+:ID:    B-0012
+:PHASE: 2
+:TIER:  none
+:DEPS:  B-0011
+:PLAN:  Architecture > Splitting the right-hand side
+:END:
+
+Produces backlog items, not code. =BACKLOG.org= says to decompose a phase as
+the first action of its first iteration, and =PLAN.org= says the load-bearing
+decision is the pure/impure split of =TEFUNC=. Settle both before any balance
+equation is ported, because every later item inherits them.
+
+Done when:
+- [ ] The impure sites in =TEFUNC= are enumerated by line number, from the
+      source, so the split rests on evidence rather than on the plan's summary
+- [ ] The split is settled, and =PLAN.org= updated if it turns out to be wrong
+- [ ] It is established whether Phase 2 can be verified incrementally or only
+      at the end; if incrementally, by what
+- [ ] Phase 2 exists as sized items with =:DEPS:=, each naming its =teprob.f=
+      line range
+
+
 Decompose into iteration-sized items when starting this phase. The intended
 shape, in dependency order:
 
