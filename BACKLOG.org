@@ -14,17 +14,16 @@ earlier phases will change what the right decomposition is.
 
 Rewrite this block at the end of every iteration. Keep it to five lines.
 
-- Phase: 2, decomposed into B-0013 to B-0026. No plant code yet
-- Last completed: B-0012 Phase 2 decomposition and the RHS split decision
+- Phase: 2, on B-0014. State types exist, no physics yet
+- Last completed: B-0013 State and Derivative, layout pinned against COMMON
 - In flight: (none)
-- Baseline: =cargo xtask ci= green; 123 tests default, 169 with =oracle=;
-  =xtask validate --tiers 1= green in 78 s, all thirteen reports 0 ULP;
-  provenance 326/1589 (20.5%)
+- Baseline: =cargo xtask ci= green; 131 tests default, 180 with =oracle=;
+  =xtask validate --tiers 1= green, all thirteen reports 0 ULP;
+  provenance 350/1589 (22.0%)
 - Toolchain: rustup, pinned to rustc 1.97.1, wasm32 installed
 - Remote: private jkitchin/tep-rust, CI green on all 7 jobs
-- Blocked on: nothing, but *the RHS split changed shape*: three impure/pure
-  phases instead of two. Recorded as a decision and applied to =PLAN.org=;
-  worth a look before B-0014 builds on it. Next item is B-0013.
+- Blocked on: nothing. Next is B-0014, the three-phase RHS skeleton. The
+  split decision from B-0012 is still worth a look before it lands.
 
 * Phase 0: foundations
 
@@ -509,23 +508,28 @@ of =COMMON/TEPROC/=, which the oracle already exposes in full: =PPR=, =RR=,
 =CRXR=, =FTM=, =FCM=, =HST=, =SFR=, =QUR=, =VCV= and the rest. Phase 2 does not
 have to be written blind and integrated at the end.
 
-** NEXT B-0013 State and Derivative types
+** DONE B-0013 State and Derivative types
 :PROPERTIES:
 :ID:    B-0013
 :PHASE: 2
 :TIER:  none
 :DEPS:  B-0012
 :PLAN:  Architecture > Core data model
+:RESULT: =tepsim-core::state=. All 38 directly-unpacked slots pinned against
+         the matching =COMMON/TEPROC/= variable, and the 12 valve slots pinned
+         by perturbing one valve at a time and checking exactly one derivative
+         responds at =1/VTAU=. Provenance 350/1589 (22.0%). 131 tests default,
+         180 with =oracle=.
 :END:
 
 Done when:
-- [ ] =State= with named fields for the four holdups, the two cooling-water
-      temperatures and the twelve valve positions; =Derivative= likewise
-- [ ] A small =VectorSpace= trait (=zip_with=, =scale=, =add_scaled=) so
+- [X] =State= with named fields for the four holdups, the two cooling-water
+      temperatures and the twelve valve positions; =Derivative= as a newtype
+      over the same layout, so the two cannot drift apart
+- [X] A small =VectorSpace= trait (=zip_with=, =map=, =scale=, =add_scaled=) so
       integrators never flatten to =[f64; 50]=
-- [ ] A flat view for oracle interop only, with a round-trip test against the
-      golden trace's recorded state layout, which pins the index mapping
-      (=teprob.f:417-440=) rather than assuming it
+- [X] A flat view for oracle interop only, pinned *semantically* rather than by
+      round trip: a bijection test would pass with two vessels swapped
 
 ** TODO B-0014 The three-phase RHS skeleton
 :PROPERTIES:

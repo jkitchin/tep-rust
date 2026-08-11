@@ -1577,3 +1577,87 @@ adversarial catalogue. *Resist starting the physics until B-0015 exists.* That
 ordering is what made Phase 1 land thirteen bit-exact reports in four
 iterations, and the temptation to port a balance equation first will be
 strongest exactly when the harness is the thing that would have caught it.
+
+* 2026-08-11 B-0013 State and Derivative, layout pinned against COMMON
+:PROPERTIES:
+:ITEM:     B-0013
+:PHASE:    2
+:TIER:     none
+:COMMIT:   1d9ad43
+:GFORTRAN: 15.2.0
+:STATUS:   DONE
+:END:
+** Preflight
+Clean and green. Fidelity green, gfortran 15.2.0. Provenance 326/1589 (20.5%),
+identical to B-0012's close. Tier 1 full volume, all thirteen reports 0 ULP.
+
+** What changed
+=tepsim-core::state=: =Holdup=, =State=, =Derivative=, =Vessel=, and a
+=VectorSpace= trait. Plus =crates/tepsim-oracle/tests/state_layout.rs=, which
+pins the flat layout against the Fortran.
+
+** Validation numbers
+=cargo xtask ci= green. *131 tests default, 180 with =oracle==, up from 123 and
+169. Provenance *350/1589 (22.0%)*, up from 326: =teprob.f:417-440= claimed.
+Tier 1 re-run after the change, still thirteen reports at 0 ULP.
+
+*Layout pin: 38 of 38 directly-unpacked slots match their =COMMON/TEPROC/=
+variable bit for bit.* 32 mole slots, 4 energies, 2 cooling-water temperatures.
+
+*Valve pin: 12 of 12.* Each valve perturbed by 1% in isolation moves exactly
+one derivative, at exactly =1/VTAU= to within 1e-12 relative, and leaves the
+other eleven at exactly zero.
+
+Nominal vessel energies, for the record, since the pin depends on them being
+distinguishable: reactor 2.8085227012634277, separator 0.5699318051338196,
+stripper 0.3755297362804413, mixing 0.9218489527702332. Minimum pairwise
+separation is well over the 1e-3 the test demands. *All four are f32 values
+widened*, which is TEINIT's single-precision habit showing up in the state
+vector itself.
+
+** Surprises and decisions
+*A round-trip test would have proved almost nothing here, and that is the main
+lesson of this item.* Fifty in, fifty distinct out, is satisfied by any
+permutation. Swapping the stripper and the mixing zone passes it, because both
+are eight moles and an energy, and the mistake would then mis-attribute every
+Tier 2 component for nine items without ever failing a test. The fix was to ask
+the Fortran which slot is which: =TEINIT= calls =TEFUNC= at =teprob.f:1369=, so
+=COMMON/TEPROC/= is already populated from =YY= by the time =init()= returns.
+
+*=VPOS= is not in =COMMON/TEPROC/=*, so the last twelve slots could not be
+pinned that way. They are pinned dynamically instead, through
+=teprob.f:806=: =YP(I+38)=(VCV(I)-VPOS(I))/VTAU(I)=. Perturbing one valve must
+move exactly one derivative by exactly =1/VTAU= and leave the rest at zero,
+which identifies each slot individually rather than as a block. Worth
+remembering as a technique: *when a variable is not observable, find the
+equation it appears in and observe that instead.*
+
+*The eight slots do not mean the same thing in every vessel.* Reactor and
+separator split by phase, slots 1-3 being vapour A/B/C and 4-8 liquid D-H.
+Stripper is all liquid, mixing zone all vapour. The field is therefore named
+=moles= rather than any phase word, since no phase word is true of all four.
+More consequentially, =UCVR(4..8)= is *not* a state at all: it is recomputed
+from the equilibrium at =teprob.f:500-501= every call, and =UCLR(1..3)= is
+forced to zero at =420-421=. B-0017 and B-0018 will need this.
+
+*=Derivative= wraps =State= rather than repeating the fields.* Two
+hand-maintained fifty-slot layouts would drift, and drift between a state and
+its own derivative is the kind of bug that produces a plausible wrong answer
+rather than a crash.
+
+** Next
+B-0014, the three-phase RHS skeleton. Structure only, no physics, and two
+tests that are worth more than they look:
+
+1. =derivatives= called twice with identical arguments must return
+   bit-identical results. That is the entire point of the split, it is what
+   Tier 2 rests on, and it is trivial to assert now and expensive to retrofit.
+2. *The valve-latch hoist must be proved, not argued.* B-0012 claims nothing
+   between =teprob.f:341= and =798= writes =XMV=, =VCV=, =VST= or =IVST=, so
+   running the latch early changes no number. That is a claim about 450 lines
+   of Fortran read by eye. Prove it against the oracle: drive a sequence of
+   steps with the latch in each position and diff the state trajectories.
+
+Note the skeleton has no physics, so =derivatives= should return an explicit
+"not implemented" error rather than zeros. Zeros are a valid derivative and
+would let a later item accidentally pass a test against a frozen plant.
