@@ -14,16 +14,17 @@ earlier phases will change what the right decomposition is.
 
 Rewrite this block at the end of every iteration. Keep it to five lines.
 
-- Phase: 2, on B-0014. State types exist, no physics yet
-- Last completed: B-0013 State and Derivative, layout pinned against COMMON
+- Phase: 2, on B-0015. Structure complete, no physics yet
+- Last completed: B-0014 the three-phase RHS skeleton
 - In flight: (none)
-- Baseline: =cargo xtask ci= green; 131 tests default, 180 with =oracle=;
+- Baseline: =cargo xtask ci= green; 139 tests default, 188 with =oracle=;
   =xtask validate --tiers 1= green, all thirteen reports 0 ULP;
   provenance 350/1589 (22.0%)
 - Toolchain: rustup, pinned to rustc 1.97.1, wasm32 installed
 - Remote: private jkitchin/tep-rust, CI green on all 7 jobs
-- Blocked on: nothing. Next is B-0014, the three-phase RHS skeleton. The
-  split decision from B-0012 is still worth a look before it lands.
+- Blocked on: nothing. Next is B-0015, the Tier 2 harness. Build it before
+  any physics; that ordering is what made Phase 1 land thirteen bit-exact
+  reports in four iterations.
 
 * Phase 0: foundations
 
@@ -531,28 +532,36 @@ Done when:
 - [X] A flat view for oracle interop only, pinned *semantically* rather than by
       round trip: a bijection test would pass with two vessels swapped
 
-** NEXT B-0014 The three-phase RHS skeleton
+** DONE B-0014 The three-phase RHS skeleton
 :PROPERTIES:
 :ID:    B-0014
 :PHASE: 2
 :TIER:  none
 :DEPS:  B-0013
 :PLAN:  Architecture > Splitting the right-hand side
+:RESULT: =tepsim-core::plant=: =Plant=, =Inputs=, =Signals=, =Measurements=,
+         =PlantError=, =SimTime=, the three phases and a =euler_step= that
+         sequences them. Purity is enforced by the signature, not by
+         convention. *The hoist scan found the line range in the B-0012
+         decision was off by one*: the block starts at =teprob.f:793=, not
+         794. 448 statements scanned in =345-792=, zero writes. 139 tests
+         default, 188 with =oracle=.
 :END:
 
 Structure only, no physics. The load-bearing item: everything after inherits
 this shape.
 
 Done when:
-- [ ] =advance_discrete=, =derivatives=, =sample_measurements= exist with the
-      signatures in =PLAN.org=, bodies stubbed
-- [ ] A test calls =derivatives= twice with identical arguments and asserts
-      bit-identical results, which is the property the whole split exists for
-      and the one Tier 2 depends on
-- [ ] A test asserts the valve-command latch may be hoisted: nothing between
-      =teprob.f:341= and =798= writes =XMV=, =VCV=, =VST= or =IVST=, so running
-      it early changes no number. Prove it against the oracle, do not assert it
-      from reading
+- [X] =advance_discrete=, =derivatives=, =sample_measurements= exist with the
+      signatures in =PLAN.org=, bodies stubbed. =derivatives= returns
+      =NotImplemented= rather than zeros: an all-zero derivative is a valid
+      answer describing a frozen plant and would let a later item pass
+- [X] =assert_derivatives_are_pure= ships in the library, not in a test file,
+      so every later item and any downstream crate can call it. Currently weak
+      because there is no physics; it strengthens by itself
+- [X] The hoist proved *mechanically against the vendored source* rather than
+      against the oracle. A dynamic proof was not available: =reference/= may
+      never be edited, so the reordered variant cannot be built and run
 
 ** TODO B-0015 Tier 2 harness: state forcing and the COMMON differ
 :PROPERTIES:
@@ -872,9 +881,10 @@ happen *after* the derivative, while the walk advance at =359-396= must happen
 
 The split is therefore =advance_discrete= (pre), =derivatives= (pure, also
 returning the noise-free signals), =sample_measurements= (post). The valve
-command latch at =794-806= is hoisted into the pre-phase, which is numerically
-free because nothing between =341= and =798= writes =XMV=, =VCV=, =VST= or
-=IVST=; B-0014 proves that against the oracle rather than asserting it.
+command latch at =793-804= is hoisted into the pre-phase, which is numerically
+free because nothing in =345-792= writes =IDV=, =XMV=, =VCV=, =VST= or =IVST=.
+B-0014 proves that by scanning the vendored source, and the scan found the
+range in this entry was originally off by one.
 
 The pure/impure distinction the plan called for is unchanged and so is the
 reason for it. Only the number of impure entry points moved.

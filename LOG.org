@@ -1661,3 +1661,93 @@ tests that are worth more than they look:
 Note the skeleton has no physics, so =derivatives= should return an explicit
 "not implemented" error rather than zeros. Zeros are a valid derivative and
 would let a later item accidentally pass a test against a frozen plant.
+
+* 2026-08-11 B-0014 The three-phase RHS skeleton
+:PROPERTIES:
+:ITEM:     B-0014
+:PHASE:    2
+:TIER:     none
+:COMMIT:   1b01155
+:GFORTRAN: 15.2.0
+:STATUS:   DONE
+:END:
+** Preflight
+Clean and green. Fidelity green, gfortran 15.2.0. Provenance 350/1589 (22.0%),
+identical to B-0013's close. Tier 1 thirteen reports at 0 ULP.
+
+** What changed
+=tepsim-core::plant= with the three phases and =euler_step=. Plus
+=crates/tepsim-oracle/tests/hoist_valve_latch.rs=, which proves the latch may
+be moved.
+
+** Validation numbers
+=cargo xtask ci= green. *139 tests default, 188 with =oracle==, up from 131 and
+180. Provenance unchanged at 350/1589: nothing new was ported.
+
+*Hoist scan: 448 statements over =teprob.f:345-792=, zero writes* to =IDV=,
+=XMV=, =VCV=, =VST= or =IVST=. The detector finds all nine writes inside the
+hoisted block =793-804= when pointed at it, so the clean result is not a
+broken scan.
+
+** Surprises and decisions
+*The scan found an off-by-one in my own B-0012 decision entry, on its first
+run.* That entry said the hoisted block was =teprob.f:794-806= and that nothing
+between =341= and =798= wrote what it reads. The test failed immediately on
+=IVST(10)=IDV(14)= at line *793*. The block starts one line earlier than I
+recorded it, having read the listing carefully the iteration before.
+
+This is the entire argument for mechanical checks, and it is worth stating
+plainly: *a line range read off a listing by eye and written into the design of
+record was wrong, and the only reason it did not stay wrong is that something
+counted.* Corrected in =PLAN.org=, =BACKLOG.org= and the module docs.
+
+*The proof is static, not dynamic, and that was forced.* The obvious way to
+prove a reordering is free is to run both orders and diff. That is not
+available here: =reference/= may never be edited, so the reordered Fortran
+cannot be built. The static proof is arguably stronger anyway, since it covers
+every state rather than the ones a test happens to visit, but it depends on the
+parser being right, so two companion tests check that the scan can see a write
+and can tell an assignment from a comparison.
+
+*The latch shares a loop with the derivative.* =DO 9020= at =teprob.f:799= runs
+from the latch through =YP(I+38)= at =805=. The latch is impure and the
+derivative is pure, so the port splits the loop in two. B-0025 needs to know
+this; it is written into that item.
+
+*=derivatives= returns =NotImplemented=, deliberately not zeros.* An all-zero
+derivative is a valid answer, describing a plant that is not moving. A stub
+returning it would let a later item pass a Tier 2 comparison against a state
+where the real derivative happens to be small, and the failure would surface
+several items downstream of its cause.
+
+*=assert_derivatives_are_pure= lives in the library, not in a test file.*
+Purity is a contract the plant offers rather than a property of one test, so it
+should be as callable from =tepsim= or a user's crate as from here. It is
+currently weak, since both evaluations fail identically, and it strengthens
+without anyone having to remember to strengthen it.
+
+*Purity is enforced by the signature.* =derivatives= takes =&self=; the crate
+is =#![forbid(unsafe_code)]= and holds no statics, so there is nowhere for
+interior mutability or hidden global state to live. The runtime assertion is a
+belt on top of that, not the mechanism.
+
+** Next
+B-0015, the Tier 2 harness: state forcing and the =COMMON/TEPROC/= differ.
+
+*Build it before any physics.* That ordering is what made Phase 1 land thirteen
+bit-exact reports in four iterations, and the temptation to port a balance
+equation first will be strongest exactly when the harness is the thing that
+would have caught the mistake.
+
+Three things it needs. First, forcing: set all 50 states, 12 MVs, 20 IDV flags,
+the walk state and the RNG word, then call =TEFUNC= and snapshot. The oracle
+already has every setter for this. Second, a differ that names a
+=COMMON/TEPROC/= field and compares it, reusing =tier1::Comparison= unchanged,
+which is the payoff for having made it generic over the case type. Third, two
+of the three pools: nominal-trajectory states and scaled random perturbations.
+
+One hazard to design around: =TEFUNC= advances the walks and draws noise, so
+calling it twice on the same state does *not* give the same answer. Every
+comparison must reset the RNG word and the walk state first, or the harness
+will report differences that are its own fault. =Oracle::set_rng= and
+=Oracle::set_wlk= exist for this. Get it wrong and Tier 2 becomes noise.
