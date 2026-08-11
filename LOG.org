@@ -901,3 +901,76 @@ Also worth doing soon, though not yet an item: the workspace declares
 Only crates containing ported Fortran are derivative. =tepsim-scenario=,
 =xtask=, =tepsim-py=, =tepsim-wasm= and =tepsim-cli= are original work and could
 declare plain MIT.
+
+* 2026-08-10 B-0006 Thermodynamic constants table
+:PROPERTIES:
+:ITEM:     B-0006
+:PHASE:    1
+:TIER:     1
+:COMMIT:   8065b4d
+:GFORTRAN: 15.2.0
+:RUSTC:    1.97.1
+:STATUS:   DONE
+:END:
+
+** Preflight
+Clean and green. Fidelity green, local gfortran 15.2.0 matches the trace.
+Provenance 83/1589 (5.2%), matching the B-0007 baseline.
+
+** What changed
+=crates/tepsim-core/src/constants.rs=: all 112 entries of =COMMON/CONST/=, with
+per-literal precision. Two independent verification tests.
+
+** Validation numbers
+=cargo xtask ci= green. *78 tests default, 112 with =oracle==, up from 74 and 106.
+
+*All 112 constants bit-exact against gfortran's stored =COMMON/CONST/=.*
+
+Precision split, parsed from the source and asserted: *62 single precision, 50
+double*. Per block, all 8 single: =AVP=, =BVP=, =CVP=, =AV=, =XMW=. All 8
+double: =AH=, =BH=, =CH=, =AG=, =BG=, =CG=. Mixed: =AD=, =BD=, =CD=.
+
+*Provenance 195/1589 lines, 12.3%*, up from 83 (5.2%). Five unclaimed spans, the
+largest being 169-940 and 1053-1546.
+
+Teeth checks, both caught:
+- dropping =single()= from =XMW(2)= fails both tests, the oracle one reporting
+  "Rust 25.4 vs Fortran 25.399999618530273 (differ by 1.502e-8 relative)",
+  matching the B-0004b prediction to three digits
+- substituting a wrong value into =AH(4)= fails at 3.133e1 relative. Note this
+  second probe changed the value as well as the precision, so it demonstrates
+  gross-error detection rather than the exact inverse of the first.
+
+** Surprises and decisions
+*All 24 Antoine coefficients are single precision.* Not just the odd one:
+=AVP=, =BVP= and =CVP= carry no =D= suffix anywhere. They are the worst place
+for it, because =teprob.f:484= and =487= evaluate
+=DEXP(AVP(I)+BVP(I)/(TCR+CVP(I)))=, so a 1e-8 error in an exponent argument is
+amplified rather than merely carried. Anyone porting TEP who assumes "the
+constants are just numbers" gets vapour pressures wrong in the eighth digit
+everywhere, which then feeds every flash calculation.
+
+*The table was generated, not typed.* 112 hand-transcribed values is past what
+anyone checks reliably, so a script converted them and two tests verify the
+result. The generation and the re-derivation share an assumption about Fortran
+literal semantics, which is exactly why the oracle comparison exists: it asks
+the compiler instead, so it would catch a misunderstanding common to both.
+
+*Every no-suffix literal is wrapped, even the exact ones.* =single(2.0)= is
+identical to =2.0=, but writing it uniformly means the wrapper records what the
+*source* says rather than what rounding happens to occur. A reader checking
+=XMW(1)= against =teprob.f:941= sees the correspondence without doing any
+arithmetic, and nobody has to decide case by case whether a wrapper is needed.
+
+*The assert-your-replacements discipline paid off immediately.* A scripted edit
+failed to match because =cargo fmt= had rewrapped the target, and the assertion
+stopped it rather than silently doing nothing, which is precisely the failure
+that produced a false commit message in B-0002b.
+
+** Next
+B-0008, the Tier 1 test harness: sweep generators and ULP reporting, built
+before the routines that need it. Composition sweeps over a simplex grid plus
+random Dirichlet samples, temperature sweeps per =ITY= mode, and a comparison
+helper that reports a ULP histogram rather than a bare pass or fail. The
+constants are now in place to feed it, and B-0009 through B-0011 all depend on
+it existing first.
