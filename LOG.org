@@ -974,3 +974,154 @@ random Dirichlet samples, temperature sweeps per =ITY= mode, and a comparison
 helper that reports a ULP histogram rather than a bare pass or fail. The
 constants are now in place to feed it, and B-0009 through B-0011 all depend on
 it existing first.
+
+* 2026-08-11 B-0008 Tier 1 harness: sweep pools and ULP reporting
+:PROPERTIES:
+:ITEM:     B-0008
+:PHASE:    1
+:TIER:     1
+:COMMIT:   12d37c3
+:GFORTRAN: 15.2.0
+:STATUS:   DONE
+:END:
+** Preflight
+Clean and green. =cargo xtask ci= green at 78 tests default, 112 with
+=oracle=. Fidelity green: golden trace intact, 100 steps, 142 values/step,
+recorded with gfortran 15.2.0, local gfortran 15.2.0 matches, 0 of 100 steps
+diffed as expected in phase 1. Provenance 195/1589 (12.3%), five unclaimed
+spans, *identical to the B-0006 closing number*: no drift. No Tier 1/2/3
+numbers exist yet to compare against. =book/src/deltas.md= does not exist yet,
+so there were no open quirk decisions to re-read.
+
+** What changed
+=crates/tepsim-oracle/src/tier1/= now holds the Tier 1 measuring apparatus:
+three composition pools, a temperature ladder, and a =Comparison= accumulator
+whose =Display= is the report format for this log. It is *not* gated on the
+=oracle= feature, because it generates inputs and compares numbers and never
+touches the Fortran, so it can be proved correct on a machine with no
+gfortran. =tepsim-core= became a real dependency of =tepsim-oracle= rather
+than a dev-dependency; the isolation check still passes, the arrow only ever
+points this way.
+
+** Validation numbers
+=cargo xtask ci= green. *106 tests default, 145 with =oracle==, up from 78 and
+112. Provenance *unchanged at 195/1589 (12.3%)*, correct: this iteration
+ported nothing.
+
+*Pool sizes.* =Sweep::SMOKE= is 7,950 cases (grid 4 divisions x 15
+temperatures = 4,950, plus 2,000 Dirichlet and 1,000 face). =Sweep::FULL= is
+*9,987,490 cases*, the ten million =PLAN.org= asks for.
+
+*Throughput, the number B-0009 needs*: 111,300 evaluations in 0.07 s, about
+*1.58e6 evaluations/s in a debug build*, case generation included. =FULL= is
+therefore roughly 6.3 s per routine per pass, about 45 s for all seven
+(routine, ITY) pairs. It fits in a test.
+
+*The Fortran agrees with itself* over the whole SMOKE sweep for all seven
+pairs: 7,950 cases each, max ulp 0, max rel err 0.000e0, histogram 0:7950, no
+non-finite values anywhere. That is the plumbing check, not a validation.
+
+*Teeth, one ULP injected into the temperature.* Every routine saw it:
+
+| routine     | max ulp | max rel err | percentiles                |
+|-------------+---------+-------------+----------------------------|
+| TESUB1 ity0 |       5 |    6.535e-16 | p50=1 p90=2 p99=4 p100=5   |
+| TESUB1 ity1 |       4 |    5.643e-16 | p50=0 p90=1 p99=2 p100=4   |
+| TESUB1 ity2 |    1024 |    1.773e-13 | p50=0 p90=2 p99=8 p100>=16 |
+| TESUB3 ity0 |       4 |    5.043e-16 | p50=0 p90=1 p99=2 p100=4   |
+| TESUB3 ity1 |       3 |    4.245e-16 | p50=0 p90=1 p99=2 p100=3   |
+| TESUB3 ity2 |       4 |    5.471e-16 | p50=0 p90=1 p99=2 p100=4   |
+| TESUB4      |       7 |    9.350e-16 | p50=0 p90=1 p99=3 p100=7   |
+
+Worst cases: TESUB1 ity2 at =grid#704 T=21.875=, TESUB4 at =face#815
+T=159.27517615845147=. The =face= pool produced two of the seven worst cases
+despite being an eighth of the sweep, which is the argument for keeping it.
+
+*Metric self-checks.* An injected relative offset of 1e-9 is reported as 1e-9
+to within 1e-15. A composition round-trips through the FFI in Fortran order,
+checked by exact linearity of =TESUB1 ity=0= in z: 2,000 cases, max rel err
+3.383e-16, max ulp 2, at =grid#644 T=5.292=.
+
+** Surprises and decisions
+*TESUB1 with ITY=2 is ill-conditioned, and this is the headline for B-0009.*
+=teprob.f:1410-1411= subtracts =R*(T+273.15)= with =R=3.57696e-6=. At an
+equimolar A/B/C/D mixture at 21.875 C, H is 1.0566592904652041e-3 and the
+correction is 1.0552926021679687e-3: the subtraction discards about ten bits.
+One ULP in gives 1024 ULP out, and a relative error of 1.773e-13, *already
+past the Tier 1 gate of 1e-13*. This does not doom B-0009. Identical
+arithmetic in an identical order gives identical bits however bad the
+conditioning, so a correct port still reports zero. It does mean ITY=2 has no
+margin: any difference at all, from any cause, arrives multiplied by a
+thousand. Suspect it first when Tier 1 moves.
+
+*The =273.15= at =teprob.f:1411= is single precision.* No =D= suffix, so
+gfortran stores 273.14999389648438. Writing =273.15_f64= makes the correction
+wrong by 2.1e-8 relative, which the cancellation above turns into about 1.6e-5
+in the returned enthalpy: eight orders past the gate. This is the B-0006
+hazard in the one place a constants test cannot see it, because the literal is
+not in =COMMON/CONST/= at all. *There may be more of these outside the COMMON
+blocks; B-0009 should grep its line range for suffix-free literals before
+writing any Rust.* Asserted bit-exactly rather than approximately: at a
+cancelling case the subtraction is exact by Sterbenz's lemma, so
+=H(ity=1) - H(ity=2)= recovers the correction term to the last bit.
+
+*Buckets 0-15 are counted individually and the rest lumped.* The ITY=2 result
+is what justifies the design rather than refuting it: the overflow bucket
+reported =>=16:39= while the exact worst, 1024, was still reported in full.
+A histogram that stopped at its last bucket would have hidden the finding.
+
+*The sampler is SplitMix64, not =TepRng=.* The plant's generator is itself
+under test, so drawing Tier 1 inputs from it would let a bug in the =TESUB7=
+port silently change which cases the sweep visits. Integer arithmetic only, so
+the stream is identical on x86-64, aarch64 and wasm32.
+
+*Dirichlet is sampled by spacings, with concentration fixed at 1.* Sorted
+uniforms, gaps taken. No rejection, so the words consumed per sample are
+fixed; no transcendental function, so no cross-platform ULP risk; fractions
+non-negative by construction. A general Dirichlet(alpha) would need a gamma
+sampler and give up all three. The near-degenerate compositions a small alpha
+would reach are covered instead by the third pool, which draws a random
+support of 1 to 8 species and is uniform on that face, so vertices and edges
+are hit exactly rather than approached.
+
+*The temperature domain is one band for all three ITY modes, and that is not
+an approximation.* Every =TESUB1= call site passes some =TST(i)=
+(=teprob.f:555-564=, =654-655=), and every =TST(i)= is either the 45 C feed
+temperature or one of TCV, TCR, TCS, TCC (=teprob.f:411-412=, =549-554=,
+=652-653=). The vapour correlations are evaluated at exactly the temperatures
+the liquid ones are. Splitting the domain by mode would describe a distinction
+the source does not make. Bounds are 0 to 175 C: the ceiling is the reactor
+shutdown limit at =teprob.f:706=, the floor is below the =TCC < 5.292= branch
+at =teprob.f:617= so that branch is actually exercised. A test computes the
+=TESUB4= density poles from the constants and asserts the ceiling clears the
+nearest one; it is *208.57 C, for component D*, so the sweep stays 33 degrees
+clear of the singularity.
+
+*Eight breakpoints go in the ladder by hand*, each carrying the =teprob.f=
+line that makes it special, because a uniform grid steps over a branch
+boundary with probability one.
+
+*No =xtask validate= yet.* =CLAUDE.md= says it arrives "incrementally from
+B-0008", but with no routine ported there is nothing for it to report on, and
+scaffolding an empty report now would fix its shape before the first real
+measurement exists. It belongs in B-0009, where the first Tier 1 number is
+produced.
+
+** Next
+B-0009: port =TESUB1= and =TESUB3=. The harness is ready, so the iteration is
+read =teprob.f:1375-1414= and =1443-1480=, write the two functions, and run
+=Sweep::FULL= through all three ITY modes.
+
+Before writing any Rust, *grep that line range for literals without a =D=
+suffix*. This iteration found one, the =273.15= at =teprob.f:1411=, and it is
+worth 1.6e-5 relative on its own. =3.57696D0= and =1.D6= on the line above are
+double, and the =2.D0= and =3.D0= divisors in the polynomials are too, but
+=1.8D0= should be confirmed rather than assumed.
+
+Expect ITY=0 and ITY=1 to come out at 0 ULP and ITY=2 to be the one that
+argues. If ITY=2 does not reach zero, the cause is upstream of the
+cancellation, not in it: compare =TESUB1(z,T,1)= first, since ITY=2 differs
+from it by exactly two lines.
+
+=xtask validate --tiers 1= should land with it, since B-0009 is the first
+iteration with a Tier 1 number to report.

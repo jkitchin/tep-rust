@@ -15,13 +15,15 @@ earlier phases will change what the right decomposition is.
 Rewrite this block at the end of every iteration. Keep it to five lines.
 
 - Phase: 1, in progress
-- Last completed: B-0006 constants table
+- Last completed: B-0008 Tier 1 harness
 - In flight: (none)
-- Baseline: =cargo xtask ci= green; 78 tests default, 112 with =oracle=;
+- Baseline: =cargo xtask ci= green; 106 tests default, 145 with =oracle=;
   provenance 195/1589 lines claimed (12.3%)
 - Toolchain: rustup, pinned to rustc 1.97.1, wasm32 installed
 - Remote: private jkitchin/tep-rust, CI green on all 7 jobs
-- Blocked on: nothing. Next item is B-0008, the Tier 1 test harness.
+- Blocked on: nothing. Next item is B-0009, TESUB1 and TESUB3. Read the
+  B-0008 log entry first: it names the two literal-precision and conditioning
+  traps that decide whether B-0009 passes.
 
 * Phase 0: foundations
 
@@ -356,23 +358,32 @@ Done when:
       coefficients mean physically
 - [X] A test asserts equality with the oracle's =COMMON/CONST/=
 
-** NEXT B-0008 Tier 1 test harness
+** DONE B-0008 Tier 1 test harness
 :PROPERTIES:
 :ID:    B-0008
 :PHASE: 1
 :TIER:  1
 :DEPS:  B-0007
 :PLAN:  Validation > Tier 1
+:RESULT: =tepsim-oracle::tier1=: three input pools (simplex grid, Dirichlet
+         interior, random simplex face), a temperature ladder carrying the
+         eight source-cited breakpoints, and a =Comparison= reporting a ULP
+         histogram with percentiles. =Sweep::FULL= is 9,987,490 cases.
+         Driven against the real Fortran for all seven (routine, ITY) pairs.
+         Two findings fell out: =TESUB1 ITY=2= amplifies a one-ULP input
+         change to 1024 ULP by cancellation, and the =273.15= at
+         =teprob.f:1411= is a *single-precision* literal. 106 tests default,
+         145 with =oracle=.
 :END:
 
 Scope: build the measuring apparatus once, before the routines that need it.
 
 Done when:
-- [ ] Composition sweep generators: simplex grid plus random Dirichlet samples
-- [ ] Temperature sweep over the full physical range per =ITY= mode
-- [ ] A comparison helper reporting max relative error *and* a ULP histogram,
+- [X] Composition sweep generators: simplex grid plus random Dirichlet samples
+- [X] Temperature sweep over the full physical range per =ITY= mode
+- [X] A comparison helper reporting max relative error *and* a ULP histogram,
       not a bare pass/fail
-- [ ] Output format is stable enough to paste into a =LOG.org= entry
+- [X] Output format is stable enough to paste into a =LOG.org= entry
 
 ** TODO B-0009 Port TESUB1 and TESUB3: enthalpy and heat capacity
 :PROPERTIES:
