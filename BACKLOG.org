@@ -594,7 +594,7 @@ Done when:
       walk machinery, since =teprob.f:397-406= resets it whenever =TIME.EQ.0=
 - [X] Reports in the same format as Tier 1, so the two are diffable
 
-** TODO B-0016 The adversarial state catalogue
+** NEXT B-0016 The adversarial state catalogue
 :PROPERTIES:
 :ID:    B-0016
 :PHASE: 2
