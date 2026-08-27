@@ -2066,3 +2066,143 @@ argument where an absolute error becomes a relative one.
 
 Fourteen of the seventeen adversarial boundaries are pressure or volume
 boundaries, so this item has unusually good coverage available from the start.
+
+* 2026-08-27 B-0018 Vapour-liquid equilibrium, and where bit equality ends
+:PROPERTIES:
+:ITEM:     B-0018
+:PHASE:    2
+:TIER:     2
+:COMMIT:   ea2ad7d
+:GFORTRAN: 15.2.0
+:STATUS:   DONE
+:END:
+** Preflight
+Clean and green, and identical to B-0017's closing numbers in every field.
+
+=cargo xtask ci= green. =xtask fidelity=: golden trace intact, 100 steps, 142
+values/step, recorded with gfortran 15.2.0, local gfortran 15.2.0 (matches),
+0 of 100 steps diffed as expected before phase 2 completes. =xtask validate
+--tiers 1,2,3=: tier 1 green, all thirteen reports 0 ULP over 9,987,490 cases
+each; tiers 2 and 3 report themselves not yet wired into =validate=, which is
+B-0026 and phase 3. =--compare-to-log= still prints its "does nothing yet"
+note, so the comparison below is by hand against B-0017.
+
+Provenance *382/1589 (24.0%)*, unchanged. Nothing moved, so no regression hunt.
+
+** What changed
+=tepsim_core::equilibrium= ports =teprob.f:473-502=: vapour volumes, the
+ideal-gas partial pressures for A/B/C, the Antoine partial pressures for D-H,
+the three vessel pressures, the vapour compositions, and the vapour holdups
+=UCVR=/=UCVS= that the kinetics will consume. =tepsim_core::math= is the one
+place transcendentals enter the crate, and =constants= gained the four vessel
+volumes.
+
+The item's stated range was =473-499=, which stops inside the =DO 1140= loop
+that writes =UCVR=/=UCVS=. Its own acceptance list named both, so the range is
+=473-502=; the backlog now says so.
+
+** Validation numbers
+*Tier 2, all nine field groups, all three pools.* 2,417 states (400 nominal,
+2,000 perturbed, 17 adversarial). Zero states failed to converge, so delta
+D-001 still has not fired.
+
+| field group | cases  | max rel err | max ulp | ulp histogram              |
+|-------------+--------+-------------+---------+---------------------------|
+| VVR/VVS     |  4,834 | 0.000e0     |       0 | 0:4834                    |
+| PPR         | 19,336 | 2.802e-16   |       2 | 0:17855 1:1304 2:177      |
+| PPS         | 19,336 | 2.784e-16   |       2 | 0:18258 1:899 2:179       |
+| PTR/PTS/PTV |  7,251 | 3.578e-16   |       2 | 0:7106 1:133 2:12         |
+| XVR         | 19,336 | 4.843e-16   |       3 | 0:17642 1:1305 2:367 3:22 |
+| XVS         | 19,336 | 4.302e-16   |       3 | 0:18110 1:978 2:238 3:10  |
+| UTVR/UTVS   |  4,834 | 4.443e-16   |       3 | 0:4717 1:82 2:32 3:3      |
+| UCVR        | 19,336 | 5.077e-16   |       4 | 0:18042 1:919 2:330 3:44 4:1 |
+| UCVS        | 19,336 | 6.230e-16   |       3 | 0:18521 1:713 2:98 3:4    |
+
+Worst overall *6.230e-16 on =UCVS(6)=* (F in the separator vapour) at
+=perturbed#169=; worst ULP *4, on =UCVR(8)=* (H in the reactor vapour) at
+=perturbed#1281=. Gate is 1e-12, so there are just under four orders of
+headroom.
+
+*The same differential under =--features oracle,libm-system=: 0 ULP on every
+one of the nine groups.* That is the number that matters, and the reason is
+below.
+
+*Bit-exact under the default build too*, because no transcendental reaches
+them: =PPR=/=PPS= for A, B and C (1,200 cases, 0 ULP) and =PTV= (200 cases,
+0 ULP).
+
+*The =exp= measurement, which every later item inherits.* Over the whole
+Antoine argument range this model reaches, [0.5868, 13.0825]:
+
+| comparison                        | cases     | differ  | worst  |
+|-----------------------------------+-----------+---------+--------|
+| Rust =f64::exp= vs gfortran =DEXP= | 1,500,005 | 0       | 0 ulp  |
+| vendored =libm= vs gfortran =DEXP= | 1,500,005 | 9.945%  | -1 ulp |
+| vendored =libm= vs =f64::exp=      | 15,000    | 10.047% | -1 ulp |
+
+The first two came from a throwaway gfortran program writing =Z16.16= hex over
+a 0.001-degree grid. The third is the permanent form, re-measured on whatever
+machine runs the suite by
+=the_vendored_and_platform_exp_differ_only_by_rounding=; it is the vendored
+crate against the platform one, and the =libm-system= run is what establishes
+that the platform one is what gfortran calls.
+
+** Surprises and decisions
+*Bit equality ended exactly where B-0017 said it would, and the sign is
+consistent.* The vendored crate is one ULP *low*, never high, on all 149,181
+disagreeing arguments. It is not noise around the correctly-rounded value; it
+is a systematic downward bias in that library's =exp=.
+
+*The bit-exactness claim was moved rather than dropped, and that was the real
+work of this iteration.* The obvious reading of the plan is that from here on
+Phase 2 is held to 1e-12. That is a bad trade and it is measurable: rewriting
+=UTVR= from =ptr*vvr/RG/tkr= to =ptr*vvr/(RG*tkr)= is worth 1-2 ULP, which
+*fails* the =libm-system= run and *passes* the default 1e-12 gate silently. It
+was tried, both ways, before this was written down. Nine items remain in Phase
+2 and every one of them is a sum or a product chain where the same mistake is
+available.
+
+So =PLAN.org='s =libm-system= feature landed now rather than at Tier 4, and
+=xtask ci= runs the Phase 2 differentials twice: default for the shipping
+number, =libm-system= for 0 ULP on the algebra. =CLAUDE.md= carries this as a
+rule so the next eight items do not each rediscover it.
+
+*Two consequences worth knowing.* =libm-system= makes =tepsim-core= =std=, so
+=no_std= is now =cfg_attr='d on =not(feature = "libm-system")=; the default
+build, which is every build the gate exercises, is unchanged. And the
+bit-exactness test's failure message deliberately names *both* causes, because
+if gfortran ever stops resolving =DEXP= to the platform =exp=, that test fails
+too, and a message asserting "the difference is in the algebra" would send a
+session down the wrong path for a whole iteration.
+
+*=libm::exp(1.0)= is one ULP above the correctly rounded =e=.* Found by
+writing the obvious assertion and watching it fail. It is now asserted as an
+equality on bits, in both configurations, so a future version of either library
+changing its rounding is a test failure rather than a silent shift in every
+recorded number.
+
+*Teeth, checked by breaking things.* Typing =RG= as a double literal instead of
+=single(998.9)= moves the plant 2.444e-8 relative, four orders past the gate,
+and fails loudly. Reassociating =UTVR= fails only the =libm-system= run, as
+above.
+
+** Next
+B-0019, reaction kinetics, =teprob.f:503-520=.
+
+*It is the same hazard again, one function worse.* =**1.1544= and =**0.3735= at
+=507-508= go through =pow=, which is harder to round than =exp= and where the
+vendored crate should be expected to disagree with gfortran *more* than 9.9% of
+the time, not less. =DEXP= also reappears at =503-505= inside three Arrhenius
+terms whose activation energies are single precision. Measure =pow= the way
+this entry measured =exp=, in a permanent test, and record the percentage and
+the worst ULP before writing the log entry, not after.
+
+Run the differential in *both* configurations from the start. The =libm-system=
+run is where 0 ULP is still asserted, and =RR(1..4)= is a four-term product
+chain, which is precisely the shape where a reassociation is invisible to
+1e-12.
+
+The naming quirk is already located and does not need rediscovering: =R1F= and
+=R2F= arrive as disturbance drift factors from =TESUB8= and are *reassigned in
+place* as pressure powers at =507-508=. Read =503-511= as written rather than
+tidying it, and give it a Class A delta entry.

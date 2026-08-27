@@ -14,17 +14,18 @@ earlier phases will change what the right decomposition is.
 
 Rewrite this block at the end of every iteration. Keep it to five lines.
 
-- Phase: 2, on B-0018. First physics item landed bit-exact
-- Last completed: B-0017 state unpacking, 0 ULP on all 14 field groups
+- Phase: 2, on B-0019. Equilibrium landed; =exp= now costs 1 ULP on 9.9% of calls
+- Last completed: B-0018 vapour-liquid equilibrium, 6.230e-16 max rel err,
+  and 0 ULP under =libm-system=
 - In flight: (none)
-- Baseline: =cargo xtask ci= green; 143 tests default, 216 with =oracle=;
-  =xtask validate --tiers 1= green, all thirteen reports 0 ULP;
-  provenance 382/1589 (24.0%)
-- Toolchain: rustup, pinned to rustc 1.97.1, wasm32 installed
+- Baseline: =cargo xtask ci= green; 152 tests default, 228 with =oracle=, plus
+  a 3-test =oracle,libm-system= run; provenance 416/1589 (26.2%)
+- Toolchain: rustup, pinned to rustc 1.97.1, wasm32 installed, libm 0.2.16
 - Remote: private jkitchin/tep-rust, CI green on all 7 jobs
-- Blocked on: nothing. Next is B-0018, vapour-liquid equilibrium: *the first
-  contact with =libm=*, where the run of bit-exact results may end. It is
-  written up to measure that rather than be surprised by it.
+- Blocked on: nothing. Next is B-0019, reaction kinetics. Every Phase 2
+  differential now runs *twice*, default and =libm-system=; the second is
+  where 0 ULP is still asserted, and skipping it silently costs the ability to
+  see a reassociation.
 
 * Phase 0: foundations
 
@@ -654,13 +655,26 @@ Done when:
 - [X] All three =273.15= in the range (=461=, =463=, =466=) are single
       precision, like the one D-001 turns on
 
-** NEXT B-0018 Vapour-liquid equilibrium and pressures
+** DONE B-0018 Vapour-liquid equilibrium and pressures
 :PROPERTIES:
 :ID:    B-0018
 :PHASE: 2
 :TIER:  2
 :DEPS:  B-0017
 :PLAN:  Anatomy > Unit operations
+:COMMIT: ea2ad7d
+:RESULT: =teprob.f:473-502=, not =473-499=: the item's own line range stopped
+         inside the =DO 1140= loop that writes =UCVR=/=UCVS=, which its
+         acceptance list already required. Tier 2 max rel err *6.230e-16* on
+         =UCVS(6)= at =perturbed#169=, max 4 ULP on =UCVR(8)=, over 2,417
+         states. Bit equality with gfortran *ends here as predicted*: the
+         vendored libm differs from gfortran's =DEXP= on 9.9% of Antoine
+         arguments by exactly one ULP. The claim did not degrade to a
+         tolerance, it moved: the =libm-system= feature swaps in the platform
+         libm, which *is* what gfortran calls (0 of 1,500,005 arguments
+         differ), and the same differential asserts *0 ULP* there. =xtask ci=
+         runs both from now on. =PTV= and the A/B/C partials stay 0 ULP under
+         the default build.
 :END:
 
 =teprob.f:473-499=. A/B/C are ideal-gas partial pressures; D-H are Antoine
@@ -672,11 +686,12 @@ whether it does. =RG=998.9= and all 24 Antoine coefficients are single
 precision (B-0006), and they feed an exponent argument.
 
 Done when:
-- [ ] =PPR=, =PPS=, =PTR=, =PTS=, =PTV=, =XVR=, =XVS=, =UTVR=, =UTVS=, =UCVR=,
-      =UCVS=
-- [ ] Tier 2 differential per field, with the ULP histogram recorded
-- [ ] The =exp= difference against gfortran quantified and logged, since every
-      later item inherits it
+- [X] =PPR=, =PPS=, =PTR=, =PTS=, =PTV=, =XVR=, =XVS=, =UTVR=, =UTVS=, =UCVR=,
+      =UCVS=, and =VVR=/=VVS=, which the range also covers
+- [X] Tier 2 differential per field, with the ULP histogram recorded
+- [X] The =exp= difference against gfortran quantified and logged, since every
+      later item inherits it. 9.945% of arguments, one ULP, and it is
+      re-measured by a test on every machine rather than quoted from here
 
 ** TODO B-0019 Reaction kinetics
 :PROPERTIES:
@@ -699,8 +714,14 @@ than tidied.
 
 Done when:
 - [ ] =RR(1..4)=, =CRXR(1..8)=, =RH=; the =PPR(1)>0 .AND. PPR(3)>0= branch
-- [ ] =**1.1544= and =**0.3735= go through the vendored =libm= =pow=
-- [ ] Tier 2 differential; delta entry for the =R1F=/=R2F= rename
+- [ ] =**1.1544= and =**0.3735= go through the vendored =libm= =pow=, with its
+      disagreement with gfortran measured the way B-0018 measured =exp='s.
+      Expect it to be *worse*: =pow= is the harder function, and =DEXP= also
+      appears here at =503-505= inside the Arrhenius terms
+- [ ] Tier 2 differential *in both configurations*, default and
+      =libm-system=, asserting 1e-12 and 0 ULP respectively. See B-0018 and
+      =CLAUDE.md=
+- [ ] delta entry for the =R1F=/=R2F= rename
 
 ** TODO B-0020 Stream compositions, molecular weights and enthalpies
 :PROPERTIES:
