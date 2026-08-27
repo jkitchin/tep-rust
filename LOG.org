@@ -3366,3 +3366,102 @@ and the comment saying so can go.
 
 *B-0026a is still open.* Phase 2's model is complete and proved bit-exact; only
 its acceptance criterion waits.
+
+* 2026-08-27 B-0030 The walk spans and noise magnitudes, checked twice
+:PROPERTIES:
+:ITEM:     B-0030
+:PHASE:    3
+:TIER:     2
+:COMMIT:   e14cba3
+:GFORTRAN: 15.2.0
+:STATUS:   DONE
+:END:
+** Preflight
+Clean and green, identical to B-0029's closing numbers. gfortran 15.2.0,
+unchanged. Provenance *849/1589 (53.4%)* on entry, *950 (59.8%)* on exit.
+
+** What changed
+=constants::MEASUREMENT_NOISE= and =disturbance::CHANNEL_SPANS= transcribe
+=teprob.f:1256-1359=: 41 noise magnitudes and five span arrays of twelve.
+=tier1_disturbance.rs= now reads both from the port rather than out of the
+oracle, which it was doing only because they did not exist.
+
+** Validation numbers
+*101 constants, verified two independent ways.*
+
+| check | what it does |
+|-------+--------------|
+| =tepsim-core/tests/walk_constants.rs= | reparses the Fortran, derives each value from the literal and its suffix |
+| =tepsim-oracle/tests/walk_constants_vs_oracle.rs= | compares against =COMMON/WLK/= and =COMMON/TEPROC/= as gfortran filled them |
+
+Both exact on all 101. The second is the decisive one, because it does not
+share the first's reading of Fortran literal semantics: if both readings were
+wrong in the same way, only the oracle would notice.
+
+*All 101 carry a =D= suffix*, asserted one by one. This is the only uniformly
+double-precision block in the file.
+
+*The initial walk state* at =teprob.f:1360-1367= is pinned against the oracle:
+every channel starts at its own =SZERO=, flat, with =TNEXT= at 0.1, and
+=IDVWLK= all zero.
+
+** Surprises and decisions
+*Checking the precision one by one was not paranoia.* The block turns out to be
+uniformly double, which is unusual here and would have been safe to assume. But
+the =273.15= against =273.15D0= split and the =1.8= at =teprob.f:790= both came
+from blocks that looked uniform and were not, and each cost a measurement to
+find. The assertion is three lines and it removes the question permanently.
+
+*Three properties of the table matter more than the numbers, and are now tests.*
+
+=SPSPAN= is zero for *every* channel. No walk in this model ends a segment with
+a nonzero slope, so =teprob.f:1530= always computes zero and each segment is a
+cubic through two points with flat ends. That is why B-0028's draw-skipping bug
+was so invisible: the third draw affects the *stream* and never the *answer*.
+
+Channels 10 to 12 have no value or slope span at all. They are not walks: the
+spike rule at =teprob.f:372-396= reads only their durations, so =SSPAN= and
+=SZERO= are dead storage for them, in the same way =XMWS='s seven unused slots
+were in B-0020.
+
+Every duration centre clears its span, so a draw of -1 cannot produce a
+zero-length segment. =H= divides the cubic coefficients at
+=teprob.f:1533-1534= and the original has no guard; it is the *table* that
+keeps it safe, not the code. B-0028's Tier 1 sweep had to construct its random
+spans with the same property for the same reason, and now the constraint is
+written down where it is enforced.
+
+*A fresh plant has every channel flat at its centre.* =IDVWLK= starts all-zero,
+so no disturbance is active and every walk is a constant. That is what makes a
+=d00= run a nominal run rather than a run with quiet noise on it, and it is
+asserted rather than assumed.
+
+** Next
+B-0031: the walk advance, =teprob.f:340-406=. The first Phase 3 item with
+behaviour rather than constants, and the one everything so far has been built
+for.
+
+Four pieces: the =IDV= clamp at =340-346=, the =IDVWLK= mapping at =347-358=,
+the =DO 900= advance for channels 1-9 through =TESUB5=, and the =DO 910= spike
+rule for 10-12. Then the =TIME=0= reset at =397-406=.
+
+*The spike rule is where the work is.* =teprob.f:380-393= branches on the
+interpolated value against 0.1: above it, the channel is given a 0.1-hour pulse
+built from the current value and slope; at or below, it is given a flat dwell
+whose curvature is =IDVWLK(I)/HWLK**2= and whose length is a fresh draw. Both
+branches must be exercised, and B-0027 measured that all three spike channels
+take the *dwell* branch at the nominal operating point, so the pulse branch
+needs a state that reaches it.
+
+Everything needed to verify it exists now. Tier 3 traces the draws, B-0030
+pinned the initial state and the spans, and =COMMON/WLK/= exposes the walk
+state after every call so the segments themselves are directly comparable.
+Compare both: the state *and* the trace. B-0028 showed they are different
+claims.
+
+One thing to read carefully rather than infer: =teprob.f:387= borrows =ISD= as
+the =TESUB7= sign flag, and the oracle's instrumentation already splits that
+into =IRAND=. The split is behaviour-preserving, and the pristine probe proves
+it, but the port should use a plainly-named local and not reproduce the borrow.
+
+*B-0026a is still open*, and still one line.
