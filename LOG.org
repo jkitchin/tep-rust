@@ -3046,3 +3046,111 @@ One loose end worth an early look in Phase 3: =Signals::compositions= is still
 zeros. =XCMP= at =teprob.f:717-735= needs nothing the pure phase does not
 already have, but it belongs with the analysers that read it, so it went to
 B-0024b rather than being half-done here.
+
+* 2026-08-27 B-0027 Decompose Phase 3, and count the draws before porting any of them
+:PROPERTIES:
+:ITEM:     B-0027
+:PHASE:    3
+:TIER:     none
+:COMMIT:   37fb224
+:GFORTRAN: 15.2.0
+:STATUS:   DONE
+:END:
+** Preflight
+Clean and green, identical to B-0025's closing numbers. gfortran 15.2.0,
+unchanged. Provenance *808/1589 (50.8%)*, unchanged: this item produces backlog
+items and a measurement harness, not ported code.
+
+*B-0026 remains BLOCKED on B-0026a*, so this took the next unblocked item per
+=CLAUDE.md=. Phase 2's model is complete; only its acceptance criterion is open.
+
+** What changed
+Phase 3 decomposed into *B-0028* through *B-0034*, joining *B-0024b* which
+B-0024a had already split out. Eight items, each naming its =teprob.f= range.
+
+=crates/tepsim-oracle/tests/rng_call_order.rs= is new: a census of what draws
+from the generator, when, and how many times.
+
+** Validation numbers
+*Draws per =TEFUNC= evaluation, measured on the nominal trajectory:*
+
+| condition | draws | decomposition |
+|-----------+-------+---------------|
+| =TIME=0= | 0 | noise skipped, walks reset |
+| running, nothing due | 264 | 22 measurements x 12 |
+| walk due | 294 | 264 + 30 |
+| walk + gas analysers | 462 | 264 + 30 + 168 |
+| walk + both analysers | 522 | 264 + 30 + 168 + 60 |
+| *tripped* | 258 | 30 + 168 + 60, no noise |
+
+Over 400 nominal states the distribution is =0:1, 264:359, 294:1, 462:39=.
+
+*The walk advance costs 30 draws*, isolated by freezing =TNEXT=: 9 channels
+through =TESUB5= at 3 each, plus 1 each from the 3 spike channels.
+
+** Surprises and decisions
+*The counts are measured, not read off the listing, and it cost nothing.*
+=TESUB7= is a multiplicative congruential generator whose entire state is =G=
+(=teprob.f:1551=), so stepping a port-side =TepRng= from the word before a call
+until it matches the word after gives the draw count exactly. No edit to the
+Fortran, no counter to keep in sync, and the method itself is checked against
+the oracle first. Every number above came out of that.
+
+*The walk advance and the gas analyser are permanently in step.* =TNEXT= starts
+at 0.1 for all twelve channels (=teprob.f:1362=) and =TGAS= starts at 0.1
+(=teprob.f:741=), so the first gas sample and the first walk advance come due on
+the same tick and never separate.
+
+The tell was arithmetic: the gas step measures *198* draws, and 198 is not a
+multiple of twelve. Fourteen compositions at twelve draws each could only ever
+give 168. The residue is the walk's 30. Reading the two line ranges separately
+would never have suggested it, and B-0031 would have been debugged against a
+number that was wrong by 18%.
+
+*A trip does not silence the generator.* Only =teprob.f:711-716= is guarded by
+=ISD=; the three analyser blocks at =744-761= have no guard at all. So a tripped
+plant still draws 258, and a port that skipped all noise on a trip would
+desynchronise the stream and differ on every subsequent draw, forever, while
+still producing a perfectly plausible distribution.
+
+That is a second reason B-0024a's per-state shutdown check mattered: it was
+justified there by the derivative freeze, and it turns out to gate the RNG
+stream position too.
+
+*The walk's draw count is data-dependent, which is why Tier 3 needs a trace.*
+Its 30 draws are 27 + 3, and the 3 are conditional: =teprob.f:380-393= branches
+on the interpolated value against 0.1, and a spike channel above that threshold
+draws *nothing*. So the number of draws in an evaluation depends on the walk's
+own value, which depends on earlier draws. A port cannot get the stream right by
+counting; it has to match the sequence.
+
+*Incremental verification is only partly available in this phase.* Phase 2 was
+verifiable item by item because =COMMON/TEPROC/= exposes every intermediate.
+The walk *state* is in =COMMON/WLK/= and is readable the same way, so values
+stay checkable per item. Draw *order* is not a value in any =COMMON= block and
+cannot be recovered after the fact. That is why B-0029 builds the trace
+differ *before* B-0031 ports the advance, rather than after, which is the
+opposite of the order the phase description implies.
+
+** Next
+B-0028: port =TESUB5= and =TESUB6=, =teprob.f:1506-1546=, and finish Tier 1.
+
+Both *consume the generator*, unlike =TESUB1= through =TESUB4=, so Tier 1 for
+them is not an input sweep: pin =G=, call, compare the value *and the number of
+draws*. The counts this iteration measured are what the later items depend on,
+so assert them at the source: 3 for =TESUB5= (=teprob.f:1528-1530=), 12 for
+=TESUB6= (=1542-1543=).
+
+The oracle has no =tesub5_= binding. It takes fourteen arguments, eight of them
+in/out, so the shim is more work than the other seven put together; budget for
+it.
+
+=TESUB6='s twelve-uniform sum is the one place the port's arithmetic could
+differ without a transcendental being involved: =X=X+TESUB7(I)= accumulates in
+call order and =(X-6.D0)*STD= scales afterwards. Reassociating that sum is the
+same class of mistake B-0021's =UTVR= was, and the =libm-system= run will not
+help here because no transcendental is involved. It should be bit-exact under
+*both* configurations.
+
+*B-0026a is still the one to answer*, and it is one line. Phase 2's model is
+complete and proved bit-exact; only its acceptance criterion is open.

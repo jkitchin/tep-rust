@@ -1061,7 +1061,7 @@ constant blocks that Phase 1 and 2 already cover.
 :TIER:  none
 :DEPS:  B-0025
 :PLAN:  Anatomy > Disturbance mechanism; Validation > Tier 3
-:COMMIT: pending
+:COMMIT: 37fb224
 :RESULT: 7 items, B-0028 to B-0034, plus B-0024b which B-0024a had already
          split out. The five =TESUB7= consumers are enumerated *and measured*:
          =tests/rng_call_order.rs= recovers the draw count per evaluation
