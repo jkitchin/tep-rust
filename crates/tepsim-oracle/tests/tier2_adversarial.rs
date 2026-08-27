@@ -69,8 +69,10 @@ fn the_catalogue_covers_the_enumerated_branches() {
     // 17 from B-0016; three from B-0021 once `CPPRMX` existed to compare
     // against (two boundaries plus one state inside the clamped region,
     // because the boundary state itself does not clamp); one from B-0022 for
-    // the same reason on the stripper's pinned branch.
-    assert_eq!(entries.len(), 21, "the catalogue changed size");
+    // the same reason on the stripper's pinned branch; four from B-0024a for
+    // the same reason on the reactor temperature trip and the three low level
+    // trips.
+    assert_eq!(entries.len(), 25, "the catalogue changed size");
 
     let names: Vec<&str> = entries.iter().map(|(_, t, _)| t.name).collect();
     for expected in [
@@ -83,6 +85,10 @@ fn the_catalogue_covers_the_enumerated_branches() {
         "PR = CPPRMX, the compressor maximum-ratio clamp",
         "PR above CPPRMX, inside the clamped region",
         "TCC below the lower stripping-factor branch",
+        "TCR above the shutdown limit",
+        "VLR below the lower shutdown limit",
+        "VLS below the lower shutdown limit",
+        "VLC below the lower shutdown limit",
     ] {
         assert!(names.contains(&expected), "{expected} is missing");
     }

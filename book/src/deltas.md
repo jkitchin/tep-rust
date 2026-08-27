@@ -34,7 +34,7 @@ from when it arrives.
 Read this section before re-litigating a quirk. It is the list of things that
 have been *noticed* but not yet *decided*.
 
-- Nothing open. D-001 through D-005 are decided and measured.
+- Nothing open. D-001 through D-006 are decided and measured.
 
 ---
 
@@ -380,3 +380,52 @@ ever did not, they would be recomputed somewhere the port has not found.
 `the_non_condensible_factors_never_move_in_the_fortran_either` in
 `crates/tepsim-oracle/tests/tier2_stripper.rs`. 300 nominal states and all 21
 adversarial boundaries, bit-identical.
+
+---
+
+## D-006 — `XMEAS(20)` is assigned twice, with different factors
+
+**Class A.** `teprob.f:698-699`, in `TEFUNC`.
+
+### What the original does
+
+```fortran
+      XMEAS(20)=CPDH*0.0003927D6
+      XMEAS(20)=CPDH*0.29307D3
+```
+
+The first assignment is dead. The second overwrites it on the next line,
+before anything reads the slot.
+
+### Why it is not a harmless duplicate
+
+The two factors are not the same number. `0.0003927D6` is 392.7 and
+`0.29307D3` is 293.07: a ratio of 1.34. So this is a *superseded* conversion
+rather than a repeated one, and a port that transcribed the first line would
+report compressor work 34% high on every sample, forever, while every other
+measurement stayed correct.
+
+Both are plausible as unit conversions, which is what makes it a trap.
+Compressor duty in the model's internal units times 293.07 gives kilowatts,
+and `XMEAS(20)` is documented as "Compressor Work (kW)". The dead factor
+appears to be an earlier attempt at the same conversion.
+
+### What this port does
+
+Takes the second, which is what the original computes, and states in
+[`tepsim_core::measurements`] that the first is dead and why the difference
+matters.
+
+### Measured effect
+
+None on the model: the value is overwritten before use, so the derivative and
+every state are untouched. The effect would be entirely on a controller reading
+measurement 20, and the delta against the correct value would be 34%.
+
+### Measured by
+
+`the_compressor_work_uses_the_second_conversion_factor` in
+`crates/tepsim-core/src/measurements.rs`, which also asserts the two factors
+are far enough apart that taking the dead one would be visible. The Tier 2
+differential in `crates/tepsim-oracle/tests/tier2_measurements.rs` covers it
+against the oracle, and is bit-identical under `libm-system`.

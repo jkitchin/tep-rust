@@ -420,6 +420,26 @@ pub fn catalogue() -> Vec<(Knob, Target, (f64, f64))> {
             },
             (0.5, 3.0),
         ),
+        // And past it, for the reason set out under "A boundary state does not
+        // exercise the branch it bounds". This one has a second twist worth
+        // knowing: the state above *does* trip, but on `teprob.f:703`, the
+        // reactor pressure, not on the temperature it was built for. Heating
+        // the reactor raises the Antoine partial pressures faster than `TCR`
+        // climbs, so by 175 C the plant is already over 3000 kPa gauge and the
+        // temperature limit is masked. It is covered here only because `ISD`
+        // is a single flag in the original: both conditions hold at once, and
+        // nothing in `COMMON` distinguishes them.
+        (
+            Knob::REACTOR_ENERGY,
+            Target {
+                name: "TCR above the shutdown limit",
+                why: "teprob.f:706, the branch the boundary state does not take",
+                observe: tcr,
+                value: 180.0,
+                scale: 180.0,
+            },
+            (0.5, 3.0),
+        ),
         (
             Knob::UNDERFLOW_VALVE,
             Target {
@@ -589,6 +609,45 @@ pub fn catalogue() -> Vec<(Knob, Target, (f64, f64))> {
                 scale: 1.4,
             },
             (0.5, 6.0),
+        ),
+        // The three *low* level trips, past their limits rather than on them.
+        // The boundary states at 2, 1 and 1 cubic metres do not fire, because
+        // `teprob.f:705`, `708` and `710` are all `.LT.`, so without these
+        // three the low half of the shutdown detector is never exercised
+        // against the oracle at all. B-0024a found that by counting which
+        // causes the pool reaches.
+        (
+            Knob::REACTOR_VOLUME,
+            Target {
+                name: "VLR below the lower shutdown limit",
+                why: "teprob.f:705, the branch the boundary state does not take",
+                observe: vlr,
+                value: 1.5 * 35.3145,
+                scale: 1.5 * 35.3145,
+            },
+            (0.01, 3.0),
+        ),
+        (
+            Knob::SEPARATOR_VOLUME,
+            Target {
+                name: "VLS below the lower shutdown limit",
+                why: "teprob.f:708, the branch the boundary state does not take",
+                observe: vls,
+                value: 0.75 * 35.3145,
+                scale: 0.75 * 35.3145,
+            },
+            (0.01, 3.0),
+        ),
+        (
+            Knob::STRIPPER_VOLUME,
+            Target {
+                name: "VLC below the lower shutdown limit",
+                why: "teprob.f:710, the branch the boundary state does not take",
+                observe: vlc,
+                value: 0.75 * 35.3145,
+                scale: 0.75 * 35.3145,
+            },
+            (0.01, 3.0),
         ),
     ]
 }
