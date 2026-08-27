@@ -1,7 +1,10 @@
-//! The thermodynamic coefficient tables, `COMMON/CONST/`.
+//! The thermodynamic coefficient tables, `COMMON/CONST/`, and the vessel
+//! geometry.
 //!
 //! Fourteen arrays of eight, one entry per species, set once in `TEINIT` and
-//! never written again.
+//! never written again, plus the four fixed vessel volumes at the end of the
+//! file. Everything here is a number the original writes down once and then
+//! only reads.
 //!
 //! # Precision is per-constant and is not a detail
 //!
@@ -301,3 +304,47 @@ pub const XMW: ByComponent<f64> = ByComponent::new([
     single(62.0), // XMW(7) = 62.0
     single(76.0), // XMW(8) = 76.0
 ]);
+
+// ---------------------------------------------------------------------------
+// Vessel geometry
+//
+// Not part of `COMMON/CONST/`: these live in `COMMON/TEPROC/` and are set once
+// in `TEINIT`, alongside quantities the model recomputes on every call. They
+// are constants in every sense that matters here, and a reader looking for a
+// vessel volume looks in this file.
+//
+// All four literals are written without a `D` suffix and so are single
+// precision, like most of the table above. All four happen to be exactly
+// representable in 24 bits, so `single` changes nothing numerically; it is
+// applied anyway, for the reason given in the module documentation.
+// ---------------------------------------------------------------------------
+
+/// Reactor total volume, cubic feet.
+///
+/// The vapour space is this minus the liquid volume (`teprob.f:473`).
+//
+// @port teprob.f:1118
+pub const VTR: f64 = single(1300.0);
+
+/// Separator total volume, cubic feet.
+///
+/// The vapour space is this minus the liquid volume (`teprob.f:474`).
+//
+// @port teprob.f:1119
+pub const VTS: f64 = single(3500.0);
+
+/// Stripper total volume, cubic feet.
+///
+/// The stripper is liquid-filled, so this appears only in the level
+/// measurement (`teprob.f:693`), never in a vapour balance.
+//
+// @port teprob.f:1120
+pub const VTC: f64 = single(156.5);
+
+/// Mixing zone total volume, cubic feet.
+///
+/// The mixing zone is all vapour, so its volume is fixed and its pressure
+/// follows the ideal gas law directly (`teprob.f:492`).
+//
+// @port teprob.f:1121
+pub const VTV: f64 = single(5000.0);

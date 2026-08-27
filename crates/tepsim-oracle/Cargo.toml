@@ -16,6 +16,11 @@ publish = false
 # under reference/. CI runs it on Linux and macOS only, never Windows.
 default = []
 oracle = []
+# Forwards to `tepsim-core/libm-system`, so that a Tier 2 differential can be
+# run with the port using the same libm gfortran does. That separates a
+# transcendental rounding difference from a mistake in the algebra; see
+# `tepsim_core::math`.
+libm-system = ["tepsim-core/libm-system"]
 
 [[bin]]
 name = "gen-golden-trace"

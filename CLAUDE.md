@@ -184,6 +184,13 @@ previous entry rather than by a threshold that someone quietly relaxed.
 - **Determinism is a hard invariant.** No `f32`, no SIMD or rayon inside the core,
   no reordered reductions, no `Date`/time/randomness outside `TepRng`. The core
   uses the vendored `libm` crate for `exp`/`pow`/`ln`.
+- **Every Phase 2 differential runs twice.** The vendored `libm` disagrees with
+  gfortran's on ~10% of arguments by one ULP, so from B-0018 on, a Tier 2 test
+  against the default build can only assert 1e-12. Add the same comparison
+  under `--features oracle,libm-system`, where `exp` is the one gfortran calls,
+  and assert **0 ULP** there. Both go in `xtask ci`. Without the second run a
+  reassociation worth 1-2 ULP passes silently; that is measured, not feared.
+  See `tepsim_core::math` and `tests/tier2_equilibrium.rs`.
 - **`tepsim-oracle` never becomes a dependency** of `tepsim`, `tepsim-py`, or
   `tepsim-wasm`. It is dev-only, behind the `oracle` feature.
 - **The oracle's compiler and flags are pinned.** `build.rs` fixes the gfortran
@@ -220,6 +227,7 @@ cargo xtask validate      # full ladder; regenerates book/src/validation/
 cargo xtask validate --tiers 1,2,3 --compare-to-log
 cargo xtask bench         # criterion, with regression comparison
 cargo test -p tepsim-oracle --features oracle    # needs gfortran
+cargo test -p tepsim-oracle --features oracle,libm-system  # bit-exactness run
 ```
 
 `xtask fidelity` deliberately does **not** need gfortran: it diffs against a

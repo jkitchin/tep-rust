@@ -10,5 +10,21 @@ repository.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
+[features]
+default = []
+# Swap the vendored pure-Rust `exp`/`pow`/`ln` for the platform libm.
+#
+# Never on in a shipped build: it trades cross-platform determinism, which is a
+# hard invariant here, for agreement with whatever libm the host happens to
+# ship. It exists so that validation can attribute a difference against the
+# Fortran to transcendental rounding rather than to the algebra. See
+# `crate::math`, and `PLAN.org` > "Numerics and determinism".
+libm-system = []
+
+[dependencies]
+# The pure-Rust libm, so that x86-64, aarch64 and wasm32 round `exp` and `pow`
+# identically. See `crate::math`.
+libm = { version = "0.2.16", default-features = false }
+
 [lints]
 workspace = true

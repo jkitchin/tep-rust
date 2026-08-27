@@ -345,6 +345,18 @@ feature switches to the platform libm, which lets us demonstrate that trajectory
 divergence from the Fortran is caused by transcendental rounding and nothing
 else: the divergence point should move when you flip the feature.
 
+It earns its keep earlier than Tier 4, from B-0018 onward. On the recording
+machine gfortran's =DEXP= *is* the platform =exp=: they agree on all 1,500,005
+arguments the Antoine correlations reach, while the vendored crate differs on
+9.9% of them by exactly one ULP. So running a Tier 2 differential under
+=libm-system= removes the transcendental from the comparison, and the port can
+still be held to *bit equality* on the algebra rather than to 1e-12. That
+matters because 1e-12 is four orders of magnitude of room: a reassociated
+division in =UTVR= measures 1-2 ULP, fails the =libm-system= run, and passes the
+default gate silently. =cargo xtask ci= therefore runs the Phase 2 differentials
+twice, and every Phase 2 item keeps the zero-ULP assertion it had before the
+first call to =exp=.
+
 ** Control layer
 
 The Fortran has nineteen near-identical copy-pasted =CONTRLn= subroutines, each

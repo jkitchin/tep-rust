@@ -27,7 +27,10 @@
 //!
 //! Skeleton. The model lands over phases 1 and 2; see `BACKLOG.org`.
 
-#![no_std]
+// `libm-system` swaps the vendored transcendentals for the platform's, which
+// needs `std`. It is never a shipping configuration; see `crate::math`. The
+// default build, and therefore every build the gate exercises, is `no_std`.
+#![cfg_attr(not(feature = "libm-system"), no_std)]
 #![forbid(unsafe_code)]
 
 extern crate alloc;
@@ -37,6 +40,8 @@ pub(crate) mod testing;
 
 pub mod component;
 pub mod constants;
+pub mod equilibrium;
+pub mod math;
 pub mod plant;
 pub mod rng;
 pub mod state;
@@ -46,6 +51,7 @@ pub mod variables;
 pub mod vessels;
 
 pub use component::{ByComponent, Component, Composition};
+pub use equilibrium::{Equilibrium, VapourSpace, equilibrium};
 pub use plant::{Inputs, Measurements, Plant, PlantError, Signals, SimTime};
 pub use rng::TepRng;
 pub use state::{Derivative, Holdup, N_STATES, State, VectorSpace, Vessel};

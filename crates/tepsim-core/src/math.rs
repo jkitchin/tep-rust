@@ -1,0 +1,122 @@
+//! The transcendental functions, and why they do not come from `f64`.
+//!
+//! Exactly one function reaches this module today, `exp`, first needed by the
+//! Antoine vapour pressures at `teprob.f:485`. `pow` and `ln` join it in
+//! B-0019 and B-0021. Everything else in the model is `+`, `-`, `*`, `/` and
+//! `sqrt`, all of which IEEE-754 specifies to the last bit, so they are
+//! identical on every target and need no wrapper.
+//!
+//! # Why the vendored crate rather than `f64::exp`
+//!
+//! `f64::exp` calls whatever libm the platform ships. glibc, musl and Apple's
+//! do not agree to the last bit, and a wasm build has no platform libm at all.
+//! Tier 9 asserts that the same BLAKE3 digest comes out of x86-64, aarch64 and
+//! wasm32, so a host-dependent `exp` is not a rounding detail, it is a failed
+//! gate. The vendored [`libm`] crate is the same code everywhere.
+//!
+//! # The price, measured
+//!
+//! On this machine gfortran's `DEXP` *is* Apple's libm. Over 1,500,005
+//! arguments spanning the whole Antoine range this model reaches
+//! (0.587 to 13.08), `f64::exp` matches gfortran on every one, and the
+//! vendored crate differs on 9.945% of them, always by exactly one ULP low.
+//!
+//! So choosing determinism costs bit equality with the Fortran on about one
+//! partial pressure in ten, at 1.1e-16 relative. Tier 2's gate is 1e-12, four
+//! orders away. That is the trade `PLAN.org` makes deliberately, and B-0018
+//! is where it first comes due.
+//!
+//! # `libm-system`, and what it is for
+//!
+//! With the non-default `libm-system` feature, [`exp`] becomes `f64::exp`.
+//! This is never a shipping configuration: it forfeits the invariant above.
+//! It exists so that validation can distinguish two very different findings.
+//!
+//! A Tier 2 difference under the default build could be transcendental
+//! rounding or it could be a mistake in the algebra. Under `libm-system` the
+//! transcendental agrees with gfortran exactly, so *any* remaining difference
+//! is the algebra. The port therefore keeps a bit-exactness assertion for the
+//! whole of Phase 2 rather than losing it to a 1e-12 tolerance at the first
+//! call to `exp`, and a regression worth 1e-15 still fails a test instead of
+//! hiding under the noise.
+//!
+//! Enabling it also makes the crate `std`, which is why it is not, and must
+//! not become, a default.
+
+/// The exponential.
+///
+/// See the module documentation: this is the vendored [`libm`] by default and
+/// the platform libm under `libm-system`.
+#[must_use]
+#[cfg(not(feature = "libm-system"))]
+pub fn exp(x: f64) -> f64 {
+    libm::exp(x)
+}
+
+/// The exponential.
+///
+/// See the module documentation: this is the vendored [`libm`] by default and
+/// the platform libm under `libm-system`.
+#[must_use]
+#[cfg(feature = "libm-system")]
+pub fn exp(x: f64) -> f64 {
+    x.exp()
+}
+
+/// Whether this build uses the platform libm rather than the vendored one.
+///
+/// Reported by validation harnesses, so that a recorded number always says
+/// which `exp` produced it.
+pub const USES_SYSTEM_LIBM: bool = cfg!(feature = "libm-system");
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A handful of values a reader can check independently, so that a
+    /// mis-wired feature flag shows up as a wrong number rather than as a
+    /// silently different library.
+    #[test]
+    fn exp_is_the_exponential() {
+        assert_eq!(exp(0.0).to_bits(), 1.0_f64.to_bits());
+        assert!(exp(f64::NEG_INFINITY) == 0.0);
+        assert!(exp(f64::INFINITY).is_infinite());
+        assert!(exp(f64::NAN).is_nan());
+    }
+
+    /// The two implementations differ, and by how much, pinned at one argument
+    /// a reader can check by hand.
+    ///
+    /// `exp(1)` is `e`, whose correctly rounded double is
+    /// [`core::f64::consts::E`]. The platform libm returns it; the vendored
+    /// crate returns one ULP above. That is the whole shape of the trade this
+    /// module makes, in one assertion, and it is written as an equality on
+    /// bits so that a future version of either library changing its rounding
+    /// is a test failure rather than a silent shift in every recorded number.
+    #[test]
+    fn the_vendored_exp_is_one_ulp_high_at_one_and_the_platform_one_is_exact() {
+        let correctly_rounded = core::f64::consts::E.to_bits();
+        let actual = exp(1.0).to_bits();
+        if USES_SYSTEM_LIBM {
+            assert_eq!(
+                actual, correctly_rounded,
+                "the platform libm rounds e correctly"
+            );
+        } else {
+            assert_eq!(
+                actual,
+                correctly_rounded + 1,
+                "the vendored libm is expected to be exactly one ULP high at e"
+            );
+        }
+    }
+
+    /// The default build must be the deterministic one. If this ever fails,
+    /// `libm-system` has leaked into `default` and Tier 9 is no longer being
+    /// tested by the ordinary gate.
+    #[test]
+    #[cfg(not(feature = "libm-system"))]
+    fn the_default_build_uses_the_vendored_libm() {
+        const { assert!(!USES_SYSTEM_LIBM) };
+    }
+}

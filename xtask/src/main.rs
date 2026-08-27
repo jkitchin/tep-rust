@@ -150,6 +150,27 @@ fn cmd_ci(root: &Path, fast: bool) -> Result<(), String> {
             "cargo",
             &["test", "-p", "tepsim-oracle", "--features", "oracle"],
         )?;
+        // The same Tier 2 differential again, with the port using the platform
+        // libm instead of the vendored one. That is not a shipping
+        // configuration; it exists so the comparison can be made with the
+        // transcendental removed, leaving bit equality as the assertion about
+        // the algebra. Without it, every item from B-0018 onward would be held
+        // only to 1e-12, which is four orders of magnitude of room to hide a
+        // reassociation in. Scoped to the one test that needs it, since it
+        // rebuilds the workspace under a different feature set.
+        step(
+            root,
+            "cargo",
+            &[
+                "test",
+                "-p",
+                "tepsim-oracle",
+                "--features",
+                "oracle,libm-system",
+                "--test",
+                "tier2_equilibrium",
+            ],
+        )?;
     }
 
     println!("\nci: green");
