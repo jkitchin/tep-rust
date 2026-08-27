@@ -14,18 +14,17 @@ earlier phases will change what the right decomposition is.
 
 Rewrite this block at the end of every iteration. Keep it to five lines.
 
-- Phase: 2, on B-0023. Eight of nine done; all thirteen streams populated
-- Last completed: B-0022 the stripper, 0 ULP on everything it computes itself;
-  adversarial catalogue 20 to 21
+- Phase: 2, on B-0024. All the physics is ported; measurements and balances left
+- Last completed: B-0023 heat transfer, 0 ULP on three of four duties
 - In flight: (none)
-- Baseline: =cargo xtask ci= green; 188 tests default, 279 with =oracle=, plus
-  a 22-test =oracle,libm-system= run; provenance 633/1589 (39.8%)
+- Baseline: =cargo xtask ci= green; 197 tests default, 292 with =oracle=, plus
+  a 27-test =oracle,libm-system= run; provenance 649/1589 (40.8%)
 - Toolchain: rustup, pinned to rustc 1.97.1, wasm32 installed, libm 0.2.16
 - Remote: private jkitchin/tep-rust, CI green on all 7 jobs
-- Blocked on: nothing. Next is B-0023, heat transfer. =AGSP**2= and
-  =(FTM(8)/3528.73)**4= are *integer* powers and must expand to multiplication,
-  not =pow=; gfortran emits multiplies for them and routing them through =pow=
-  changes the last bits.
+- Blocked on: nothing. Next is B-0024, measurements and shutdown detection.
+  Only =679-710= is pure; the noise and analysers at =711-761= are the
+  *post-phase* of the three-phase split and belong to Phase 3. Take the pure
+  half and split the rest out if it does not fit.
 
 * Phase 0: foundations
 
@@ -830,23 +829,37 @@ Done when:
       covered three of four; the pinned branch needed a new state past the
       threshold, because the boundary state sits on it and the test is strict
 
-** NEXT B-0023 Heat transfer
+** DONE B-0023 Heat transfer
 :PROPERTIES:
 :ID:    B-0023
 :PHASE: 2
 :TIER:  2
 :DEPS:  B-0022
 :PLAN:  Anatomy > Unit operations
+:COMMIT: 089602e
+:RESULT: =teprob.f:663-678=. =UAR=, =QUR= and =QUC= are *0 ULP under the
+         default build*; only =QUS= differs (3.969e-13), carrying =FTM(8)='s
+         =sqrt= error amplified by the quartic. 0 ULP under =libm-system=.
+         *=X**4= is binary exponentiation*: =(x*x)*(x*x)= matches gfortran
+         200,000 of 200,000, the chain 132,040, =pow= 99,523; the chain fails
+         the bit-exactness run at 4 ULP and passes 1e-12 silently. Two things
+         found wrong by the tests: the level ramp *does not meet its flat
+         sections* (single-precision =0.025= leaves gaps of 3.7e-9 and 1.9e-8),
+         and the agitator parabola's roots are 1.149 and 4.351, not 1 and 5.
 :END:
 
 =teprob.f:663-678=. Reactor coil with the level ramp and the agitator
 quadratic, the condenser saturating coefficient, and the stripper steam duty.
 
 Done when:
-- [ ] =UARLEV=, =UAR=, =QUR=, =UAS=, =QUS=, =QUC=
-- [ ] All three =UARLEV= branches and the =TCC<100= steam cutoff covered
-- [ ] =AGSP**2= and =(FTM(8)/3528.73)**4= are integer powers, so they must
-      expand to multiplication, not =pow=
+- [X] =UARLEV=, =UAR=, =QUR=, =UAS=, =QUS=, =QUC=. =UAS= and =UARLEV= are
+      =TEFUNC= locals, so they are checked through =QUS= and =UAR=
+- [X] All three =UARLEV= branches and both sides of the =TCC<100= cutoff, with
+      coverage tests that *assert* each is entered. Per B-0022's rule the two
+      breakpoint states take the ramp; the perturbed pool reaches both flats
+- [X] =AGSP**2= and =(FTM(8)/3528.73)**4= expand to multiplication, and the
+      *shape* of the expansion is measured, not assumed: gfortran squares
+      twice rather than chaining
 
 ** TODO B-0024 Measurements, shutdown detection and the sampled analyzers
 :PROPERTIES:

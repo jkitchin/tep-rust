@@ -2687,3 +2687,121 @@ states below 100 C, which says exactly that.
 like the three items before them.
 
 Append =tier2_heat= to =LIBM_SYSTEM_TESTS= in =xtask/src/main.rs=.
+
+* 2026-08-27 B-0023 Heat transfer, and an integer power that is not a chain
+:PROPERTIES:
+:ITEM:     B-0023
+:PHASE:    2
+:TIER:     2
+:COMMIT:   089602e
+:GFORTRAN: 15.2.0
+:STATUS:   DONE
+:END:
+** Preflight
+Clean and green, identical to B-0022's closing numbers. gfortran 15.2.0,
+unchanged. Provenance *633/1589 (39.8%)* on entry, 649 (40.8%) on exit.
+
+** What changed
+=tepsim_core::heat= ports =teprob.f:663-678=: the reactor coil with its
+piecewise level ramp and agitator quadratic, the condenser's saturating
+coefficient, and the stripper reboiler with its steam cutoff. That is the last
+of the physics; only the measurements and the balances remain.
+
+** Validation numbers
+*Tier 2, four fields, all three pools.* 2,421 states, zero convergence
+failures.
+
+| field | cases | max rel err | max ulp |
+|-------+-------+-------------+---------|
+| UAR   | 2,421 | 0.000e0     |       0 |
+| QUR   | 2,421 | 0.000e0     |       0 |
+| QUS   | 2,421 | 3.969e-13   |   2,521 |
+| QUC   | 2,421 | 0.000e0     |       0 |
+
+*Three of four are bit-exact under the default build.* =QUS= is not, and the
+reason is structural: it is the only one downstream of =FTM(8)=, which came
+through a square-root resistance, and the quartic at =teprob.f:674= then
+amplifies that. 0 ULP on all four under =libm-system=.
+
+*=QUS= is the largest relative error in the port so far, at 3.969e-13 against
+a 1e-12 gate.* The trend across Phase 2 is worth watching: 6.2e-16 (B-0018),
+8.5e-16 (B-0019), 5.1e-16 (B-0020), 1.2e-13 (B-0021), 4.0e-13 here. B-0026
+should confirm the assembled derivative stays inside the gate rather than
+assuming it.
+
+*=X**4=, measured against gfortran over 200,000 values with the pinned flags:*
+
+| candidate | matches |
+|-----------+---------|
+| =(x*x)*(x*x)= | 200,000 of 200,000 |
+| =((x*x)*x)*x= | 132,040 |
+| =pow(x, 4.0)= | 99,523 |
+
+*Branch coverage.* All three =UARLEV= branches and both sides of the
+=TCC < 100= cutoff are entered by the pool, asserted rather than assumed.
+
+** Surprises and decisions
+*The integer-power expansion has a shape, and it had to be measured.* Knowing
+that gfortran does not call =pow= is not enough: =(x*x)*(x*x)= and
+=((x*x)*x)*x= are both "multiplication" and they differ on a third of inputs.
+gfortran uses binary exponentiation. Writing the chain fails the =libm-system=
+run at 4 ULP and passes the 1e-12 gate silently, which is checked by breaking
+it deliberately.
+
+*B-0022's rule paid off immediately.* Both =UARLEV= breakpoint states take the
+ramp, exactly as predicted, because =teprob.f:663= and =665= are strict. This
+time the coverage test was written *first* rather than discovering the gap
+afterwards, and the perturbed pool turned out to reach both flat branches
+already, so no new catalogue entries were needed. The check is cheap and the
+alternative is two implemented-but-never-evaluated branches.
+
+*The level ramp does not meet its flat sections.* =0.025= at =teprob.f:668= is
+single precision, stored as 0.02500000037252903, so the ramp gives
+3.725290298461914e-9 at level 10 instead of 0, and 1.0000000186264515 at level
+50 instead of 1. Since both comparisons are strict, =UARLEV= is discontinuous
+by those amounts as the level crosses either breakpoint.
+
+This is faithful reproduction, not a delta: it is what the original computes,
+the gaps are eight orders below the quantity, and the coefficient is an
+empirical fit anyway. It is written down because "the ramp meets the flats" is
+the obvious assumption, it is false, and the test asserting it failed for a
+reason that looks exactly like a porting error.
+
+*The agitator parabola's roots are 1.149 and 4.351, not 1 and 5.* That claim
+went into the module documentation before it was checked, and the test caught
+it. The parabola peaks at 2.75, above the agitator's 1.5 to 2.5 range, so the
+coefficient rises monotonically everywhere the plant can reach and never gets
+near a root.
+
+*Signed zeros propagate and the sign is load-bearing.* On a dry coil =UAR= is
+=+0= and =QUR= is =-0=, because the reactor runs hotter than its coolant outlet
+and the difference carries the sign through the multiplication. Asserted on
+bits, since =-0.0 == 0.0= is true and would hide a sign flip while the oracle
+comparison, which is on bits, would not.
+
+** Next
+B-0024, measurements, shutdown detection and the sampled analysers,
+=teprob.f:679-761=.
+
+*Only the first half belongs to this phase.* =679-710= is pure: the twenty-two
+noise-free measurements and the eight shutdown tests. =711-761= draws
+measurement noise and ticks the analysers, which is the *post-phase* of the
+three-phase split in =crate::plant=, and it needs the RNG and the walk
+machinery that Phase 3 brings.
+
+Per the sizing rule, take =679-710= and split the rest into a child item if it
+will not fit. That is the natural seam anyway: =Plant::derivatives= ends at
+=710= and =Plant::sample_measurements= begins at =711=.
+
+Two things already located. The =XMEAS(20)= double assignment at
+=teprob.f:698-699= is a Class A delta: the first write is dead. And the eight
+shutdown conditions should land as a typed condition rather than a bare flag,
+so that =derivatives= can report *which* limit tripped instead of only that
+one did.
+
+The adversarial catalogue already has states on five of the eight shutdown
+limits, and =tier2_adversarial= reports which of them trip. Use that: a tripped
+state has an all-zero derivative in the Fortran, which any port reproduces, so
+those states are coverage of the *detector* and not of the model.
+
+Append =tier2_measurements= to =LIBM_SYSTEM_TESTS= in =xtask/src/main.rs=.
