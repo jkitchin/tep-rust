@@ -180,6 +180,17 @@ mod oracle {
             unsafe { (&raw const ffi::pv_.xmeas).read() }
         }
 
+        /// Set `XMEAS(1..41)`.
+        ///
+        /// Needed because the analysers *hold* `XMEAS(23..41)` between
+        /// samples (`teprob.f:744` writes them only inside the schedule
+        /// check), so those nineteen are part of what `TEFUNC` reads and a
+        /// scenario is not fully specified without them.
+        pub fn set_measurements(&mut self, xmeas: &[f64; 41]) {
+            // SAFETY: as above, writing a correctly typed and sized value.
+            unsafe { (&raw mut ffi::pv_.xmeas).write(*xmeas) };
+        }
+
         /// `XMV(1..12)`, the manipulated variables, zero-based here.
         pub fn manipulated(&mut self) -> [f64; 12] {
             // SAFETY: as above.

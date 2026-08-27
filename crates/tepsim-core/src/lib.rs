@@ -38,6 +38,7 @@ extern crate alloc;
 #[cfg(test)]
 pub(crate) mod testing;
 
+pub mod analysers;
 pub mod balances;
 pub mod component;
 pub mod constants;
@@ -59,6 +60,7 @@ pub mod variables;
 pub mod vessels;
 pub mod walk;
 
+pub use analysers::{Analysers, compositions, sample};
 pub use balances::{Balances, CoolantInlet, QuirkFixes, balances};
 pub use component::{ByComponent, Component, Composition};
 pub use disturbance::{

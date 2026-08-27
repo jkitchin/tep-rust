@@ -88,6 +88,14 @@ pub struct Scenario {
     pub walk: Wlk,
     /// The generator word, `COMMON/RANDSD/ G`.
     pub rng: f64,
+    /// `XMEAS(1..41)` as the previous evaluation left them.
+    ///
+    /// Only 23 through 41 matter, and only to the analysers: `teprob.f:744`
+    /// and `755` write them inside a schedule check, so between samples the
+    /// previous *reported* value persists and is read again. They do not reach
+    /// the derivative at all, which is why Tier 2 got away without them; a
+    /// whole-step comparison does not.
+    pub measurements: [f64; 41],
     /// The whole plant working set carried in from the previous evaluation.
     ///
     /// Most of this is recomputed on every call and restoring it changes
@@ -123,6 +131,7 @@ impl Scenario {
         oracle.set_teproc(&self.common);
         oracle.set_wlk(&self.walk);
         oracle.set_rng(self.rng);
+        oracle.set_measurements(&self.measurements);
         oracle.set_manipulated(&self.manipulated);
         oracle.set_disturbances(&self.disturbances);
         let derivative = oracle.derivatives(self.time, &self.state);
@@ -277,6 +286,7 @@ impl Pools {
             disturbances: oracle.disturbances(),
             walk: oracle.wlk(),
             rng: oracle.rng(),
+            measurements: oracle.measurements(),
             common: oracle.teproc(),
         };
 

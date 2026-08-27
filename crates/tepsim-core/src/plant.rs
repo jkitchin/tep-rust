@@ -50,6 +50,7 @@
 //! phases are still stubs and land with Phase 3, which brings the RNG and the
 //! disturbance walks.
 
+use crate::analysers::{Analysers, compositions, sample};
 use crate::balances::{CoolantInlet, QuirkFixes, VALVE_STICTION, balances};
 use crate::equilibrium::equilibrium;
 use crate::flows::{FlowDrift, flows};
@@ -238,9 +239,10 @@ pub struct Plant {
     walks: WalkInputs,
     /// The twelve disturbance channels.
     channels: Walks,
-    /// The generator. The *only* place it lives, and it moves only in
-    /// [`Plant::advance_discrete`].
+    /// The generator. The *only* place it lives.
     rng: TepRng,
+    /// The three sampled analysers' dead-time latch and schedules.
+    analysers: Analysers,
 }
 
 /// Everything `teprob.f:407-416` reads out of the disturbance walks.
@@ -270,6 +272,7 @@ impl Default for Plant {
             walks: WalkInputs::default(),
             channels: Walks::default(),
             rng: TepRng::with_default_seed(),
+            analysers: Analysers::default(),
         }
     }
 }
@@ -468,9 +471,9 @@ impl Plant {
             assembled.derivative,
             Signals {
                 continuous: measured.continuous,
-                // `XCMP` is B-0024b; it needs nothing this phase does not
-                // already have, but it belongs with the analysers that read it.
-                compositions: [0.0; N_SAMPLED],
+                // teprob.f:717-735. Pure, so it belongs to this phase, but it
+                // is only ever read by the analysers.
+                compositions: compositions(&table),
                 shutdown: measured.shutdown,
             },
         ))
@@ -526,10 +529,27 @@ impl Plant {
     /// **Impure.** Exactly once per outer step, *after* the derivative call.
     ///
     /// Adds measurement noise and ticks the three sampled analysers.
-    ///
-    /// Stubbed: this is Phase 3.
-    pub fn sample_measurements(&mut self, _t: SimTime, _signals: &Signals) -> Measurements {
-        Measurements::default()
+    // @port teprob.f:711-761
+    pub fn sample_measurements(&mut self, t: SimTime, signals: &Signals) -> Measurements {
+        Measurements(sample(
+            &mut self.analysers,
+            &mut self.rng,
+            t.hours(),
+            &signals.continuous,
+            &signals.compositions,
+            signals.shutdown,
+        ))
+    }
+
+    /// The analysers' latch and schedules.
+    #[must_use]
+    pub const fn analysers(&self) -> &Analysers {
+        &self.analysers
+    }
+
+    /// Set them, for a harness placing the plant in a known condition.
+    pub const fn set_analysers(&mut self, analysers: Analysers) {
+        self.analysers = analysers;
     }
 
     /// One explicit Euler step, sequencing the three phases in the only order
