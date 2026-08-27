@@ -14,16 +14,16 @@ earlier phases will change what the right decomposition is.
 
 Rewrite this block at the end of every iteration. Keep it to five lines.
 
-- Phase: *2 is closed*; Phase 3 has eight of nine done, B-0034 left
-- Last completed: B-0033, the fault table. The five "Unknown" faults explained
-  and checked against the Fortran
+- Phase: *2 and 3 are closed*. Next is Phase 4, the control layer
+- Last completed: B-0034. Tier 4 shows bit-identical trajectories for 8 h with
+  identical transcendentals, and 5.1e-5 of XNS without
 - In flight: (none)
-- Baseline: =cargo xtask ci= green; 255 tests default, 396 with =oracle=, plus
-  a 38-test =oracle,libm-system= run; provenance *1123/1589 (70.7%)*
+- Baseline: =cargo xtask ci= green; 255 tests default, 398 with =oracle=;
+  =validate --tiers 1,2,3,4= all green; provenance *1123/1589 (70.7%)*
 - Toolchain: rustup, pinned to rustc 1.97.1, wasm32 installed, libm 0.2.16
 - Remote: private jkitchin/tep-rust, CI green on all 7 jobs
-- Blocked on: nothing. Next is B-0034, which closes Phase 3: Tier 3 acceptance
-  and the Tier 4 diagnostic.
+- Blocked on: nothing. Phase 4 must be decomposed first, as its own item, on
+  the B-0012 and B-0027 precedent.
 
 * Phase 0: foundations
 
@@ -1335,22 +1335,32 @@ behaviour.
       and a step fault moves them before any channel is due while a random one
       does not
 
-** NEXT B-0034 Tier 3 acceptance and the Tier 4 diagnostic
+** DONE B-0034 Tier 3 acceptance and the Tier 4 diagnostic
 :PROPERTIES:
 :ID:    B-0034
 :PHASE: 3
 :TIER:  3
 :DEPS:  B-0033 B-0024b
 :PLAN:  Validation > Tier 3; Validation > Tier 4
+:COMMIT: 8f82168
+:RESULT: *Phase 3 is closed.* =xtask validate --tiers 3= runs seven
+         differentials; =--tiers 4= runs both libm configurations because the
+         *contrast* is the result. Tier 4, 8 hours: vendored libm worst
+         *5.149e-5 of XNS*, platform libm *0.000e0* -- bit-identical for 28,800
+         steps. All 21 scenarios stay within =XNS= for the full run and all 21
+         are exactly zero on the platform libm. =IDV(14)=, =(15)= and =(19)=
+         report errors identical to nominal to every digit, which confirms
+         B-0033's sticking-fault finding from a completely different direction.
 :END:
 
-Done when:
-- [ ] Tier 3 trace diff empty on all 22 scenarios, over a run long enough to
-      exercise every channel
-- [ ] =xtask validate --tiers 3= runs it
-- [ ] Tier 4 recorded as a *diagnostic*: error against =XNS(i)= for the first
-      hours, with the divergence point and its attribution to =libm=. Not a
-      gate, per =PLAN.org=; the numbers go in the log either way
+- [X] Tier 3 empty on all 22 scenarios. The strongest form is B-0024b's: 2,000
+      carried steps with the generators in lockstep
+- [X] =xtask validate --tiers 3= runs it, and =--tiers 4= runs both libm
+      configurations
+- [X] Tier 4 recorded as a diagnostic. The attribution is not merely shown but
+      *exact*: with identical transcendentals the trajectories are
+      bit-identical for 28,800 steps, so the divergence is transcendental
+      rounding and nothing else
 
 * Phase 4: control layer
 

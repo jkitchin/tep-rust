@@ -3967,3 +3967,94 @@ Expect divergence to be *fast*. The plant is open-loop unstable in pressure, and
 B-0025 measured 8.5e-16 per step on the derivative; over a 48-hour run at one
 second that is 172,800 steps of amplification. The number to record is where it
 crosses =XNS(i)=, not whether it eventually does.
+
+* 2026-08-27 B-0034 Tier 3 and Tier 4, and Phase 3 closes
+:PROPERTIES:
+:ITEM:     B-0034
+:PHASE:    3
+:TIER:     3
+:COMMIT:   8f82168
+:GFORTRAN: 15.2.0
+:STATUS:   DONE
+:END:
+** Preflight
+Clean and green. gfortran 15.2.0, unchanged. =xtask fidelity= 100 of 100 steps,
+worst 3.521e-14. Provenance *1123/1589 (70.7%)*, unchanged.
+
+** What changed
+=xtask validate --tiers 3= and =--tiers 4= exist.
+=crates/tepsim-oracle/tests/tier4_trajectory.rs= is new.
+
+** Validation numbers
+*Tier 4, nominal, 8 simulated hours (28,800 steps):*
+
+| libm | worst error, as a fraction of =XNS(i)= | ever outside =XNS= |
+|------+----------------------------------------+--------------------|
+| vendored | 5.149e-5 | never |
+| platform | *0.000e0* | never |
+
+*All 21 scenarios, 4 hours each*, both configurations: every one stays within
+=XNS= for the whole run, and every one is exactly 0.00e0 on the platform libm.
+
+Worst error by scenario on the vendored libm, at 4 hours: nominal 2.45e-5,
+=IDV(10)= 3.66e-8, =IDV(8)= 1.42e-8, =IDV(13)= 1.05e-8, the rest below 1e-8.
+
+** Surprises and decisions
+*The attribution is exact, not merely demonstrated.* =PLAN.org= asks that the
+divergence "be explained, by showing that switching between the vendored libm
+and the system libm *moves* the divergence point". It does better than move it:
+with identical transcendentals the two trajectories are *bit-identical for
+28,800 steps*, on all 41 measurements. Zero, not small.
+
+So the divergence is transcendental rounding and nothing else, and the residual
+under the vendored libm is 20,000 times below what the instruments could
+resolve after eight hours.
+
+*Getting to zero took finding one thing, and it was not rounding.* The first
+run showed 7.285e-6 of =XNS= under =libm-system= that would not go away, which
+should have been impossible: Tier 2 says the derivative is 0 ULP there.
+
+=TEINIT= calls =TEFUNC= once itself at =teprob.f:1369=. By the time it returns,
+the four Newton warm-start temperatures have already converged away from the
+nominal literals that =TemperatureSeeds::default()= carries. A trajectory
+started from the defaults is a *different trajectory*, not a rounding of the
+same one.
+
+B-0017 measured that seeding differently moves up to 21 of the 50 derivatives
+in the last bits. This is what that looks like eight hours later, and it is the
+third time in this project that the warm start has turned out to be
+load-bearing where it looked like an implementation detail.
+
+*Tier 4 confirmed B-0033 from a direction B-0033 could not.* =IDV(14)=,
+=IDV(15)= and =IDV(19)= report worst errors identical to nominal, to every
+digit, over a four-hour run. They are the sticking faults: with the command
+held still their trajectory *is* the nominal trajectory. B-0033 established
+that from the source and from single forced evaluations; here it falls out of
+an integration nobody wrote to test it.
+
+*Tier 4 runs both configurations, by construction.* The contrast is the result,
+so =xtask validate --tiers 4= runs the file twice rather than leaving the second
+half to whoever remembers. A single run of either half proves nothing on its
+own: the vendored figure alone is unexplained, and the platform figure alone
+describes a configuration that does not ship.
+
+** Next
+*Phase 4: the control layer.* Decompose it first, as its own item, on the
+B-0012 and B-0027 precedent. Both of those found something in the decomposition
+that reshaped the phase, and both took a full iteration to do it.
+
+What is already known. =PLAN.org= describes nineteen near-identical =CONTRLn=
+subroutines in =temain_mod.f=, each with its own =COMMON= block, on three
+periods: 3 s for flow and level loops, 360 s for composition, 900 s for product
+quality. All of them are velocity-form PI.
+
+Two things to settle in the decomposition rather than during the work. First,
+=temain_mod.f= is a *different file* from =teprob.f=, and everything the
+provenance scanner knows about is =teprob.f=; the control layer will need its
+own coverage accounting or it will be invisible to =xtask provenance=. Second,
+=CLAUDE.md= lists "hard-coded =IDV(12)= in the driver" as a Class C quirk, which
+is in =temain_mod.f=, so the driver comes with a delta before any of it is
+ported.
+
+The =d00= through =d21= datasets are closed-loop, so Tier 7 cannot start until
+this phase lands. That makes Phase 4 the gate on Phases 5 and 7 both.
