@@ -796,7 +796,7 @@ Done when:
       =teprob.f:591= is =.GT.=, so it does not clamp
 - [X] The =1.0e-10= addend on stream 4 recorded as Class B delta D-004
 
-** TODO B-0022 The stripper
+** NEXT B-0022 The stripper
 :PROPERTIES:
 :ID:    B-0022
 :PHASE: 2
