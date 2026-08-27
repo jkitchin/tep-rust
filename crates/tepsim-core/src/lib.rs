@@ -41,6 +41,7 @@ pub(crate) mod testing;
 pub mod balances;
 pub mod component;
 pub mod constants;
+pub mod disturbance;
 pub mod equilibrium;
 pub mod flows;
 pub mod heat;
@@ -59,6 +60,7 @@ pub mod vessels;
 
 pub use balances::{Balances, CoolantInlet, QuirkFixes, balances};
 pub use component::{ByComponent, Component, Composition};
+pub use disturbance::{ChannelSpans, Segment, SegmentStart, noise, walk_segment};
 pub use equilibrium::{Equilibrium, VapourSpace, equilibrium};
 pub use flows::{FlowDrift, Flows, flows};
 pub use heat::{HeatDrift, HeatTransfer, heat_transfer};

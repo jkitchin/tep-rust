@@ -55,7 +55,7 @@ mod ffi;
 #[cfg(feature = "oracle")]
 pub use ffi::{Const, Teproc, Wlk};
 #[cfg(feature = "oracle")]
-pub use oracle::{N_STATES, Oracle};
+pub use oracle::{N_STATES, Oracle, WalkSegment, WalkSegmentStart, WalkSpans};
 
 #[cfg(feature = "oracle")]
 mod oracle {
@@ -66,6 +66,52 @@ mod oracle {
     /// The original integrates 50 states. `teprob.f:24-26` invites callers to
     /// append their own beyond that; we never do, so this is exact.
     pub const N_STATES: usize = 50;
+
+    /// Where a walk segment starts: `S`, `SP` and `TLAST` at `teprob.f:1506`.
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct WalkSegmentStart {
+        /// `S`, the value the previous segment ended at.
+        pub value: f64,
+        /// `SP`, the slope it ended with.
+        pub slope: f64,
+        /// `TLAST`, the time it ended.
+        pub tlast: f64,
+    }
+
+    /// One channel's five span parameters and its disturbance flag.
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct WalkSpans {
+        /// `HSPAN`, the half-range of the segment duration.
+        pub hspan: f64,
+        /// `HZERO`, its centre.
+        pub hzero: f64,
+        /// `SSPAN`, the half-range of the endpoint value.
+        pub sspan: f64,
+        /// `SZERO`, its centre.
+        pub szero: f64,
+        /// `SPSPAN`, the half-range of the endpoint slope.
+        pub spspan: f64,
+        /// `IDVWLK(I)`: zero unless this channel's disturbance is active. It
+        /// multiplies *both* endpoint draws (`teprob.f:1529-1530`), so an
+        /// inactive channel lands exactly on `SZERO` with zero slope and only
+        /// its duration stays random. The draws still happen either way.
+        pub idvflag: i32,
+    }
+
+    /// The cubic `TESUB5` produces, and when it ends.
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct WalkSegment {
+        /// `ADIST`, the constant term.
+        pub adist: f64,
+        /// `BDIST`, the linear term.
+        pub bdist: f64,
+        /// `CDIST`, the quadratic term.
+        pub cdist: f64,
+        /// `DDIST`, the cubic term.
+        pub ddist: f64,
+        /// `TNEXT`, when this segment ends and the next is built.
+        pub tnext: f64,
+    }
 
     /// Exclusive access to the Fortran's process-wide `COMMON` state.
     ///
@@ -248,6 +294,41 @@ mod oracle {
             // SAFETY: as above.
             unsafe { ffi::tesub4_(x.as_ptr(), &t, &mut r) };
             r
+        }
+
+        /// `TESUB5`: build the next cubic walk segment for one channel.
+        ///
+        /// Consumes three draws (`teprob.f:1528-1530`).
+        pub fn tesub5(&mut self, start: WalkSegmentStart, spans: WalkSpans) -> WalkSegment {
+            let mut out = WalkSegment {
+                adist: 0.0,
+                bdist: 0.0,
+                cdist: 0.0,
+                ddist: 0.0,
+                tnext: 0.0,
+            };
+            // SAFETY: every pointer is to a live local of the right type, and
+            // `TESUB5` writes only the six it is declared to write. No arrays
+            // are involved, so there is no length to get wrong.
+            unsafe {
+                ffi::tesub5_(
+                    &start.value,
+                    &start.slope,
+                    &mut out.adist,
+                    &mut out.bdist,
+                    &mut out.cdist,
+                    &mut out.ddist,
+                    &start.tlast,
+                    &mut out.tnext,
+                    &spans.hspan,
+                    &spans.hzero,
+                    &spans.sspan,
+                    &spans.szero,
+                    &spans.spspan,
+                    &spans.idvflag,
+                );
+            }
+            out
         }
 
         /// `TESUB6`: one measurement-noise sample of standard deviation `std`.

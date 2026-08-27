@@ -262,6 +262,36 @@ unsafe extern "C" {
     pub(crate) fn tesub3_(z: *const f64, t: *const f64, dh: *mut f64, ity: *const i32);
     /// `SUBROUTINE TESUB4(X, T, R)`: liquid density. `teprob.f:1482`.
     pub(crate) fn tesub4_(x: *const f64, t: *const f64, r: *mut f64);
+    /// `SUBROUTINE TESUB5(S, SP, ADIST, BDIST, CDIST, DDIST, TLAST, TNEXT,
+    /// HSPAN, HZERO, SSPAN, SZERO, SPSPAN, IDVFLAG)`: build the next cubic
+    /// walk segment. `teprob.f:1506-1537`.
+    ///
+    /// Fourteen arguments, and Fortran passes every one by reference, so the
+    /// six that the routine writes (`ADIST` through `TNEXT`) are `*mut` here
+    /// while the rest are `*const`. `S` and `SP` are the segment's starting
+    /// value and slope; the five span parameters and the flag are read only.
+    ///
+    /// Consumes *three* draws, at `teprob.f:1528-1530`.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the Fortran signature has fourteen; wrapping it is `tesub5`"
+    )]
+    pub(crate) fn tesub5_(
+        s: *const f64,
+        sp: *const f64,
+        adist: *mut f64,
+        bdist: *mut f64,
+        cdist: *mut f64,
+        ddist: *mut f64,
+        tlast: *const f64,
+        tnext: *mut f64,
+        hspan: *const f64,
+        hzero: *const f64,
+        sspan: *const f64,
+        szero: *const f64,
+        spspan: *const f64,
+        idvflag: *const i32,
+    );
     /// `SUBROUTINE TESUB6(STD, X)`: Gaussian-ish noise, twelve uniforms summed.
     /// `teprob.f:1539`.
     pub(crate) fn tesub6_(std: *const f64, x: *mut f64);
