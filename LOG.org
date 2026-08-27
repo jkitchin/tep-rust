@@ -2923,3 +2923,126 @@ After this, B-0026 is Tier 2 acceptance. Note the error trend across the phase:
 assembled derivative stays inside 1e-12 rather than assume it does.
 
 Append =tier2_balances= to =LIBM_SYSTEM_TESTS= in =xtask/src/main.rs=.
+
+* 2026-08-27 B-0025 The fifty balances, and a tolerance that cannot be met
+:PROPERTIES:
+:ITEM:     B-0025
+:PHASE:    2
+:TIER:     2
+:COMMIT:   b391c57
+:GFORTRAN: 15.2.0
+:STATUS:   DONE
+:END:
+** Preflight
+Clean and green, identical to B-0024a's closing numbers. gfortran 15.2.0,
+unchanged. Provenance *681/1589 (42.9%)* on entry, *808 (50.8%)* on exit: the
+first iteration to pass half the file.
+
+** What changed
+=tepsim_core::balances= ports =teprob.f:762-811=, and =Plant::derivatives= now
+runs the *whole* right-hand side, from unpacking the state to the fifty
+balances. =Plant::advance_discrete= gained the hoisted valve latch.
+=constants= gained the nominal initial state. =PlantError::NotImplemented= is
+gone.
+
+** Validation numbers
+*The whole right-hand side, all three pools.* 2,425 states, 2,412 running and
+13 frozen, zero convergence failures.
+
+| configuration | components | cases   | max rel err | max ulp |
+|---------------+------------+---------+-------------+---------|
+| =libm-system= | all 50     |  35,850 | 0.000e0     |       0 |
+| default       | the 22 non-cancelling | 53,064 | 0.000e0 | 0 |
+| default       | all 50     | 120,600 | 1.393e-4    | 7.4e11  |
+| either        | frozen states | 650  | 0.000e0     |       0 |
+
+*All fifty components are bit-identical to gfortran under =libm-system=.* That
+is the correctness result, and it is stronger than any tolerance.
+
+*Per-component relative error in the default build*, the 28 over 1e-12:
+
+: YP(1) 1.7e-7   YP(2) 1.4e-4   YP(3) 1.4e-7   YP(4) 4.2e-8   YP(5) 1.7e-7
+: YP(6) 4.5e-7   YP(7) 7.8e-7   YP(8) 4.6e-7   YP(9) 2.6e-8   YP(10) 7.5e-8
+: YP(11) 5.5e-7  YP(12) 7.8e-8  YP(13) 6.0e-8  YP(14) 2.6e-6  YP(15) 3.2e-7
+: YP(16) 3.6e-7  YP(17) 1.3e-8  YP(18) 3.5e-8  YP(28) 1.1e-7  YP(29) 3.9e-7
+: YP(30) 2.5e-6  YP(31) 6.7e-9  YP(32) 5.2e-8  YP(33) 1.1e-7  YP(34) 5.4e-8
+: YP(35) 1.1e-8  YP(36) 2.3e-7  YP(38) 1.2e-6
+
+The 22 that are *not* listed are 0 ULP, not merely inside the gate.
+
+*All fifty slots move somewhere in the pool*, so no comparison is zero against
+zero. The twelve valve lags are still on the *nominal* trajectory, since =VCV=
+equals =VPOS= there; only the perturbed pool exercises them.
+
+** Surprises and decisions
+*Tier 2's stated gate is not achievable, and the port is not why.* This is the
+finding of the iteration and it is now *B-0026a*, BLOCKED.
+
+=PLAN.org= sets Tier 2 at "rel err < 1e-12". Measured relative to the result,
+28 of the 50 fail. Measured under =libm-system=, all 50 are bit-identical. Both
+are true, and the reconciliation is cancellation: a balance is inflow minus
+outflow, near steady state those nearly agree, and =YP(2)= is a difference of
+two flows around 660 whose result is a few parts in ten thousand of either. One
+ULP in each term, which is exactly what the vendored =exp= costs, is 1e-16 of
+the terms and 1e-4 of the result.
+
+The 22 components that pass are exactly the ones that do not cancel: the nine
+stripper balances, whose inlet and outlet are unrelated in magnitude, the
+reactor coolant wall, and the twelve valve lags.
+
+Per =CLAUDE.md= the tolerance was *not* touched. The gate applies 1e-12 where
+it is a meaningful question and reports the rest, with the excluded components
+named individually rather than covered by a widened margin, and the module
+documentation carries the numbers and the three candidate answers.
+
+*Two real bugs, both caught within seconds of the differential existing.*
+
+=HST(9)= in the energy balances is the *post-compressor* value.
+=teprob.f:601= adds the compressor work after the stream table is built, and
+both balances that read stream 9 come after it. Reading the stream table gave
+=YP(36)= wrong by a factor of *6e8*. B-0020 documented this trap in detail and
+documenting it was not enough; the note now sits at the point of use rather
+than in the module that creates the hazard.
+
+=1.8= at =teprob.f:790= and =792= is *single* precision. Every other =1.8= in
+the file, at =1396=, =1404=, =1464= and =1471=, is =1.8D0=. Same shape as the
+=273.15= against =273.15D0= split, and the same lesson: the original is not
+consistent, so the precision has to be read off the line.
+
+*No hand-built fixture is a running plant.* Four were tried and every one
+tripped, most on *level low*: the vessels need tens of lbmol of liquid before
+=VLR/35.3145= clears 2 cubic metres, and a plausible-looking small state is a
+plant that has already emptied itself. A tripped plant returns fifty zeros,
+which is exactly the answer these tests exist to distinguish from a bug. So the
+nominal state from =TEINIT= went in, all fifty values, reparsed from the Fortran
+and checked including the three that carry a =D= suffix. Nothing downstream can
+start a simulation without it either.
+
+*The backlog contradicted the plan on the Class C default, and the plan wins.*
+B-0025's entry said the shutdown freeze should not be the default. =PLAN.org=
+says each Class C entry gets "an explicit sign-off *before it becomes the
+default*", of the **fix**, so the faithful freeze is what ships. It is also the
+only reading Tier 2 can live with: 13 pool states trip, and a port that did not
+freeze would disagree with the oracle on all fifty components for each. The
+backlog entry is corrected in place with the reasoning, and D-007 records it.
+
+** Next
+*Answer B-0026a.* It is one line and it blocks the close of Phase 2. The
+question, the evidence and three candidate answers are in the backlog entry;
+the numbers are in this entry and in
+=crates/tepsim-oracle/tests/tier2_balances.rs=.
+
+With that answered, B-0026 states the criterion, wires =xtask validate --tiers
+2=, and turns on the golden-trace diff in the fidelity preflight, which has
+been reporting "0 of 100 steps diffed" since B-0004c and can now be real:
+=Plant::euler_step= exists and the nominal state is in the crate.
+
+If the answer is slow in coming, Phase 3 is unblocked and B-0024b is its
+natural first item: =teprob.f:711-761= is already split out, and the noise
+guard it needs (=TIME.GT.0.0.AND.ISD.EQ.0=) is exactly the =Signals::shutdown=
+field B-0025 added.
+
+One loose end worth an early look in Phase 3: =Signals::compositions= is still
+zeros. =XCMP= at =teprob.f:717-735= needs nothing the pure phase does not
+already have, but it belongs with the analysers that read it, so it went to
+B-0024b rather than being half-done here.

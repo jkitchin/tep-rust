@@ -924,7 +924,7 @@ Done when:
 :TIER:  2
 :DEPS:  B-0024a
 :PLAN:  Anatomy > Unit operations
-:COMMIT: pending
+:COMMIT: b391c57
 :RESULT: =teprob.f:762-811=, and =Plant::derivatives= now runs the whole model.
          *All fifty components are bit-identical to gfortran under
          =libm-system=*, 35,850 comparisons, 0 ULP. Under the vendored libm the
