@@ -188,6 +188,58 @@ impl Stream {
     }
 }
 
+/// Thirteen values, one per stream, indexed by [`Stream`] rather than by a
+/// bare integer.
+///
+/// Layout matches the Fortran array, so this can mirror `FTM`, `XMWS`, `TST`
+/// or `HST` directly. The index arithmetic is the whole point: `Stream` is
+/// one-based to match the listing, and getting that off by one is the mistake
+/// the module documentation exists to prevent.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[repr(transparent)]
+pub struct ByStream<T>([T; Stream::COUNT]);
+
+impl<T> ByStream<T> {
+    /// Wrap thirteen values given in Fortran order.
+    pub const fn new(values: [T; Stream::COUNT]) -> Self {
+        Self(values)
+    }
+
+    /// The underlying array, in Fortran order.
+    pub const fn as_array(&self) -> &[T; Stream::COUNT] {
+        &self.0
+    }
+
+    /// The underlying array, mutably.
+    pub const fn as_mut_array(&mut self) -> &mut [T; Stream::COUNT] {
+        &mut self.0
+    }
+
+    /// Iterate values in Fortran order.
+    pub fn iter(&self) -> core::slice::Iter<'_, T> {
+        self.0.iter()
+    }
+
+    /// Iterate as `(stream, value)` pairs.
+    pub fn enumerate(&self) -> impl Iterator<Item = (Stream, &T)> {
+        Stream::ALL.into_iter().zip(self.0.iter())
+    }
+}
+
+impl<T> core::ops::Index<Stream> for ByStream<T> {
+    type Output = T;
+
+    fn index(&self, stream: Stream) -> &T {
+        &self.0[stream.index()]
+    }
+}
+
+impl<T> core::ops::IndexMut<Stream> for ByStream<T> {
+    fn index_mut(&mut self, stream: Stream) -> &mut T {
+        &mut self.0[stream.index()]
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -238,6 +290,20 @@ mod tests {
             .filter(|s| s.paper_number().is_none())
             .collect();
         assert_eq!(unnumbered, alloc::vec![Stream::StripperDownflow]);
+    }
+
+    /// `ByStream` must index by the Fortran number, not by the enum's
+    /// declaration order. `Stream::Product` is 13, so it must reach slot 12.
+    #[test]
+    fn by_stream_indexes_by_the_fortran_number() {
+        let mut values = ByStream::new([0.0_f64; Stream::COUNT]);
+        for stream in Stream::ALL {
+            values[stream] = stream.fortran_index() as f64;
+        }
+        for (slot, value) in values.as_array().iter().enumerate() {
+            assert!((*value - (slot + 1) as f64).abs() < f64::EPSILON);
+        }
+        assert!((values[Stream::Product] - 13.0).abs() < f64::EPSILON);
     }
 
     /// Paper numbers 1 through 11 must each be covered exactly once, except 6

@@ -117,7 +117,7 @@ fn workspace_root() -> PathBuf {
 /// vendored libm differs from gfortran's on about a tenth of `exp` and `pow`
 /// calls, so the default run can only assert 1e-12, and this run is what still
 /// holds the algebra to bit equality. Append the new file when an item lands.
-const LIBM_SYSTEM_TESTS: &[&str] = &["tier2_equilibrium", "tier2_kinetics"];
+const LIBM_SYSTEM_TESTS: &[&str] = &["tier2_equilibrium", "tier2_kinetics", "tier2_streams"];
 
 fn cmd_ci(root: &Path, fast: bool) -> Result<(), String> {
     check_toolchain(root)?;
