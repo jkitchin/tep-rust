@@ -765,7 +765,7 @@ Done when:
       =HST(9)= alone. Calling it an alias is the misreading, and it would give
       the purge a share of compressor work it never receives
 
-** TODO B-0021 Valve-lagged flows, pressure-driven flows and the compressor
+** NEXT B-0021 Valve-lagged flows, pressure-driven flows and the compressor
 :PROPERTIES:
 :ID:    B-0021
 :PHASE: 2
