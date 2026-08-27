@@ -1245,7 +1245,7 @@ is =IDVWLK(I)/HWLK**2=. That is a spike train, and it is where =IDV(17)=,
       =IRAND= split is what makes the two comparable, and the pristine probe
       proves that split changes nothing
 
-** TODO B-0032 Wire the walk outputs into the plant
+** NEXT B-0032 Wire the walk outputs into the plant
 :PROPERTIES:
 :ID:    B-0032
 :PHASE: 3
