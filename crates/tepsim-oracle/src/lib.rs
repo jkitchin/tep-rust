@@ -49,11 +49,14 @@ pub mod tier1;
 #[cfg(feature = "oracle")]
 pub mod tier2;
 
+/// Tier 3: the generator draw trace and its differ.
+pub mod tier3;
+
 #[cfg(feature = "oracle")]
 mod ffi;
 
 #[cfg(feature = "oracle")]
-pub use ffi::{Const, Teproc, Wlk};
+pub use ffi::{Const, TRACE_CAPACITY, Teproc, Wlk};
 #[cfg(feature = "oracle")]
 pub use oracle::{N_STATES, Oracle, WalkSegment, WalkSegmentStart, WalkSpans};
 

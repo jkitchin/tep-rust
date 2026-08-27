@@ -66,6 +66,24 @@ const EDITS: &[Edit] = &[
         from: "  550 CONTINUE\n      TIME=0.0\n",
         to: "  550 CONTINUE\n      ISD=0\n      TIME=0.0\n",
     },
+    // Tier 3. Every draw in the file comes through `TESUB7`, so one edit here
+    // records the whole stream. It is appended *after* both assignments to the
+    // function result, so nothing it does can affect the value returned; the
+    // pristine-probe test in `tests/instrumentation_equivalence.rs` checks
+    // that rather than leaving it as an argument.
+    //
+    // `TRCN` counts every draw, but only the first `TRCCAP` are stored. So an
+    // overflow is visible to the reader as a count past the capacity rather
+    // than as a silently truncated trace.
+    //
+    // The sign flag is recorded as well as the value, because `TESUB7` returns
+    // two different scalings depending on it (`teprob.f:1552-1553`), and a
+    // port could call the wrong one the right number of times.
+    Edit {
+        what: "record every TESUB7 draw into COMMON/RNGTRC/ for Tier 3",
+        from: "      COMMON/RANDSD/G\n      G=DMOD(G*9228907.D0,4294967296.D0)\n      IF(I.GE.0)TESUB7=G/4294967296.D0\n      IF(I.LT.0)TESUB7=2.D0*G/4294967296.D0-1.D0\n",
+        to: "      COMMON/RANDSD/G\n      INTEGER TRCN,TRCSGN,TRCCAP\n      PARAMETER (TRCCAP=4096)\n      DOUBLE PRECISION TRCVAL\n      COMMON/RNGTRC/TRCVAL(TRCCAP),TRCSGN(TRCCAP),TRCN\n      G=DMOD(G*9228907.D0,4294967296.D0)\n      IF(I.GE.0)TESUB7=G/4294967296.D0\n      IF(I.LT.0)TESUB7=2.D0*G/4294967296.D0-1.D0\n      TRCN=TRCN+1\n      IF(TRCN.LE.TRCCAP)THEN\n      TRCVAL(TRCN)=TESUB7\n      TRCSGN(TRCN)=1\n      IF(I.LT.0)TRCSGN(TRCN)=-1\n      ENDIF\n",
+    },
 ];
 
 /// Apply every edit, or panic with a message that says which one failed and why.

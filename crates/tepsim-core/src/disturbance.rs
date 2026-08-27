@@ -77,6 +77,8 @@
 //! offers no extra protection here: both must be bit-exact in *both*
 //! configurations.
 
+extern crate alloc;
+
 use crate::rng::TepRng;
 
 /// Where a walk segment starts.
@@ -183,6 +185,90 @@ pub fn noise(rng: &mut TepRng, std: f64) -> f64 {
     }
     // teprob.f:1544
     (x - 6.0) * std
+}
+
+/// One draw from the generator, as Tier 3 records it.
+///
+/// The value alone is not enough. `TESUB7` returns two different scalings
+/// depending on the sign of its argument (`teprob.f:1552-1553`), so a port
+/// could call the wrong one the right number of times and produce a stream
+/// that is wrong in a way no count would show.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Draw {
+    /// What the draw returned.
+    pub value: f64,
+    /// Whether it was the signed form on [-1, 1) rather than [0, 1).
+    ///
+    /// `TESUB7(I)` with `I < 0` gives the signed form. `TESUB5` uses it for
+    /// all three of its draws and `TESUB6` uses the unsigned form for all
+    /// twelve, so a whole routine calling the wrong one is possible and is
+    /// exactly what this field catches.
+    pub signed: bool,
+}
+
+/// A generator that records what it hands out.
+///
+/// Not used by the model, and deliberately not a variant of [`TepRng`]: the
+/// shipped plant holds a plain generator with no buffer behind it, and you
+/// only get a trace by constructing one of these on purpose.
+#[derive(Clone, Debug)]
+pub struct TracingRng {
+    rng: TepRng,
+    draws: alloc::vec::Vec<Draw>,
+}
+
+impl TracingRng {
+    /// Wrap a generator and start recording.
+    #[must_use]
+    pub fn new(rng: TepRng) -> Self {
+        Self {
+            rng,
+            draws: alloc::vec::Vec::new(),
+        }
+    }
+
+    /// One draw on [0, 1), recorded.
+    pub fn unit(&mut self) -> f64 {
+        let value = self.rng.unit();
+        self.draws.push(Draw {
+            value,
+            signed: false,
+        });
+        value
+    }
+
+    /// One draw on [-1, 1), recorded.
+    pub fn signed(&mut self) -> f64 {
+        let value = self.rng.signed();
+        self.draws.push(Draw {
+            value,
+            signed: true,
+        });
+        value
+    }
+
+    /// Everything drawn so far, in order.
+    #[must_use]
+    pub fn draws(&self) -> &[Draw] {
+        &self.draws
+    }
+
+    /// Forget the recorded draws, keeping the generator where it is.
+    ///
+    /// Tier 3 compares one step at a time, so the buffer is cleared between
+    /// steps rather than growing across a run: a 48-hour run makes tens of
+    /// millions of draws, and comparing them one step at a time reports the
+    /// first divergence at the step it happened rather than as an index into
+    /// something enormous.
+    pub fn clear(&mut self) {
+        self.draws.clear();
+    }
+
+    /// The underlying generator.
+    #[must_use]
+    pub const fn state(&self) -> f64 {
+        self.rng.state()
+    }
 }
 
 /// How many draws [`noise`] consumes. Asserted rather than assumed, because

@@ -247,11 +247,31 @@ pub(crate) struct Shutdn {
     pub isd: i32,
 }
 
+/// How many draws `COMMON/RNGTRC/` can hold. Must match `TRCCAP` in
+/// `instrument.rs`.
+///
+/// B-0027 measured at most 522 draws in one evaluation, so 4096 is eight times
+/// the worst case seen. The counter keeps counting past it, so an overflow is
+/// reported rather than silently truncating.
+pub const TRACE_CAPACITY: usize = 4096;
+
+/// `COMMON/RNGTRC/`: the Tier 3 draw trace.
+///
+/// Does not exist in the vendored Fortran; `instrument.rs` adds it. See that
+/// file for why recording cannot change the numbers.
+#[repr(C)]
+pub(crate) struct Rngtrc {
+    pub value: [f64; TRACE_CAPACITY],
+    pub sign: [i32; TRACE_CAPACITY],
+    pub count: i32,
+}
+
 unsafe extern "C" {
     pub(crate) static mut teproc_: Teproc;
     pub(crate) static mut wlk_: Wlk;
     pub(crate) static mut const_: Const;
     pub(crate) static mut shutdn_: Shutdn;
+    pub(crate) static mut rngtrc_: Rngtrc;
 
     /// `SUBROUTINE TESUB1(Z, T, H, ITY)`: mixture enthalpy. `teprob.f:1376`.
     pub(crate) fn tesub1_(z: *const f64, t: *const f64, h: *mut f64, ity: *const i32);
