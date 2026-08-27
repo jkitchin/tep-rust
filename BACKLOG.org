@@ -830,7 +830,7 @@ Done when:
       covered three of four; the pinned branch needed a new state past the
       threshold, because the boundary state sits on it and the test is strict
 
-** TODO B-0023 Heat transfer
+** NEXT B-0023 Heat transfer
 :PROPERTIES:
 :ID:    B-0023
 :PHASE: 2
