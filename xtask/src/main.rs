@@ -111,6 +111,14 @@ fn workspace_root() -> PathBuf {
 // ci
 // ---------------------------------------------------------------------------
 
+/// Test files re-run with the port on the platform libm, asserting 0 ULP.
+///
+/// Every Phase 2 differential belongs here. See `tepsim_core::math`: the
+/// vendored libm differs from gfortran's on about a tenth of `exp` and `pow`
+/// calls, so the default run can only assert 1e-12, and this run is what still
+/// holds the algebra to bit equality. Append the new file when an item lands.
+const LIBM_SYSTEM_TESTS: &[&str] = &["tier2_equilibrium", "tier2_kinetics"];
+
 fn cmd_ci(root: &Path, fast: bool) -> Result<(), String> {
     check_toolchain(root)?;
     check_oracle_isolation(root)?;
@@ -158,19 +166,18 @@ fn cmd_ci(root: &Path, fast: bool) -> Result<(), String> {
         // only to 1e-12, which is four orders of magnitude of room to hide a
         // reassociation in. Scoped to the one test that needs it, since it
         // rebuilds the workspace under a different feature set.
-        step(
-            root,
-            "cargo",
-            &[
-                "test",
-                "-p",
-                "tepsim-oracle",
-                "--features",
-                "oracle,libm-system",
-                "--test",
-                "tier2_equilibrium",
-            ],
-        )?;
+        let mut bit_exact = vec![
+            "test",
+            "-p",
+            "tepsim-oracle",
+            "--features",
+            "oracle,libm-system",
+        ];
+        for name in LIBM_SYSTEM_TESTS {
+            bit_exact.push("--test");
+            bit_exact.push(name);
+        }
+        step(root, "cargo", &bit_exact)?;
     }
 
     println!("\nci: green");

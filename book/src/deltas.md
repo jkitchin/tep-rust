@@ -34,7 +34,7 @@ from when it arrives.
 Read this section before re-litigating a quirk. It is the list of things that
 have been *noticed* but not yet *decided*.
 
-- Nothing open. D-001 is decided and measured.
+- Nothing open. D-001, D-002 and D-003 are decided and measured.
 
 ---
 
@@ -122,3 +122,129 @@ demonstrates the divergence directly on an unreachable target, asserting that
 the Fortran hands back the guess verbatim while the port reports an error.
 
 [`temperature_from_enthalpy`]: https://docs.rs/tepsim-core/latest/tepsim_core/thermo/fn.temperature_from_enthalpy.html
+
+---
+
+## D-002 — `R1F` and `R2F` name two unrelated quantities
+
+**Class A.** `teprob.f:503-511`, in `TEFUNC`.
+
+### What the original does
+
+`R1F` and `R2F` are set at `teprob.f:415-416` from `TESUB8(7, TIME)` and
+`TESUB8(8, TIME)`: the IDV(13) slow-drift multipliers on the reaction kinetics.
+They are used in that meaning at `503-504`.
+
+Five lines later they are reassigned in place:
+
+```fortran
+      RR(1)=DEXP(31.5859536-40000.0/1.987/TKR)*R1F     ! drift factor
+      RR(2)=DEXP(3.00094014-20000.0/1.987/TKR)*R2F     ! drift factor
+      ...
+      R1F=PPR(1)**1.1544                               ! now a pressure power
+      R2F=PPR(3)**0.3735                               ! now a pressure power
+      RR(1)=RR(1)*R1F*R2F*PPR(4)
+      RR(2)=RR(2)*R1F*R2F*PPR(5)
+```
+
+The two roles share nothing but the storage. `RR(1)` at line 510 carries the
+drift factor once, from line 503, and the pressure powers once, from line 508.
+
+### Why it matters
+
+There is no numerical effect, but there is a large *reading* effect. Taking
+`R1F` at line 510 to still be the drift factor gives
+
+```text
+r1 = f1 · e^(a1 - E1/T) · f1 · pC^0.3735 · pD · Vv
+```
+
+which is a coherent-looking rate law, second order in the disturbance and
+missing the pressure order on A entirely. Nothing in the source contradicts it
+locally, and a port written that way is self-consistent: it reproduces its own
+answer on every run.
+
+Measured: reading it that way moves `RR` by **100% relative** on the
+adversarial pool, so the differential does catch it. But only because there is
+a differential. This is the kind of misreading that would have propagated
+through every later item in a port without one.
+
+### What this port does
+
+Gives the two roles separate names. The drift factors arrive as
+`kinetics::ReactionDrift`, and the pressure powers are locals called
+`order_a` and `order_c`.
+
+### Measured effect
+
+None. The arithmetic is identical; only the names differ.
+
+The visible consequence is for harnesses, not for the model: after `TEFUNC`
+returns, `COMMON`'s `R1F` holds a pressure power. Tier 2 therefore fetches the
+drift from `TESUB8` directly, which is sound because nothing after
+`teprob.f:406` writes the walk state.
+
+### Measured by
+
+`crates/tepsim-oracle/tests/tier2_kinetics.rs`. Under
+`--features oracle,libm-system` the whole range is bit-identical to the
+Fortran, which is what confirms the reading: a wrong-but-consistent reading
+cannot be bit-identical to a right one.
+
+---
+
+## D-003 — `CRXR(2)` is read but never assigned
+
+**Class A.** `teprob.f:521-527` and `teprob.f:763`.
+
+### What the original does
+
+Seven of the eight net-production slots are written:
+
+```fortran
+      CRXR(1)=-RR(1)-RR(2)-RR(3)
+      CRXR(3)=-RR(1)-RR(2)
+      CRXR(4)=-RR(1)-1.5D0*RR(4)
+      CRXR(5)=-RR(2)-RR(3)
+      CRXR(6)=RR(3)+RR(4)
+      CRXR(7)=RR(1)
+      CRXR(8)=RR(2)
+```
+
+`CRXR(2)` is not among them. It is read anyway, in the reactor component
+balance at `teprob.f:763`:
+
+```fortran
+      YP(I)=FCM(I,7)-FCM(I,8)+CRXR(I)
+```
+
+for `I = 1..8`.
+
+### Why it works
+
+`CRXR` lives in `COMMON/TEPROC/`, which is static storage and therefore
+zero-initialised, and nothing anywhere in the file ever writes slot 2. So B's
+net production is zero for the life of the process.
+
+That is the correct physics: B is inert and takes part in none of the four
+reactions. But it is correct *by static initialisation*, not by statement. The
+guarantee comes from the linker, not from the model.
+
+### What this port does
+
+States it. `Kinetics::production` is built from an explicit array of zeros and
+B is simply never written, which reproduces the value while making the reason
+local.
+
+### Measured effect
+
+None, and that is asserted rather than assumed: the oracle is required to
+report exactly `0.0` for `CRXR(2)` on every sampled state. If it ever did not,
+the benign reading here would be wrong and the reactor's B balance would be
+picking up whatever was last left in that word.
+
+### Measured by
+
+`the_inert_has_no_net_production_in_either_implementation` in
+`crates/tepsim-oracle/tests/tier2_kinetics.rs`. 200 nominal states, all exactly
+zero.

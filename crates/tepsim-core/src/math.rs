@@ -1,10 +1,11 @@
 //! The transcendental functions, and why they do not come from `f64`.
 //!
-//! Exactly one function reaches this module today, `exp`, first needed by the
-//! Antoine vapour pressures at `teprob.f:485`. `pow` and `ln` join it in
-//! B-0019 and B-0021. Everything else in the model is `+`, `-`, `*`, `/` and
-//! `sqrt`, all of which IEEE-754 specifies to the last bit, so they are
-//! identical on every target and need no wrapper.
+//! Two functions reach this module: `exp`, first needed by the Antoine vapour
+//! pressures at `teprob.f:485`, and `pow`, first needed by the fractional
+//! pressure orders at `teprob.f:508`. `ln` joins them in B-0021. Everything
+//! else in the model is `+`, `-`, `*`, `/` and `sqrt`, all of which IEEE-754
+//! specifies to the last bit, so they are identical on every target and need
+//! no wrapper.
 //!
 //! # Why the vendored crate rather than `f64::exp`
 //!
@@ -25,6 +26,9 @@
 //! partial pressure in ten, at 1.1e-16 relative. Tier 2's gate is 1e-12, four
 //! orders away. That is the trade `PLAN.org` makes deliberately, and B-0018
 //! is where it first comes due.
+//!
+//! `pow` is measured the same way where it is used; see
+//! `tests/tier2_kinetics.rs`.
 //!
 //! # `libm-system`, and what it is for
 //!
@@ -63,6 +67,36 @@ pub fn exp(x: f64) -> f64 {
     x.exp()
 }
 
+/// `x` raised to the power `y`.
+///
+/// See the module documentation: this is the vendored [`libm`] by default and
+/// the platform libm under `libm-system`.
+///
+/// Only for the two *fractional* exponents in the model, `teprob.f:508-509`.
+/// Integer powers such as `AGSP**2` and `(FTM(8)/3528.73)**4` must expand to
+/// multiplication instead, because that is what gfortran emits for them, and
+/// routing them through `pow` would change the last bits.
+#[must_use]
+#[cfg(not(feature = "libm-system"))]
+pub fn pow(x: f64, y: f64) -> f64 {
+    libm::pow(x, y)
+}
+
+/// `x` raised to the power `y`.
+///
+/// See the module documentation: this is the vendored [`libm`] by default and
+/// the platform libm under `libm-system`.
+///
+/// Only for the two *fractional* exponents in the model, `teprob.f:508-509`.
+/// Integer powers such as `AGSP**2` and `(FTM(8)/3528.73)**4` must expand to
+/// multiplication instead, because that is what gfortran emits for them, and
+/// routing them through `pow` would change the last bits.
+#[must_use]
+#[cfg(feature = "libm-system")]
+pub fn pow(x: f64, y: f64) -> f64 {
+    x.powf(y)
+}
+
 /// Whether this build uses the platform libm rather than the vendored one.
 ///
 /// Reported by validation harnesses, so that a recorded number always says
@@ -82,6 +116,14 @@ mod tests {
         assert!(exp(f64::NEG_INFINITY) == 0.0);
         assert!(exp(f64::INFINITY).is_infinite());
         assert!(exp(f64::NAN).is_nan());
+    }
+
+    #[test]
+    fn pow_is_exponentiation() {
+        assert_eq!(pow(2.0, 10.0).to_bits(), 1024.0_f64.to_bits());
+        assert_eq!(pow(9.0, 0.5).to_bits(), 3.0_f64.to_bits());
+        assert_eq!(pow(1.0, f64::NAN).to_bits(), 1.0_f64.to_bits());
+        assert_eq!(pow(0.0, 1.1544).to_bits(), 0.0_f64.to_bits());
     }
 
     /// The two implementations differ, and by how much, pinned at one argument

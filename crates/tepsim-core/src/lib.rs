@@ -41,6 +41,7 @@ pub(crate) mod testing;
 pub mod component;
 pub mod constants;
 pub mod equilibrium;
+pub mod kinetics;
 pub mod math;
 pub mod plant;
 pub mod rng;
@@ -52,6 +53,7 @@ pub mod vessels;
 
 pub use component::{ByComponent, Component, Composition};
 pub use equilibrium::{Equilibrium, VapourSpace, equilibrium};
+pub use kinetics::{Kinetics, ReactionDrift, kinetics};
 pub use plant::{Inputs, Measurements, Plant, PlantError, Signals, SimTime};
 pub use rng::TepRng;
 pub use state::{Derivative, Holdup, N_STATES, State, VectorSpace, Vessel};

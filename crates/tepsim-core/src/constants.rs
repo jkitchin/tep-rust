@@ -47,6 +47,34 @@ pub const fn single(value: f32) -> f64 {
     value as f64
 }
 
+/// Fold a quotient of two single-precision Fortran literals, in single
+/// precision, the way the original does.
+///
+/// # Why this is not `single(a) / single(b)`
+///
+/// Fortran types an expression from its operands, not from its destination.
+/// `40000.0/1.987` at `teprob.f:503` is `REAL(4) / REAL(4)`, so the *division*
+/// happens at single precision and only the result is widened. Writing it as a
+/// double division of two widened literals gives a different number:
+///
+/// | form | value |
+/// |---|---|
+/// | what gfortran stores | `0x40D3A8B680000000` |
+/// | `single(40000.0) / single(1.987)` | `0x40D3A8B670F51E20` |
+/// | `40000.0_f64 / 1.987_f64` | `0x40D3A8B66F0ED0F9` |
+///
+/// That is 4e-9 relative, four orders past the Tier 2 gate, and it lands
+/// inside a `DEXP` argument where it is amplified rather than merely carried.
+/// The hex above was read out of a gfortran program compiled with this
+/// project's pinned flags, not derived from the standard.
+///
+/// The tell is the mantissa: 29 trailing zero bits is what a widened `f32`
+/// looks like, and neither double-precision form has them.
+#[must_use]
+pub const fn single_quotient(numerator: f32, denominator: f32) -> f64 {
+    (numerator / denominator) as f64
+}
+
 /// Antoine vapour pressure, constant term.
 ///
 /// `ln(Pvap) = AVP + BVP / (T + CVP)` with `T` in degrees Celsius, evaluated
