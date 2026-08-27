@@ -3465,3 +3465,104 @@ into =IRAND=. The split is behaviour-preserving, and the pristine probe proves
 it, but the port should use a plainly-named local and not reproduce the borrow.
 
 *B-0026a is still open*, and still one line.
+
+* 2026-08-27 B-0031 The walk advance, compared as state and as stream
+:PROPERTIES:
+:ITEM:     B-0031
+:PHASE:    3
+:TIER:     3
+:COMMIT:   95b8d57
+:GFORTRAN: 15.2.0
+:STATUS:   DONE
+:END:
+** Preflight
+Clean and green, identical to B-0030's closing numbers. gfortran 15.2.0,
+unchanged. Provenance *950/1589 (59.8%)* on entry, *1043 (65.6%)* on exit.
+
+** What changed
+=tepsim_core::walk= ports =teprob.f:340-406=. =disturbance= gained a =Draws=
+trait, and =walk_segment=, =noise= and =advance= are generic over it.
+
+** Validation numbers
+*Every comparison checks two things*: the walk state, bit for bit against
+=COMMON/WLK/= (four cubic coefficients and both times, per channel), and the
+draw trace, in order and with the same scaling.
+
+| sweep | coverage |
+|-------+----------|
+| nominal trajectory | 400 evaluations: *40* advanced a channel, 360 did not |
+| each walk disturbance | 10 faults x 600 steps x 0.05 h = 30 simulated hours each |
+| spike coverage | =IDV(17)=: *66 fired* segments, *1,432 dwells* over 75 hours |
+| =TIME=0= reset | 30 draws made and discarded, matching |
+
+All exact, in state and in trace.
+
+*Draws per fault over 30 hours*, which differ and should:
+
+: IDV(8,9,10,11,12,13,16): 1572 each
+: IDV(17): 1563   IDV(18): 1543   IDV(20): 1588
+
+The seven walk faults are identical because their channels re-segment on
+duration draws alone. The three spike faults differ because their draw count is
+*data-dependent*: a firing segment costs no draw and a dwell costs one. That is
+B-0027's prediction showing up in practice, and it is the concrete reason Tier
+3 needs a trace rather than a counter.
+
+** Surprises and decisions
+*Channels 10 to 12 are not walks, and the shared array names hide it.* They
+alternate between a flat dwell whose curvature is =IDVWLK/h^2= and a 0.1-hour
+cubic pulse. With the disturbance off the curvature is zero, so the parabola
+never reaches the 0.1 threshold and the channel dwells forever, drawing a fresh
+interval each time. With it on, the channel climbs, fires briefly, and falls
+back.
+
+So =IDV(17)=, =IDV(18)= and =IDV(20)= are *intermittent* faults rather than
+sustained drifts, which is why the literature reports them as the hardest of the
+twenty to detect. 66 fires against 1,432 dwells is what that looks like.
+
+*=teprob.f:388= draws directly rather than through =TESUB5=.* It is the same
+expression as =TESUB5='s first line, and it is one draw rather than three. That
+is where B-0027's =9 * 3 + 3 = 30= comes from, and it only became obvious with
+both routines side by side.
+
+*The handover is at =TNEXT=, not at the current time.* =teprob.f:361-366=
+evaluates the outgoing segment at its own scheduled end. Using =t= instead is
+the natural implementation and it is wrong: it lets a step arriving late shift
+the whole chain forward. Tried deliberately, it shows up as
+=TNEXT(1) = 0.46658434048295055= against =...017=, at the fourteenth digit,
+which no tolerance would catch and the bit comparison does.
+
+*Model code is generic over the generator, not duplicated.* Tracing needed
+=advance= to accept a recording generator as well as a plain one. Making that a
+second code path would mean Tier 3 validated a program that never ships, and
+the one thing Tier 3 exists to catch is a divergence between what is drawn and
+what is believed to be drawn. A =Draws= trait costs nothing at runtime and
+keeps one path.
+
+*The =TIME=0= reset runs after the advance, not instead of it.* =teprob.f:397=
+comes after both loops, so a t=0 evaluation with channels already due *draws*
+and then throws the result away. Returning early is the obvious implementation
+and produces the right state with the generator two dozen draws behind. Same
+shape as B-0028's bug, and there is now a test for it on both sides.
+
+** Next
+B-0032: wire the walk outputs into =Plant::advance_discrete=,
+=teprob.f:407-416=.
+
+Mostly deletion. Six Tier 2 test files each reimplement that block to supply
+the port's inputs, and each comes out 0 ULP, so the reading is already known to
+be right. This item moves it into the plant and removes the six copies.
+
+The pieces all exist now: =walk::advance= produces the channel state,
+=Channel::at= is =TESUB8=, and =WalkInputs= is the struct the pure phase
+already reads. What is missing is only that =Plant= holds no generator and no
+=Walks= yet.
+
+Watch one thing. =Plant::advance_discrete= currently takes =&mut self= and does
+the valve latch; adding the walk advance makes it the *only* place the
+generator moves in a step, which is what the three-phase split promised. Assert
+it: an RK4 driver calling =derivatives= four times must still advance the walks
+once, and =assert_derivatives_are_pure= should keep passing with a generator in
+the plant.
+
+*B-0026a is still open.*

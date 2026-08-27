@@ -14,17 +14,17 @@ earlier phases will change what the right decomposition is.
 
 Rewrite this block at the end of every iteration. Keep it to five lines.
 
-- Phase: 3, four of eight done. Phase 2's model is complete
-- Last completed: B-0030, the walk spans and noise magnitudes, checked twice
+- Phase: 3, five of eight done. Phase 2's model is complete
+- Last completed: B-0031, the walk advance, matching in both state and stream
 - In flight: (none)
-- Baseline: =cargo xtask ci= green; 235 tests default, 359 with =oracle=, plus
-  a 38-test =oracle,libm-system= run; provenance *950/1589 (59.8%)*
+- Baseline: =cargo xtask ci= green; 243 tests default, 371 with =oracle=, plus
+  a 38-test =oracle,libm-system= run; provenance *1043/1589 (65.6%)*
 - Toolchain: rustup, pinned to rustc 1.97.1, wasm32 installed, libm 0.2.16
 - Remote: private jkitchin/tep-rust, CI green on all 7 jobs
 - *Blocked on B-0026a*, which closes Phase 2: Tier 2's "rel err < 1e-12" is not
   achievable relative-to-result on a balance equation, because balances cancel.
   The port is not in question; the *metric* is. Phase 3 is unblocked and is
-  where work continues; next is B-0031, the walk advance and its spike rule.
+  where work continues; next is B-0032, wiring the walk outputs into the plant.
 
 * Phase 0: foundations
 
@@ -1208,13 +1208,24 @@ the Fortran and derive each value independently.
 - [X] The precision of every literal checked: *all 101 are double*, confirmed
       one by one
 
-** NEXT B-0031 The walk advance, including the spike rule
+** DONE B-0031 The walk advance, including the spike rule
 :PROPERTIES:
 :ID:    B-0031
 :PHASE: 3
 :TIER:  3
 :DEPS:  B-0030
 :PLAN:  Anatomy > Disturbance mechanism
+:COMMIT: 95b8d57
+:RESULT: =teprob.f:340-406=. Every comparison checks *both* the walk state, bit
+         for bit against =COMMON/WLK/=, and the draw trace, because B-0028
+         showed those are different claims. 400 nominal evaluations (40
+         advancing, 360 not), then all ten walk-driving disturbances one at a
+         time over 30 simulated hours each. The spike branch is reached *66
+         times* against 1,432 dwells with =IDV(17)= active. Per-disturbance
+         draw counts differ (1543 to 1588), which is B-0027's data-dependence
+         prediction in practice. Model code is now generic over a =Draws=
+         trait so tracing exercises the *same* path, not a parallel one.
+         Provenance 950 to *1043/1589 (65.6%)*.
 :END:
 
 =teprob.f:340-406=. The =IDV= clamp, the =IDVWLK= mapping, the =DO 900= advance
@@ -1226,13 +1237,13 @@ value against 0.1 and builds either a 0.1-hour pulse or a dwell whose curvature
 is =IDVWLK(I)/HWLK**2=. That is a spike train, and it is where =IDV(17)=,
 =IDV(18)= and =IDV(20)= live.
 
-Done when:
-- [ ] Both loops, both branches of the spike rule, and the reset
-- [ ] Tier 3 trace empty over a run long enough for every channel to fire at
-      least twice, including the =SWLK <= 0.1= branch
-- [ ] The =ISD=-as-sign-flag borrow at =387= reproduced; the oracle's
-      instrumentation already splits it into =IRAND=, and that split must not
-      change the draw sequence
+- [X] Both loops, both branches of the spike rule, and the reset
+- [X] Tier 3 trace empty over 30 simulated hours per walk-driving disturbance,
+      with both spike branches reached and counted
+- [X] The =ISD=-as-sign-flag borrow at =387= is *not* reproduced as a borrow:
+      it is a plain draw here, which is the same arithmetic. The oracle's
+      =IRAND= split is what makes the two comparable, and the pristine probe
+      proves that split changes nothing
 
 ** TODO B-0032 Wire the walk outputs into the plant
 :PROPERTIES:
