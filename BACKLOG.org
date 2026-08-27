@@ -14,16 +14,16 @@ earlier phases will change what the right decomposition is.
 
 Rewrite this block at the end of every iteration. Keep it to five lines.
 
-- Phase: *2 and 3 are closed*. Next is Phase 4, the control layer
-- Last completed: B-0034. Tier 4 shows bit-identical trajectories for 8 h with
-  identical transcendentals, and 5.1e-5 of XNS without
+- Phase: 4, decomposed into 7 items. Phases 2 and 3 are closed
+- Last completed: B-0035. The control scheme is a *cascade* with a latching
+  pressure override, and one of its twenty controllers is dead code
 - In flight: (none)
 - Baseline: =cargo xtask ci= green; 255 tests default, 398 with =oracle=;
   =validate --tiers 1,2,3,4= all green; provenance *1123/1589 (70.7%)*
 - Toolchain: rustup, pinned to rustc 1.97.1, wasm32 installed, libm 0.2.16
 - Remote: private jkitchin/tep-rust, CI green on all 7 jobs
-- Blocked on: nothing. Phase 4 must be decomposed first, as its own item, on
-  the B-0012 and B-0027 precedent.
+- Blocked on: nothing. Next is B-0036, which teaches =xtask provenance= and the
+  oracle about =temain_mod.f= before any of it is ported.
 
 * Phase 0: foundations
 
@@ -1373,24 +1373,36 @@ Decomposed by B-0035. The whole phase lives in =reference/fortran/temain_mod.f=,
 a *different file* from =teprob.f=, which everything in the project so far has
 been about.
 
-** NEXT B-0035 Decompose Phase 4 and settle the second-file question
+** DONE B-0035 Decompose Phase 4 and settle the second-file question
 :PROPERTIES:
 :ID:    B-0035
 :PHASE: 4
 :TIER:  none
 :DEPS:  B-0034
 :PLAN:  Anatomy > Control layer
+:COMMIT: pending
+:RESULT: 7 items, B-0036 to B-0041. Four findings reshape the phase.
+         *The scheme is a cascade*, not 19 flat loops: 11 write a valve, 8
+         write another loop's setpoint rescaled by its span, and =CONTRL20=
+         drives =CONTRL16=, which is itself an outer loop, so there are three
+         layers. *=CONTRL6= is a latching pressure override*, not a PI loop:
+         =FLAG= in =COMMON/FLAG6/= holds it open or shut across calls and the
+         PI runs only in the final =ELSE=. *=CONTRL22= is dead* -- defined,
+         initialised, never called -- and the override explains why, since both
+         write =XMV(6)=. And *the integral term's multiplier is the loop's own
+         period*, =3.=, =360.= or =900.=, matching the scheduler loop for loop.
 :END:
 
 Produces backlog items, on the B-0012 and B-0027 precedent. Both of those found
 something in the decomposition that reshaped the phase.
 
-Done when:
-- [ ] Every =CONTRLn= enumerated with its measurement, valve, period, gain,
-      reset time and setpoint, read from the source
-- [ ] Phase 4 decomposed into iteration-sized items
-- [ ] The provenance question settled: =xtask provenance= knows only about
-      =teprob.f=, so the control layer would be invisible to it
+- [X] Every =CONTRLn= enumerated with its measurement, output, shape and
+      period, extracted from the source mechanically rather than by eye. That
+      is what exposed the cascade: eight of them have no =XMV= line at all
+- [X] Phase 4 decomposed into seven items
+- [X] The provenance question settled: it needs fixing *first*, and it is
+      B-0036. =xtask provenance= scans =teprob.f= alone and the =@port= syntax
+      names no file, so 1,408 lines would otherwise land uncounted
 
 ** TODO B-0036 Provenance and the oracle over two files
 :PROPERTIES:
@@ -1429,28 +1441,85 @@ Done when:
 
 One type, and a Tier 1-style differential against all twenty =CONTRLn= bodies.
 
-=temain_mod.f= has *two* shapes, not one. The proportional-only form is
-=DXMV = GAIN * (ERR - ERROLD)=; the PI form adds
-=+ ERR * DELTAT * 3 / TAUI=. Which one a loop uses is visible only in whether
-its =COMMON= block declares a =TAUIn=.
+*Two shapes, not one.* Proportional-only is =DXMV = GAIN * (ERR - ERROLD)=;
+the PI form adds =+ ERR * DELTAT * N / TAUI=. Six loops are P-only (1, 2, 3, 4,
+6, 7, 8, 9 -- eight of them) and the rest are PI. Which is which is visible only
+in whether the loop's =COMMON= block declares a =TAUIn=.
 
-The =* 3= in the integral term is the *period*: these run every third step, so
-=DELTAT * 3= is the controller's own sample time and not the plant's. Getting
-it wrong scales every integral action by three.
+*The =N= is the loop's own period, and it varies*: =3.= for the 3-second
+loops, =360.= for the 360-second ones, =900.= for =CONTRL20=. B-0035 confirmed
+it matches the scheduler exactly, loop for loop, so it is the controller's
+sample time and not a constant. Writing =3.= everywhere would scale the
+integral action of the slow loops by 120 and 300.
+
+*The error is normalised by the measurement's span* before the gain:
+=(SETPT - XMEAS) * 100. / span=, with a different span per loop, so every gain
+is in percent-of-span. =CONTRL22= is the exception and has no normalisation at
+all -- and it is dead code, which may be why.
 
 Done when:
-- [ ] Both forms, with the choice made by the type rather than by a flag
-- [ ] Differential against each =CONTRLn=, generator pinned, over a sweep of
-      measurement and setpoint values
-- [ ] The =* 3= established as the sample time by showing the 360 s and 900 s
-      loops use the same literal, which would be wrong if it were their period
+- [ ] Both shapes, with the choice made by the type rather than by a flag
+- [ ] Differential against each =CONTRLn=, over a sweep of measurement and
+      setpoint values
+- [ ] The per-loop period taken from the loop, and shown to agree with the
+      scheduler that calls it
+
+** TODO B-0037b The cascade, and the purge pressure override
+:PROPERTIES:
+:ID:    B-0037b
+:PHASE: 4
+:TIER:  1
+:DEPS:  B-0037
+:PLAN:  Anatomy > Control layer
+:END:
+
+*The scheme is a cascade, which =PLAN.org='s "19 near-identical loops" hides.*
+Eleven loops write a valve; eight write *another loop's setpoint*, rescaled by
+that loop's own span:
+
+: SETPT(3) = SETPT(3) + DXMV * 1.017 / 100.
+
+So the outer loop works in percent-of-span and multiplies back into the inner
+loop's engineering units. The pairs, from the source: 13 to 3, 14 to 1, 15 to
+2, 16 to 9, 17 to 4, 18 to 10, 19 to 6, 20 to 16. Note 20 drives *16*, which
+is itself an outer loop, so there are three layers and not two.
+
+*=CONTRL6= is not a PI loop at all.* =temain_mod.f:710-753= is a latching
+override on the purge valve, keyed on separator pressure:
+
+| condition | action |
+|---|---|
+| =XMEAS(13) >= 2950= | purge wide open, latch =FLAG=1= |
+| =FLAG=1= and >= 2633.7 | stay open |
+| =FLAG=1= and <= 2633.7 | reset to 40.060, reset =SETPT(6)= and =ERROLD6=, clear |
+| =XMEAS(13) <= 2300= | purge shut, latch =FLAG=2= |
+| =FLAG=2= and <= 2633.7 | stay shut |
+| =FLAG=2= and >= 2633.7 | reset, clear |
+| otherwise | run the PI |
+
+The PI is inside the final =ELSE=, so while an override is latched the
+controller does not run *and =ERROLD6= is not updated*. =FLAG= lives in
+=COMMON/FLAG6/=, so it is genuine state and not an implicit-=SAVE= accident;
+the file has no =SAVE= anywhere.
+
+*This explains the dead =CONTRL22=.* It is a separator-pressure controller
+writing =XMV(6)=, the same valve =CONTRL6= owns, and =CONTRL6='s override does
+the pressure job instead. Twenty controllers are defined and nineteen are
+called; =CONTRL22= is initialised in the main program (=SETPT(12)=2633.7=,
+which is exactly the override's reset threshold) and never invoked.
+
+Done when:
+- [ ] The cascade as a type: an outer loop's output is a setpoint, not a valve
+- [ ] The override state machine, with =FLAG= as carried state
+- [ ] Both hysteresis bands entered and left, in both directions
+- [ ] =CONTRL22= recorded as a delta: defined, initialised, never called
 
 ** TODO B-0038 The nineteen-loop Braatz preset
 :PROPERTIES:
 :ID:    B-0038
 :PHASE: 4
 :TIER:  none
-:DEPS:  B-0037
+:DEPS:  B-0037b
 :PLAN:  Anatomy > Control layer
 :END:
 
