@@ -1013,7 +1013,7 @@ Three candidate answers, none of them taken:
 *A one-line answer unblocks this.* Until then B-0026 cannot state its
 acceptance criterion.
 
-** TODO B-0026 Tier 2 acceptance
+** NEXT B-0026 Tier 2 acceptance
 :PROPERTIES:
 :ID:    B-0026
 :PHASE: 2
