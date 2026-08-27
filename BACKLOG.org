@@ -1335,7 +1335,7 @@ behaviour.
       and a step fault moves them before any channel is due while a random one
       does not
 
-** TODO B-0034 Tier 3 acceptance and the Tier 4 diagnostic
+** NEXT B-0034 Tier 3 acceptance and the Tier 4 diagnostic
 :PROPERTIES:
 :ID:    B-0034
 :PHASE: 3
