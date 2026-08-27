@@ -1369,6 +1369,171 @@ multi-rate scheduler (3 s / 360 s / 900 s periods).
 
 Exit: closed-loop Tier 4 passing; the Tier 5 battery runs end to end.
 
+Decomposed by B-0035. The whole phase lives in =reference/fortran/temain_mod.f=,
+a *different file* from =teprob.f=, which everything in the project so far has
+been about.
+
+** NEXT B-0035 Decompose Phase 4 and settle the second-file question
+:PROPERTIES:
+:ID:    B-0035
+:PHASE: 4
+:TIER:  none
+:DEPS:  B-0034
+:PLAN:  Anatomy > Control layer
+:END:
+
+Produces backlog items, on the B-0012 and B-0027 precedent. Both of those found
+something in the decomposition that reshaped the phase.
+
+Done when:
+- [ ] Every =CONTRLn= enumerated with its measurement, valve, period, gain,
+      reset time and setpoint, read from the source
+- [ ] Phase 4 decomposed into iteration-sized items
+- [ ] The provenance question settled: =xtask provenance= knows only about
+      =teprob.f=, so the control layer would be invisible to it
+
+** TODO B-0036 Provenance and the oracle over two files
+:PROPERTIES:
+:ID:    B-0036
+:PHASE: 4
+:TIER:  none
+:DEPS:  B-0035
+:PLAN:  Testing, CI, and release engineering
+:END:
+
+=xtask provenance= scans =teprob.f= alone, and the =@port= claim syntax names
+no file. Both need to become two-file aware before a single controller is
+ported, or 1,408 lines of control layer land with no coverage accounting at all.
+
+The oracle needs the same treatment: it compiles =teprob.f= and nothing else,
+so there is no =CONTRL1_= to call. The controllers are parameterless
+=SUBROUTINE=s reading and writing =COMMON=, which makes them *easier* to bind
+than =TESUB5= was, not harder.
+
+Done when:
+- [ ] =@port temain_mod.f:477-514= parses, and =xtask provenance= reports
+      coverage per file
+- [ ] Existing claims keep working unchanged; a bare =teprob.f:= still means
+      =teprob.f=
+- [ ] The oracle compiles =temain_mod.f= and can call each =CONTRLn=
+- [ ] =reference/= checksums cover it, as they already do for =teprob.f=
+
+** TODO B-0037 The velocity-form PI controller
+:PROPERTIES:
+:ID:    B-0037
+:PHASE: 4
+:TIER:  1
+:DEPS:  B-0036
+:PLAN:  Anatomy > Control layer
+:END:
+
+One type, and a Tier 1-style differential against all twenty =CONTRLn= bodies.
+
+=temain_mod.f= has *two* shapes, not one. The proportional-only form is
+=DXMV = GAIN * (ERR - ERROLD)=; the PI form adds
+=+ ERR * DELTAT * 3 / TAUI=. Which one a loop uses is visible only in whether
+its =COMMON= block declares a =TAUIn=.
+
+The =* 3= in the integral term is the *period*: these run every third step, so
+=DELTAT * 3= is the controller's own sample time and not the plant's. Getting
+it wrong scales every integral action by three.
+
+Done when:
+- [ ] Both forms, with the choice made by the type rather than by a flag
+- [ ] Differential against each =CONTRLn=, generator pinned, over a sweep of
+      measurement and setpoint values
+- [ ] The =* 3= established as the sample time by showing the 360 s and 900 s
+      loops use the same literal, which would be wrong if it were their period
+
+** TODO B-0038 The nineteen-loop Braatz preset
+:PROPERTIES:
+:ID:    B-0038
+:PHASE: 4
+:TIER:  none
+:DEPS:  B-0037
+:PLAN:  Anatomy > Control layer
+:END:
+
+=temain_mod.f:246-317=. Twenty setpoints, gains and reset times, asserted
+against =COMMON/CTRLALL/= and the per-loop blocks the way B-0030 handled the
+walk spans.
+
+Several gains are written as arithmetic rather than as a number:
+=GAIN10 = -0.156 * 10.=, =GAIN19 = -83.2 / 5. / 3.=, =GAIN20 = -16.3 / 5.=,
+=GAIN22 = -1.0 * 5.=. Transcribe the expression, not its value: B-0019 measured
+what happens when a quotient of single-precision literals is folded in double.
+
+Done when:
+- [ ] All twenty loops' constants, verified two ways as B-0030's were
+- [ ] Each loop's measurement and valve named, from the source
+- [ ] The tuning arithmetic transcribed as written, with its precision checked
+
+** TODO B-0039 The multi-rate scheduler and the closed-loop driver
+:PROPERTIES:
+:ID:    B-0039
+:PHASE: 4
+:TIER:  4
+:DEPS:  B-0038
+:PLAN:  Anatomy > Control layer
+:END:
+
+=temain_mod.f:365-412=. The three periods, =CONSHAND='s clamp, and the loop
+order.
+
+Three things to reproduce exactly rather than tidy. The controllers run *in
+source order* within a period, and they share =XMV= through =COMMON=, so the
+order is load-bearing wherever two loops touch the same valve. =CONSHAND=
+clamps =XMV(1..11)= and *not* =XMV(12)=. And the driver overrides =XMV(1..11)=
+after =TEINIT= with *rounded* values (=63.053= against =TEINIT='s
+=63.05263039=), leaving =XMV(12)= alone, so a closed-loop run does not start
+where an open-loop one does.
+
+Done when:
+- [ ] The three periods and the loop order, with the phase of each period
+      pinned: =MOD(I,3)= fires on step 3, not step 1
+- [ ] =CONSHAND= clamping 11 valves and not 12
+- [ ] The rounded initial =XMV= reproduced, and the difference from =TEINIT=
+      recorded as a delta
+- [ ] Closed-loop Tier 4 against the oracle, both libm configurations
+
+** TODO B-0040 Class C: the driver's hard-coded IDV(12)
+:PROPERTIES:
+:ID:    B-0040
+:PHASE: 4
+:TIER:  10
+:DEPS:  B-0039
+:PLAN:  Quirk and delta register
+:END:
+
+=temain_mod.f:366-368= switches =IDV(12)= on unconditionally at step 28,800,
+eight simulated hours in, regardless of what scenario was asked for. Every
+published closed-loop dataset carries it.
+
+Class C, so it lands behind a flag and *is* the default, exactly as D-007 did:
+the faithful path is what reproduces the published data, and the fix needs
+sign-off.
+
+Done when:
+- [ ] Reproduced by default, with the fix behind a flag
+- [ ] A =BLOCKED= item for the sign-off, with the measured delta
+- [ ] Delta register entry
+
+** TODO B-0041 Phase 4 acceptance
+:PROPERTIES:
+:ID:    B-0041
+:PHASE: 4
+:TIER:  4
+:DEPS:  B-0040
+:PLAN:  Validation > Tier 4
+:END:
+
+Done when:
+- [ ] A closed-loop run matches the oracle: bit-identical under =libm-system=,
+      within =XNS(i)= for the first hours under the vendored one, as B-0034
+      established for open loop
+- [ ] =xtask validate= covers the closed-loop case
+- [ ] The plant runs 48 hours without tripping, which open-loop it cannot
+
 * Phase 5: statistical validation
 
 Tiers 5, 6 and 7, plus =cargo xtask validate= generating the report chapter.
