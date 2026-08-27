@@ -2805,3 +2805,121 @@ state has an all-zero derivative in the Fortran, which any port reproduces, so
 those states are coverage of the *detector* and not of the model.
 
 Append =tier2_measurements= to =LIBM_SYSTEM_TESTS= in =xtask/src/main.rs=.
+
+* 2026-08-27 B-0024a Noise-free measurements, and a trip that was never being tested
+:PROPERTIES:
+:ITEM:     B-0024a
+:PHASE:    2
+:TIER:     2
+:COMMIT:   11feaf7
+:GFORTRAN: 15.2.0
+:STATUS:   DONE
+:END:
+** Preflight
+Clean and green, identical to B-0023's closing numbers. gfortran 15.2.0,
+unchanged. Provenance *649/1589 (40.8%)* on entry, 681 (42.9%) on exit.
+
+** What changed
+B-0024 was *split*. =tepsim_core::measurements= ports =teprob.f:679-710=, the
+pure half: twenty-two unit conversions and the eight shutdown limits, with the
+trip carried as a typed set of causes rather than a bare flag. The impure half,
+=711-761=, became *B-0024b* at Phase 3, which is where =TESUB6= and the walk
+machinery arrive. The seam is the one =crate::plant= already draws between
+=derivatives= and =sample_measurements=.
+
+The adversarial catalogue grew from 21 boundaries to 25.
+
+** Validation numbers
+*Tier 2, all three pools, 2,421 states*, zero convergence failures.
+
+| field | cases  | max rel err | max ulp | p99 ulp |
+|-------+--------+-------------+---------+---------|
+| XMEAS(1..22) | 53,350 | 8.774e-15 | 78 |     1 |
+| ISD as 0 or 1 | 2,421 | 0.000e0   |  0 |     0 |
+
+*=ISD= agrees on every state*, 8 tripping and 2,413 not. 0 ULP on both fields
+under =libm-system=.
+
+*All eight shutdown causes are now reached by the pool*, up from four.
+
+** Surprises and decisions
+*Typing the shutdown causes is what exposed the coverage gap.* The original
+records only that something tripped. Once the port named the eight conditions
+and a test counted which ones the pool actually reached, the answer was four,
+and two separate reasons emerged.
+
+B-0016's "TCR at the shutdown limit" state *is* reported as tripping by
+=tier2_adversarial=, and it does trip, on =teprob.f:703= (reactor pressure)
+rather than on =706= (temperature) which it is named for. Heating the reactor
+raises the Antoine partial pressures faster than =TCR= climbs, so the plant is
+already past 3000 kPa gauge by 175 C and the temperature limit is masked. The
+state was doing its job as a *boundary*; it was never evidence for the branch
+it is labelled with, and nothing said so because =ISD= is one flag.
+
+And the three low-level trips reached *zero* states. Their boundary states sit
+exactly on 2, 1 and 1 cubic metres, and =teprob.f:705=, =708= and =710= are all
+=.LT.=, so none of them fires. That is B-0022's rule for the third time, now on
+three branches at once.
+
+Four states past limits were added, and the coverage test requires all eight
+causes rather than a count. Five of the eight limits had been validated only on
+their not-tripping side until this iteration.
+
+*A wrong shutdown decision is the one error the derivative comparison cannot
+catch.* =teprob.f:807-811= zeroes all fifty derivatives on a trip, so a port
+that tripped when the Fortran did not would return zeros that look like a
+perfectly valid frozen plant. That is why =ISD= is compared directly on every
+state rather than left to Tier 2's derivative check, and why the coverage
+matters more here than elsewhere.
+
+*Forcing at =TIME=0= to get a noise-free =XMEAS=, and what it costs.*
+=teprob.f:711= guards the noise block with =TIME.GT.0.0=, so time zero skips
+the draw entirely. The alternative, subtracting the noise, would mean
+reimplementing =TESUB6= and its draw order inside the test for this item, which
+is B-0024b's job.
+
+The cost is that =teprob.f:397-406= resets the walk state at time zero, so all
+disturbance channels sit at =SZERO=. =tier2/mod.rs= warns about pools that lose
+walk coverage silently, so the argument is made explicitly rather than assumed:
+this range is a pure conversion layer over quantities the earlier items already
+validated across the full walk range, and none of the eight limits reads a
+walk-driven quantity. State diversity, which is what this item needs, is
+untouched at 2,417.
+
+A test checks the guard directly rather than trusting it, since every number in
+the file rests on it: 22 of 22 measurements change once the clock runs, and two
+evaluations at time zero agree bit for bit.
+
+*Delta D-006.* =XMEAS(20)= is assigned twice, with 392.7 and then 293.07: a
+third apart, both plausible as unit conversions, and the first dead. A port
+taking the first line reports compressor work 34% high forever while every
+other measurement stays correct.
+
+** Next
+B-0025, balance assembly and valve dynamics, =teprob.f:762-816=. The last item
+in Phase 2, and the one everything else has been feeding.
+
+*The Class C decision is the part to get right, not the arithmetic.*
+=teprob.f:807-811= zeroes all fifty derivatives whenever =ISD= is set. That is
+behaviour-defining and benchmark-relevant, so per =CLAUDE.md= it lands *behind
+a flag, never as the default*, with a =BLOCKED= item carrying the question and
+the measured Tier 5 delta. =derivatives= should return the trip instead, and
+B-0024a already gives it a typed cause to return rather than a bare bool.
+
+Do not let the faithful path zero the derivatives by default just because the
+oracle does. The Tier 2 differential will then disagree on the 8 tripping
+states out of 2,421, and that disagreement is *expected and correct*: compare
+the un-zeroed derivative against the oracle only on the 2,413 healthy states,
+and assert separately that the port reports a trip on exactly the 8 the Fortran
+trips on. B-0024a already proves that second half.
+
+The valve latch is hoisted into the pre-phase (B-0014), and
+=crates/tepsim-oracle/tests/hoist_valve_latch.rs= proved it changes no number.
+=YP(I+38)= at =805= stays in the pure phase; only =799-804= moved.
+
+After this, B-0026 is Tier 2 acceptance. Note the error trend across the phase:
+6.2e-16, 8.5e-16, 5.1e-16, 1.2e-13, 4.0e-13, 8.8e-15. The two large ones are
+=sqrt= near clamps and the quartic downstream of it. B-0026 should confirm the
+assembled derivative stays inside 1e-12 rather than assume it does.
+
+Append =tier2_balances= to =LIBM_SYSTEM_TESTS= in =xtask/src/main.rs=.

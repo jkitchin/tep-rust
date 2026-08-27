@@ -14,17 +14,19 @@ earlier phases will change what the right decomposition is.
 
 Rewrite this block at the end of every iteration. Keep it to five lines.
 
-- Phase: 2, on B-0024. All the physics is ported; measurements and balances left
-- Last completed: B-0023 heat transfer, 0 ULP on three of four duties
+- Phase: 2, on B-0025. Only the balances left; B-0024b deferred to Phase 3
+- Last completed: B-0024a measurements and shutdown, ISD exact on all 2,421
+  states; adversarial catalogue 21 to 25
 - In flight: (none)
-- Baseline: =cargo xtask ci= green; 197 tests default, 292 with =oracle=, plus
-  a 27-test =oracle,libm-system= run; provenance 649/1589 (40.8%)
+- Baseline: =cargo xtask ci= green; 205 tests default, 304 with =oracle=, plus
+  a 32-test =oracle,libm-system= run; provenance 681/1589 (42.9%)
 - Toolchain: rustup, pinned to rustc 1.97.1, wasm32 installed, libm 0.2.16
 - Remote: private jkitchin/tep-rust, CI green on all 7 jobs
-- Blocked on: nothing. Next is B-0024, measurements and shutdown detection.
-  Only =679-710= is pure; the noise and analysers at =711-761= are the
-  *post-phase* of the three-phase split and belong to Phase 3. Take the pure
-  half and split the rest out if it does not fit.
+- Blocked on: nothing. Next is B-0025, the balances: all fifty derivatives and
+  the valve lags. The *shutdown derivative-zeroing at =807-811= is Class C* and
+  must land behind a flag with a =BLOCKED= item for sign-off, never as the
+  default. =derivatives= reports the trip instead, and B-0024a already gives it
+  a typed cause to report.
 
 * Phase 0: foundations
 
@@ -861,13 +863,24 @@ Done when:
       *shape* of the expansion is measured, not assumed: gfortran squares
       twice rather than chaining
 
-** NEXT B-0024a Noise-free measurements and shutdown detection
+** DONE B-0024a Noise-free measurements and shutdown detection
 :PROPERTIES:
 :ID:    B-0024a
 :PHASE: 2
 :TIER:  2
 :DEPS:  B-0023
 :PLAN:  Anatomy > Unit operations
+:COMMIT: 11feaf7
+:RESULT: =teprob.f:679-710=. =XMEAS= max rel err *8.774e-15*; *=ISD= agrees on
+         every one of 2,421 states at 0 ULP*. 0 ULP on both under
+         =libm-system=. Noise-free readings obtained by forcing at =TIME=0=,
+         where =teprob.f:711='s guard skips the draw; a test checks the guard
+         itself. *The shutdown coverage was the finding*: B-0016's "TCR at the
+         shutdown limit" state trips on *pressure*, not temperature, and the
+         three low level trips reached zero states because their boundaries
+         sit on =.LT.= limits. Catalogue 21 to 25, and all eight causes are now
+         reached. Delta *D-006*: =XMEAS(20)= is assigned twice with factors a
+         third apart, and the first is dead.
 :END:
 
 =teprob.f:679-710=, the *pure* half of the original B-0024.
@@ -878,12 +891,13 @@ that Phase 3 brings. The seam is the same one =crate::plant= already draws:
 =Plant::derivatives= ends at =710= and =Plant::sample_measurements= begins at
 =711=. Doing the pure half here keeps Phase 2 to the model.
 
-Done when:
-- [ ] =XMEAS(1..22)= noise-free, and the eight shutdown conditions as a typed
-      condition rather than a bare flag
-- [ ] The =XMEAS(20)= double assignment at =698-699= recorded as a Class A
-      delta: the first is dead
-- [ ] Both sides of every shutdown limit exercised, per B-0022's rule
+- [X] =XMEAS(1..22)= noise-free, and the eight shutdown conditions as a typed
+      condition rather than a bare flag. Typing them is what exposed the
+      coverage gap; a bare flag cannot say *which* limit fired
+- [X] The =XMEAS(20)= double assignment recorded as Class A delta D-006
+- [X] Both sides of every shutdown limit exercised, per B-0022's rule. Four
+      states past limits had to be added; five of the eight were previously
+      validated only on their not-tripping side
 
 ** TODO B-0024b Measurement noise and the sampled analysers
 :PROPERTIES:
