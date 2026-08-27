@@ -861,26 +861,48 @@ Done when:
       *shape* of the expansion is measured, not assumed: gfortran squares
       twice rather than chaining
 
-** TODO B-0024 Measurements, shutdown detection and the sampled analyzers
+** NEXT B-0024a Noise-free measurements and shutdown detection
 :PROPERTIES:
-:ID:    B-0024
+:ID:    B-0024a
 :PHASE: 2
 :TIER:  2
 :DEPS:  B-0023
 :PLAN:  Anatomy > Unit operations
 :END:
 
-=teprob.f:679-761=. The pure part is =679-710=; the noise and the analyzers are
-the post-phase of the split and are impure.
+=teprob.f:679-710=, the *pure* half of the original B-0024.
+
+Split out because =711-761= draws measurement noise through =TESUB6= and ticks
+the three sampled analysers, both of which need the RNG and the walk machinery
+that Phase 3 brings. The seam is the same one =crate::plant= already draws:
+=Plant::derivatives= ends at =710= and =Plant::sample_measurements= begins at
+=711=. Doing the pure half here keeps Phase 2 to the model.
 
 Done when:
 - [ ] =XMEAS(1..22)= noise-free, and the eight shutdown conditions as a typed
       condition rather than a bare flag
 - [ ] The =XMEAS(20)= double assignment at =698-699= recorded as a Class A
       delta: the first is dead
+- [ ] Both sides of every shutdown limit exercised, per B-0022's rule
+
+** TODO B-0024b Measurement noise and the sampled analysers
+:PROPERTIES:
+:ID:    B-0024b
+:PHASE: 3
+:TIER:  3
+:DEPS:  B-0024a
+:PLAN:  Anatomy > Unit operations
+:END:
+
+=teprob.f:711-761=, the *impure* half. Lands with Phase 3, which brings
+=TESUB6= and the walk machinery this needs.
+
+Done when:
 - [ ] The analyzers' dead time as the previous-sample latch it is, with the
       0.1 and 0.25 hour schedules
-- [ ] Noise draws land in the post-phase, and Tier 3 will check their order
+- [ ] Noise draws land in the post-phase, and Tier 3 checks their order
+- [ ] The =TIME.GT.0.0.AND.ISD.EQ.0= guard at =711= reproduced: a tripped
+      plant gets no noise at all, and neither does t=0
 
 ** TODO B-0025 Balance assembly and valve dynamics
 :PROPERTIES:
