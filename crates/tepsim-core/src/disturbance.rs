@@ -146,8 +146,8 @@ impl Segment {
 /// scales the endpoint draws only; see the module documentation.
 // @port teprob.f:1506-1537
 #[must_use]
-pub fn walk_segment(
-    rng: &mut TepRng,
+pub fn walk_segment<R: Draws + ?Sized>(
+    rng: &mut R,
     start: SegmentStart,
     spans: &ChannelSpans,
     flag: i32,
@@ -177,7 +177,7 @@ pub fn walk_segment(
 /// not be reassociated.
 // @port teprob.f:1538-1546
 #[must_use]
-pub fn noise(rng: &mut TepRng, std: f64) -> f64 {
+pub fn noise<R: Draws + ?Sized>(rng: &mut R, std: f64) -> f64 {
     // teprob.f:1541-1543
     let mut x = 0.0;
     for _ in 0..12 {
@@ -185,6 +185,42 @@ pub fn noise(rng: &mut TepRng, std: f64) -> f64 {
     }
     // teprob.f:1544
     (x - 6.0) * std
+}
+
+/// Something that can be drawn from.
+///
+/// Implemented by [`TepRng`], which is what the plant runs on, and by
+/// [`TracingRng`], which records what it hands out. Every consumer in the
+/// model is generic over this, so the *same* code is exercised whether or not
+/// a trace is being taken.
+///
+/// That is not a convenience. If tracing needed a second code path, Tier 3
+/// would be validating a program that never ships, and the one thing it exists
+/// to catch is precisely a divergence between what is drawn and what is
+/// believed to be drawn.
+pub trait Draws {
+    /// One draw on `[0, 1)`. `TESUB7` with a non-negative argument.
+    fn unit(&mut self) -> f64;
+    /// One draw on `[-1, 1)`. `TESUB7` with a negative argument.
+    fn signed(&mut self) -> f64;
+}
+
+impl Draws for TepRng {
+    fn unit(&mut self) -> f64 {
+        TepRng::unit(self)
+    }
+    fn signed(&mut self) -> f64 {
+        TepRng::signed(self)
+    }
+}
+
+impl Draws for TracingRng {
+    fn unit(&mut self) -> f64 {
+        TracingRng::unit(self)
+    }
+    fn signed(&mut self) -> f64 {
+        TracingRng::signed(self)
+    }
 }
 
 /// One draw from the generator, as Tier 3 records it.

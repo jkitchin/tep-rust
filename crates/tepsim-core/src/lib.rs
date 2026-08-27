@@ -57,6 +57,7 @@ pub mod stripper;
 pub mod thermo;
 pub mod variables;
 pub mod vessels;
+pub mod walk;
 
 pub use balances::{Balances, CoolantInlet, QuirkFixes, balances};
 pub use component::{ByComponent, Component, Composition};
@@ -77,3 +78,4 @@ pub use stripper::{Stripper, StripperBranch, stripper};
 pub use thermo::EnergyBasis;
 pub use variables::{Analyzer, MeasIndex, MvIndex, Unit, ValveId};
 pub use vessels::{TemperatureSeeds, Unpacked, unpack};
+pub use walk::{Channel, Walks, channel_flags};
