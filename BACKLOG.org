@@ -918,7 +918,7 @@ Done when:
 - [ ] The =TIME.GT.0.0.AND.ISD.EQ.0= guard at =711= reproduced: a tripped
       plant gets no noise at all, and neither does t=0
 
-** TODO B-0025 Balance assembly and valve dynamics
+** NEXT B-0025 Balance assembly and valve dynamics
 :PROPERTIES:
 :ID:    B-0025
 :PHASE: 2
