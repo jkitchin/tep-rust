@@ -66,10 +66,11 @@ fn every_boundary_in_the_catalogue_is_reached_and_verified() {
 #[test]
 fn the_catalogue_covers_the_enumerated_branches() {
     let entries = adversarial::catalogue();
-    // 17 from B-0016, plus three from B-0021 once `CPPRMX` existed to compare
-    // against: the two pressure-ratio boundaries, and one state inside the
-    // clamped region, because the boundary state itself does not clamp.
-    assert_eq!(entries.len(), 20, "the catalogue changed size");
+    // 17 from B-0016; three from B-0021 once `CPPRMX` existed to compare
+    // against (two boundaries plus one state inside the clamped region,
+    // because the boundary state itself does not clamp); one from B-0022 for
+    // the same reason on the stripper's pinned branch.
+    assert_eq!(entries.len(), 21, "the catalogue changed size");
 
     let names: Vec<&str> = entries.iter().map(|(_, t, _)| t.name).collect();
     for expected in [
@@ -81,6 +82,7 @@ fn the_catalogue_covers_the_enumerated_branches() {
         "PR = 1, the compressor reverse-flow clamp",
         "PR = CPPRMX, the compressor maximum-ratio clamp",
         "PR above CPPRMX, inside the clamped region",
+        "TCC below the lower stripping-factor branch",
     ] {
         assert!(names.contains(&expected), "{expected} is missing");
     }

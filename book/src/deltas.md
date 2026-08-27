@@ -34,7 +34,7 @@ from when it arrives.
 Read this section before re-litigating a quirk. It is the list of things that
 have been *noticed* but not yet *decided*.
 
-- Nothing open. D-001 through D-004 are decided and measured.
+- Nothing open. D-001 through D-005 are decided and measured.
 
 ---
 
@@ -314,3 +314,69 @@ pinned now is the behaviour it produces: with valve 4 shut, `FTM(4)` is exactly
 `crates/tepsim-core/src/flows.rs`, and the Tier 2 differential in
 `crates/tepsim-oracle/tests/tier2_flows.rs`, which is bit-identical to the
 Fortran under `libm-system` and would not be if the addend were dropped.
+
+---
+
+## D-005 — `SFR(4..8)`'s initial values are dead
+
+**Class A.** `teprob.f:1129-1133`, set in `TEINIT`.
+
+### What the original does
+
+`TEINIT` sets all eight stripping factors:
+
+```fortran
+      SFR(1)=0.99500
+      SFR(2)=0.99100
+      SFR(3)=0.99000
+      SFR(4)=0.91600
+      SFR(5)=0.93600
+      SFR(6)=0.93800
+      SFR(7)=5.80000D-02
+      SFR(8)=3.01000D-02
+```
+
+The first three are load-bearing: nothing ever writes them again, and
+`teprob.f:643` reads all eight on every evaluation, so A, B and C strip at
+those fixed fractions for the life of the run.
+
+The last five are dead. `teprob.f:614-634` writes `SFR(4)` through `SFR(8)`
+unconditionally, through whichever of its two branches it takes, before
+`teprob.f:643` reads them. So the values on lines 1129-1133 are overwritten on
+the first evaluation and never observed.
+
+### Why it is worth an entry
+
+Because the block looks uniform and is not. A reader checking the eight
+`TEINIT` lines against the eight slots would reasonably conclude that all
+eight are initial conditions, and a port that omitted lines 1129-1133 as dead
+would be correct while a port that omitted 1126-1128 would be silently wrong
+in the third decimal place of every product composition.
+
+The split is also the only thing that explains why the loop at `teprob.f:643`
+runs `I=1,8` when the branch above it writes only five slots.
+
+Note the precision changes across the boundary too: `SFR(1..6)` are single
+precision and `SFR(7..8)` are written `5.80000D-02` and `3.01000D-02`, in
+double. Since the last five are dead, that inconsistency has no effect, which
+is itself worth knowing before someone spends time on it.
+
+### What this port does
+
+Carries the three live values as
+[`tepsim_core::stripper::NON_CONDENSIBLE_STRIPPING`] and does not carry the
+five dead ones, with the reasoning stated where the constant is defined.
+
+### Measured effect
+
+None. The five values are unobservable.
+
+The three live ones are asserted rather than assumed: the oracle must report
+exactly the `TEINIT` constants for `SFR(1..3)` on every sampled state. If it
+ever did not, they would be recomputed somewhere the port has not found.
+
+### Measured by
+
+`the_non_condensible_factors_never_move_in_the_fortran_either` in
+`crates/tepsim-oracle/tests/tier2_stripper.rs`. 300 nominal states and all 21
+adversarial boundaries, bit-identical.

@@ -37,6 +37,20 @@
 //! rather than with a physically-reachable state. The measurement is pinned by
 //! a test so that this stays a known fact rather than a forgotten omission.
 //!
+//! # A boundary state does not exercise the branch it bounds
+//!
+//! Every comparison in `TEFUNC` is strict: `.GT.`, `.LT.`. A state placed
+//! exactly on a threshold therefore takes the *other* side. That is valuable
+//! on its own, because misreading `.GT.` as `.GE.` is invisible anywhere else,
+//! but it means the branch behind the threshold stays unexercised unless a
+//! second state is placed past it.
+//!
+//! Two pairs in this catalogue are built that way, and both were found the
+//! same way: by a coverage test in the item that implemented the branch,
+//! failing because the branch had never been entered. `PR = CPPRMX` pairs with
+//! "PR above CPPRMX", and `TCC = 5.292` pairs with "TCC below". Any future
+//! threshold should get both from the start.
+//!
 //! # The compressor clamps arrived late, on purpose
 //!
 //! `teprob.f:590-591` clamps the compressor pressure ratio at 1 and at
@@ -356,6 +370,22 @@ pub fn catalogue() -> Vec<(Knob, Target, (f64, f64))> {
                 scale: 5.292,
             },
             (0.02, 2.0),
+        ),
+        // And one *below* it. `teprob.f:617` tests `.LT.`, so the boundary
+        // state above sits on 5.292 and takes the hyperbolic branch; it proves
+        // the comparison is strict and leaves the pinned branch unexercised.
+        // The same pairing as the `CPPRMX` clamp: for a strict comparison, the
+        // boundary and the taken side are two different states.
+        (
+            Knob::STRIPPER_ENERGY,
+            Target {
+                name: "TCC below the lower stripping-factor branch",
+                why: "teprob.f:618, the pinned branch the boundary state does not take",
+                observe: tcc,
+                value: 4.0,
+                scale: 4.0,
+            },
+            (0.01, 2.0),
         ),
         (
             Knob::STRIPPER_ENERGY,
