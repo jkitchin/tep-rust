@@ -3674,3 +3674,101 @@ pure and could have landed in Phase 2, but it belongs with the analysers that
 read it.
 
 *B-0026a remains open*, and Phase 2 stays open with it.
+
+* 2026-08-27 B-0024b Noise and the analysers, and the model runs end to end
+:PROPERTIES:
+:ITEM:     B-0024b
+:PHASE:    3
+:TIER:     3
+:COMMIT:   c692fa6
+:GFORTRAN: 15.2.0
+:STATUS:   DONE
+:END:
+** Preflight
+Clean and green, identical to B-0032's closing numbers. gfortran 15.2.0,
+unchanged. Provenance *1050/1589 (66.1%)* on entry, *1101 (69.3%)* on exit.
+
+** What changed
+=tepsim_core::analysers= ports =teprob.f:711-761=, and
+=Plant::sample_measurements= is no longer a stub. With
+=advance_discrete= and =derivatives= that is all of =teprob.f:340-816=:
+*the port is a complete simulator*.
+
+=Scenario= gained a =measurements= field, and =Scenario::force= restores it.
+
+** Validation numbers
+*A whole step, all three phases, against a whole =TEFUNC= call.*
+
+| sweep | result |
+|-------+--------|
+| 400 nominal steps | worst measurement *8.008e-15*, 113,088 draws |
+| all 20 disturbances, 6 h each | *0 ULP* on every measurement |
+| 25 adversarial boundaries | tripped *258* draws, healthy *522* |
+| *2,000 consecutive carried steps* | generators in lockstep throughout |
+
+The last row is the one that matters. Every other test in the project restores
+the port from =COMMON= before each comparison; this one lets both sides carry
+their own state for 2,000 steps and compares as it goes.
+
+** Surprises and decisions
+*An analyser has two stored values, and I carried one.* =XDEL(i)= holds the
+composition it will report next time, noise-free. =XMEAS(i)= holds what it
+reported *last* time, noise included, and =teprob.f:744= writes it only inside
+the schedule check, so between samples the previous reported value simply
+persists.
+
+They differ by exactly one noise draw. Carrying only =XDEL= and reporting it
+between samples gives the right composition with the noise stripped off: a
+reading that is plausible, within a fraction of a percent of correct, and
+wrong. Nothing caught it until step *362* of the 2,000-step carried run, which
+is the only test in the project that could.
+
+*That exposed a gap in the Tier 2 harness.* =Scenario='s documentation says it
+carries everything =TEFUNC= reads, and =force= restores =COMMON/TEPROC/=,
+=COMMON/WLK/=, the generator, =XMV= and =IDV=. It did not restore =XMEAS=,
+because =XMEAS= is in =COMMON/PV/= and the enumeration was of =TEPROC=.
+
+It never mattered: the held readings do not reach the derivative, so every Tier
+2 number stands. It matters the moment a whole step is compared. B-0015 chose
+to restore the whole =TEPROC= block rather than a chosen subset, on the grounds
+that "enumerating which fields carry over is exactly the kind of judgement that
+was wrong the first time". The judgement was wrong again, one =COMMON= block
+over.
+
+*=TGAS=0.1= is single precision.* =teprob.f:741= and =751= both write =0.1=
+with no =D= suffix, so the gas schedule is 0.10000000149011612 and a step
+landing on exactly 0.1 does *not* sample. =TPROD=0.25= is exactly
+representable, so the product analyser is unaffected. Two schedules on adjacent
+lines, one of which has the quirk. Found by a unit test that used a plain
+=0.1_f64= and failed.
+
+*The trip guard, confirmed against the oracle.* A tripped evaluation draws 258
+times and a healthy one 522, the difference being exactly the 264-draw
+continuous noise block. The analysers at =744-761= have no =ISD= guard and keep
+drawing. B-0027 predicted this from the source and it is now measured through
+the port.
+
+** Next
+B-0033: the twenty disturbances as =InjectionPoint= plus =Profile= pairs.
+
+A refactor with a differential behind it, not new behaviour: the faithful path
+must stay bit-identical, and =tier3_analysers.rs= already sweeps all twenty
+against the oracle, so the check exists before the change.
+
+Three kinds are now visible from the work rather than from the plan, and the
+types should follow them. Four are *step* faults on a feed composition or
+temperature (=IDV(1)= through =IDV(5)=), acting at =teprob.f:407-414=. Ten are
+*walk magnitude* flags, entering through =IDVWLK= at =347-358=, of which three
+drive spike trains rather than walks. Six are neither: =IDV(6)= and =IDV(7)=
+gate feed flows directly at =teprob.f:567-568=, and =IDV(14)=, =IDV(15)= and
+=IDV(19)= are valve-*sticking* flags that never touch the model at all, only
+the latch at =793-798=.
+
+That last group is worth a type of its own. A valve-sticking flag is not a
+disturbance to the plant; it is a disturbance to the *controller's authority*
+over it, which is why it produces nothing at all in an open-loop run.
+
+After B-0033, B-0034 closes Phase 3.
+
+*B-0026a is still open* and still one line. It is now the only thing standing
+between a complete, end-to-end-validated port and a closed Phase 2.

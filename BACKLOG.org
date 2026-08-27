@@ -14,18 +14,18 @@ earlier phases will change what the right decomposition is.
 
 Rewrite this block at the end of every iteration. Keep it to five lines.
 
-- Phase: 3, six of eight done. Phase 2's model is complete
-- Last completed: B-0032, walks wired into the plant; found a term six copied
-  harnesses all dropped
+- Phase: 3, seven of eight done. *The model is complete and runs end to end*
+- Last completed: B-0024b, noise and analysers. 2,000 steps carried on both
+  sides with the generators in lockstep
 - In flight: (none)
-- Baseline: =cargo xtask ci= green; 243 tests default, 375 with =oracle=, plus
-  a 38-test =oracle,libm-system= run; provenance *1050/1589 (66.1%)*
+- Baseline: =cargo xtask ci= green; 249 tests default, 385 with =oracle=, plus
+  a 38-test =oracle,libm-system= run; provenance *1101/1589 (69.3%)*
 - Toolchain: rustup, pinned to rustc 1.97.1, wasm32 installed, libm 0.2.16
 - Remote: private jkitchin/tep-rust, CI green on all 7 jobs
 - *Blocked on B-0026a*, which closes Phase 2: Tier 2's "rel err < 1e-12" is not
   achievable relative-to-result on a balance equation, because balances cancel.
   The port is not in question; the *metric* is. Phase 3 is unblocked and is
-  where work continues; next is B-0024b, the noise and the sampled analysers.
+  where work continues; next is B-0033, the disturbances as typed injection points.
 
 * Phase 0: foundations
 
@@ -898,24 +898,36 @@ that Phase 3 brings. The seam is the same one =crate::plant= already draws:
       states past limits had to be added; five of the eight were previously
       validated only on their not-tripping side
 
-** NEXT B-0024b Measurement noise and the sampled analysers
+** DONE B-0024b Measurement noise and the sampled analysers
 :PROPERTIES:
 :ID:    B-0024b
 :PHASE: 3
 :TIER:  3
 :DEPS:  B-0024a
 :PLAN:  Anatomy > Unit operations
+:COMMIT: c692fa6
+:RESULT: =teprob.f:711-761=. *The model now runs end to end*: 2,000
+         consecutive steps with both sides carrying their own state and the
+         generators in lockstep throughout. Worst measurement over 400 whole
+         steps *8.008e-15*; 0 ULP on all twenty disturbances over 6 simulated
+         hours each. Two findings: an analyser has *two* stored values, =XDEL=
+         (noise-free, reported next) and =XMEAS= (noise included, held between
+         samples), differing by exactly one draw; and =TGAS=0.1= is *single*
+         precision so the gas schedule is 0.10000000149011612. The first also
+         exposed a gap in =Scenario=, which did not carry =XMEAS= because it is
+         in =COMMON/PV/= rather than =COMMON/TEPROC/=.
 :END:
 
 =teprob.f:711-761=, the *impure* half. Lands with Phase 3, which brings
 =TESUB6= and the walk machinery this needs.
 
-Done when:
-- [ ] The analyzers' dead time as the previous-sample latch it is, with the
-      0.1 and 0.25 hour schedules
-- [ ] Noise draws land in the post-phase, and Tier 3 checks their order
-- [ ] The =TIME.GT.0.0.AND.ISD.EQ.0= guard at =711= reproduced: a tripped
-      plant gets no noise at all, and neither does t=0
+- [X] The analysers' dead time as the previous-sample latch it is, with the
+      0.1 and 0.25 hour schedules. It needed *two* latches, not one
+- [X] Noise draws land in the post-phase, and the whole-step generator
+      comparison checks their order
+- [X] The =TIME.GT.0.0.AND.ISD.EQ.0= guard at =711= reproduced. A tripped
+      plant gets no *continuous* noise; the analysers at =744-761= have no
+      guard and keep drawing, measured at 258 against 522
 
 ** DONE B-0025 Balance assembly and valve dynamics
 :PROPERTIES:
