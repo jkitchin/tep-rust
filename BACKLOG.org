@@ -693,7 +693,7 @@ Done when:
       later item inherits it. 9.945% of arguments, one ULP, and it is
       re-measured by a test on every machine rather than quoted from here
 
-** TODO B-0019 Reaction kinetics
+** NEXT B-0019 Reaction kinetics
 :PROPERTIES:
 :ID:    B-0019
 :PHASE: 2
