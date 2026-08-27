@@ -1173,7 +1173,7 @@ Done when:
       value, wrong scaling, too few draws, or too many. The four have different
       causes and the message says which
 
-** TODO B-0030 The walk state, its spans, and the noise magnitudes
+** NEXT B-0030 The walk state, its spans, and the noise magnitudes
 :PROPERTIES:
 :ID:    B-0030
 :PHASE: 3
