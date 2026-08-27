@@ -56,12 +56,14 @@ use crate::flows::{FlowDrift, flows};
 use crate::heat::{HeatDrift, heat_transfer};
 use crate::kinetics::{ReactionDrift, kinetics};
 use crate::measurements::{Shutdown, measurements};
+use crate::rng::TepRng;
 use crate::state::{Derivative, State};
 use crate::streams::{FeedConditions, streams};
 use crate::stripper::stripper;
 use crate::thermo::TemperatureError;
 use crate::variables::MeasIndex;
 use crate::vessels::{TemperatureSeeds, unpack};
+use crate::walk::{Walks, advance};
 
 /// How many continuous measurements the plant produces, `XMEAS(1..22)`.
 pub const N_CONTINUOUS: usize = 22;
@@ -232,9 +234,13 @@ pub struct Plant {
     pub quirks: QuirkFixes,
     /// The walk-driven inputs the pure phase reads (`teprob.f:407-416`).
     ///
-    /// Produced by [`Plant::advance_discrete`] once Phase 3 lands. Until then
-    /// they sit at their nominal values, which is what `TEINIT` leaves.
+    /// Recomputed by [`Plant::advance_discrete`] on every step.
     walks: WalkInputs,
+    /// The twelve disturbance channels.
+    channels: Walks,
+    /// The generator. The *only* place it lives, and it moves only in
+    /// [`Plant::advance_discrete`].
+    rng: TepRng,
 }
 
 /// Everything `teprob.f:407-416` reads out of the disturbance walks.
@@ -262,6 +268,8 @@ impl Default for Plant {
             seeds: TemperatureSeeds::default(),
             quirks: QuirkFixes::default(),
             walks: WalkInputs::default(),
+            channels: Walks::default(),
+            rng: TepRng::with_default_seed(),
         }
     }
 }
@@ -285,14 +293,88 @@ impl Plant {
     /// latches the valve commands. See the module documentation for why this
     /// cannot be merged with [`Plant::sample_measurements`].
     ///
-    /// The walk advance itself is Phase 3; the valve latch lands here now.
-    // @port teprob.f:793-804
+    /// Advances the walks, reads what they drive, and latches the valve
+    /// commands.
+    ///
+    /// This is the only place the generator moves, which is the promise the
+    /// three-phase split makes: an RK4 driver calls [`Plant::derivatives`]
+    /// four times between two of these and the disturbances advance once.
+    // @port teprob.f:340-416, 793-804
     pub fn advance_discrete(&mut self, t: SimTime, u: &Inputs) {
+        let idv = u.clamped_disturbances();
+
+        // teprob.f:347-406.
+        advance(&mut self.channels, &mut self.rng, t.hours(), &idv);
+
+        // teprob.f:407-416. Reading the channels is `TESUB8`.
+        let channel = |n: usize| self.channels.channels[n - 1].at(t.hours());
+        // teprob.f:407-408. Two step disturbances on the same component, and
+        // the second of them also moves B on the next line, so IDV(2) shifts
+        // A down and B up while IDV(1) only shifts A down.
+        let a = channel(1) - idv[0] * 0.03 - idv[1] * 2.43719e-3;
+        let b = channel(2) + idv[1] * 0.005;
+        self.walks = WalkInputs {
+            feed: FeedConditions {
+                // teprob.f:410. C is the remainder of one, never a draw.
+                ac_feed_light: [a, b, 1.0 - a - b],
+                // teprob.f:411-412
+                d_feed_celsius: channel(3) + idv[2] * 5.0,
+                ac_feed_celsius: channel(4),
+            },
+            // teprob.f:572 and 583.
+            flow: FlowDrift {
+                steam_capacity: channel(9),
+                reactor_outlet: channel(12),
+            },
+            // teprob.f:673 and 676.
+            heat: HeatDrift {
+                reactor_coolant: channel(10),
+                condenser_coolant: channel(11),
+            },
+            // teprob.f:415-416.
+            reaction: ReactionDrift {
+                first: channel(7),
+                second: channel(8),
+            },
+            // teprob.f:413-414.
+            coolant: CoolantInlet {
+                reactor: channel(5) + idv[3] * 5.0,
+                condenser: channel(6) + idv[4] * 5.0,
+            },
+        };
+
+        self.latch_valves(t, u, &idv);
+    }
+
+    /// The generator word. Moves only in [`Plant::advance_discrete`].
+    #[must_use]
+    pub const fn rng(&self) -> f64 {
+        self.rng.state()
+    }
+
+    /// Set the generator word, for a harness placing the plant in a known
+    /// condition, or a scenario choosing its seed.
+    pub const fn set_rng(&mut self, g: f64) {
+        self.rng = TepRng::new(g);
+    }
+
+    /// The twelve disturbance channels.
+    #[must_use]
+    pub const fn channels(&self) -> &Walks {
+        &self.channels
+    }
+
+    /// Set the disturbance channels.
+    pub const fn set_channels(&mut self, channels: Walks) {
+        self.channels = channels;
+    }
+
+    // @port teprob.f:793-804
+    fn latch_valves(&mut self, t: SimTime, u: &Inputs, idv: &[f64; 20]) {
         // teprob.f:793-798. Only six valves can stick, and only under three
         // specific disturbances. `IVST` is zero for the rest, which makes
         // their threshold zero and so makes them track exactly.
-        let clamped = u.clamped_disturbances();
-        let idv = |n: usize| clamped[n - 1];
+        let idv = |n: usize| idv[n - 1];
         let mut sticking = [0.0; 12];
         sticking[9] = idv(14);
         sticking[10] = idv(15);
@@ -354,6 +436,10 @@ impl Plant {
         let eq = equilibrium(&unpacked);
         let mut table = streams(&unpacked, &eq, &w.feed);
 
+        // `teprob.f:341-344` clamps these before use. The pre-phase has
+        // already done it for its own purposes; doing it again here keeps
+        // `derivatives` a function of its arguments rather than of what the
+        // pre-phase happened to store.
         let idv = u.clamped_disturbances();
 
         let mut flow = flows(y, &unpacked, &eq, &table, &idv, w.flow);

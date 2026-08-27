@@ -79,7 +79,16 @@ const TIER2_TOLERANCE: f64 = 1e-12;
 fn configure(oracle: &mut Oracle, scenario: &Scenario) -> (Plant, Inputs) {
     let t = scenario.time;
     let raw = |n: usize| f64::from(scenario.disturbances[n - 1]);
-    let a = oracle.tesub8(1, t) - raw(1) * 0.03;
+    // teprob.f:407-408 subtracts *two* terms from A, on two source lines.
+    // Every one of these harnesses dropped the second until B-0032, and it
+    // never showed because no pooled scenario has a disturbance active.
+    //
+    // These stay independent of `Plant::advance_discrete` on purpose. If they
+    // asked the plant for their own inputs, a bug in the plant would feed both
+    // sides of the comparison and Tier 2 would pass on wrong-against-wrong.
+    // `tier3_walk_inputs.rs` is what checks the plant's version, against the
+    // oracle, with all twenty faults switched on.
+    let a = oracle.tesub8(1, t) - raw(1) * 0.03 - raw(2) * 2.43719e-3;
     let b = oracle.tesub8(2, t) + raw(2) * 0.005;
 
     let walks = plant::WalkInputs {
