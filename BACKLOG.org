@@ -14,17 +14,18 @@ earlier phases will change what the right decomposition is.
 
 Rewrite this block at the end of every iteration. Keep it to five lines.
 
-- Phase: 2, on B-0022. Seven of nine done; 1.2e-13, and it is =sqrt= near clamps
-- Last completed: B-0021 flows and the compressor, 0 ULP under =libm-system=;
-  adversarial catalogue 17 to 20
+- Phase: 2, on B-0023. Eight of nine done; all thirteen streams populated
+- Last completed: B-0022 the stripper, 0 ULP on everything it computes itself;
+  adversarial catalogue 20 to 21
 - In flight: (none)
-- Baseline: =cargo xtask ci= green; 180 tests default, 267 with =oracle=, plus
-  a 17-test =oracle,libm-system= run; provenance 576/1589 (36.2%)
+- Baseline: =cargo xtask ci= green; 188 tests default, 279 with =oracle=, plus
+  a 22-test =oracle,libm-system= run; provenance 633/1589 (39.8%)
 - Toolchain: rustup, pinned to rustc 1.97.1, wasm32 installed, libm 0.2.16
 - Remote: private jkitchin/tep-rust, CI green on all 7 jobs
-- Blocked on: nothing. Next is B-0022, the stripper. Every branch it needs is
-  *already in the adversarial catalogue* from B-0016, so for the first time in
-  Phase 2 the coverage exists before the code does. Check =missed= stays empty.
+- Blocked on: nothing. Next is B-0023, heat transfer. =AGSP**2= and
+  =(FTM(8)/3528.73)**4= are *integer* powers and must expand to multiplication,
+  not =pow=; gfortran emits multiplies for them and routing them through =pow=
+  changes the last bits.
 
 * Phase 0: foundations
 
@@ -796,23 +797,38 @@ Done when:
       =teprob.f:591= is =.GT.=, so it does not clamp
 - [X] The =1.0e-10= addend on stream 4 recorded as Class B delta D-004
 
-** NEXT B-0022 The stripper
+** DONE B-0022 The stripper
 :PROPERTIES:
 :ID:    B-0022
 :PHASE: 2
 :TIER:  2
 :DEPS:  B-0021
 :PLAN:  Anatomy > Unit operations
+:COMMIT: fdff720
+:RESULT: =teprob.f:614-662=, including the reactor-inlet alias. *The column's
+         own outputs are 0 ULP under the default build*: everything it computes
+         descends from valve-lagged flows and unpacked compositions and no
+         transcendental reaches any of them. Only =FTM(7)= and =FCM(7)= differ
+         (1.610e-15), and only as copies of stream 6. All thirteen streams are
+         now populated. Catalogue 20 to 21: the =TCC=5.292= boundary state does
+         *not* reach the pinned branch, because =teprob.f:617= is =.LT.=, the
+         same finding as B-0021's =.GT.=; a state at 4.0 C was added and the
+         rule is now written down in =adversarial=. =SFR(1..3)= are never
+         recomputed and are asserted against the oracle; slots 4-8's initial
+         values are dead, delta *D-005*.
 :END:
 
 =teprob.f:612-662=. Stripping factors, both temperature breakpoints, and the
 =FTM(11)>0.1= branch that switches the whole block to fixed factors.
 
 Done when:
-- [ ] =SFR(4..8)=, =FIN=, =FCM(I,5)=, =FCM(I,12)=, =FTM(5)=, =FTM(12)=,
-      =XST(I,5)=, =XST(I,12)=, =HST(5)=, =HST(12)=
-- [ ] All three =TMPFAC= branches and both sides of the =0.1= threshold
-      covered by B-0016 states
+- [X] =SFR(4..8)=, =FIN=, =FCM(I,5)=, =FCM(I,12)=, =FTM(5)=, =FTM(12)=,
+      =XST(I,5)=, =XST(I,12)=, =HST(5)=, =HST(12)=, and the stream-7 alias at
+      =656-661=, which the range also covers
+- [X] All three =TMPFAC= branches and both sides of the =0.1= threshold, with
+      a coverage test that *asserts* each branch is entered. B-0016's states
+      covered three of four; the pinned branch needed a new state past the
+      threshold, because the boundary state sits on it and the test is strict
 
 ** TODO B-0023 Heat transfer
 :PROPERTIES:

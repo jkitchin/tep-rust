@@ -2565,3 +2565,125 @@ writing code. =363.744/(177.-TCC)= is *not* an instance, since =TCC= is double,
 but a quotient of two bare literals would be.
 
 Append =tier2_stripper= to =LIBM_SYSTEM_TESTS= in =xtask/src/main.rs=.
+
+* 2026-08-27 B-0022 The stripper, and a boundary state that does not cross its boundary
+:PROPERTIES:
+:ITEM:     B-0022
+:PHASE:    2
+:TIER:     2
+:COMMIT:   fdff720
+:GFORTRAN: 15.2.0
+:STATUS:   DONE
+:END:
+** Preflight
+Clean and green, identical to B-0021's closing numbers. gfortran 15.2.0,
+unchanged. Provenance *576/1589 (36.2%)* on entry, 633 (39.8%) on exit.
+
+** What changed
+=tepsim_core::stripper= ports =teprob.f:614-662=: the stripping factors with
+their three temperature branches and the idle switch, the two outlet streams,
+and the reactor-inlet alias. *All thirteen streams are now populated*, which is
+the precondition B-0025 needs.
+
+** Validation numbers
+*Tier 2, eleven fields, all three pools.* 2,421 states, zero convergence
+failures. The report is split between what the column computes and what it
+copies, because the two behave completely differently.
+
+| field | cases  | max rel err | max ulp |
+|-------+--------+-------------+---------|
+| SFR   | 19,368 | 0.000e0     |       0 |
+| FTM (5, 12) | 4,842 | 0.000e0 |       0 |
+| FCM (5, 12) | 38,736 | 0.000e0 |     0 |
+| XST (5, 12) | 38,736 | 0.000e0 |     0 |
+| HST (5, 12) | 4,842 | 0.000e0 |      0 |
+| TST (5, 7, 12) | 7,263 | 0.000e0 |  0 |
+| XST (7) | 19,368 | 0.000e0    |       0 |
+| HST (7) | 2,421 | 0.000e0     |       0 |
+| FTM (7) | 2,421 | 1.484e-15  |      12 |
+| FCM (7) | 19,368 | 1.610e-15 |      13 |
+
+*Nine of the eleven fields are bit-exact under the default build*, and that is
+asserted rather than observed. Under =libm-system=, all eleven are.
+
+*All four branches are entered by the pool*: idle, linear, pinned and
+hyperbolic, checked by a test that fails if any is not.
+
+*=SFR(1..3)= are bit-identical to the =TEINIT= constants* on 300 nominal and
+all 21 adversarial states.
+
+** Surprises and decisions
+*The stripper introduces no error of its own, and the report now says so.*
+Everything it computes descends from valve-lagged flows and unpacked
+compositions, neither of which touches a transcendental, so its own outlets are
+bit-exact even under the vendored libm. Only =FTM(7)= and =FCM(7)= differ, and
+only because they are copies of stream 6, whose *flow* came through a
+square-root resistance while its composition and temperature came from the
+unpack.
+
+That is why the fields are reported split rather than together. Averaging a
+clean result with a borrowed one hides both facts, and the assertion names the
+two exempt fields explicitly rather than exempting anything labelled "alias",
+so error appearing where it structurally cannot still fails.
+
+*B-0021's finding repeated on the other side, and it is now a rule.* The
+coverage test failed: no state reached the pinned temperature branch. The cause
+is the same as the =CPPRMX= case. =teprob.f:617= is =IF(TCC.LT.5.292)=, and
+B-0016's boundary state sits *exactly* on 5.292, so it takes the hyperbolic
+branch.
+
+Every comparison in =TEFUNC= is strict. A boundary state therefore proves the
+comparison is strict, which is valuable and invisible anywhere else, and leaves
+the branch behind it unexercised. Those are two different states and both are
+needed. That is now written into =adversarial='s module documentation with both
+pairs named, so the next threshold gets both from the start rather than
+discovering it a third time.
+
+The catalogue is 21 boundaries: 17 from B-0016, three from B-0021, one here.
+
+*=SFR(1..3)= are never recomputed, and the loop hides it.* =teprob.f:623-627=
+and =629-633= write slots 4 through 8 only; =teprob.f:643= reads all eight. So
+A, B and C strip at fixed =TEINIT= fractions for the life of the run, while the
+loop that consumes them runs =I=1,8= and looks as though all eight came from
+the branch above. Asserted against the oracle rather than assumed.
+
+*Delta D-005.* The =TEINIT= values for =SFR(4..8)= are dead, overwritten on the
+first evaluation through either branch. Worth an entry because the eight-line
+block looks uniform and is not: omitting =1129-1133= is correct and omitting
+=1126-1128= is silently wrong in every product composition. The precision is
+inconsistent across the same boundary (slots 7 and 8 carry =D= suffixes, the
+rest do not), which has no effect precisely because those five are dead.
+
+*The 177 C pole is unreachable by seven degrees.* The linear branch takes over
+at 170, and the two branches agree to within 0.1% at the handover, which is the
+evidence that 170 and 120.262 were chosen together. B-0016's state at 176 C
+covers the *guard*, not the pole.
+
+** Next
+B-0023, heat transfer, =teprob.f:663-678=. The last physics item before the
+balances.
+
+*Two integer powers, and they must not go through =pow=.* =AGSP**2= at
+=teprob.f:670= and =(FTM(8)/3528.73)**4= at =674= have integer exponents, and
+gfortran emits multiplications for those rather than a libm call. Routing them
+through =crate::math::pow= would change the last bits. =crate::math::pow='s
+documentation already says this; the test that proves it is
+=the_cube_in_the_compressor_curve_is_not_a_pow_call= in =flows=, and this item
+should get the same for both of its powers.
+
+All three =UARLEV= branches are already covered: B-0016 built =VLR= at 78 and
+at 390, the two breakpoints of =VLR/7.8= at 10 and 50. Given B-0022's finding,
+*check which side of each breakpoint those states actually land on* before
+assuming they exercise the branch you want, and add a state past the threshold
+if they do not. =teprob.f:663= is =.GT.= and =665= is =.LT.=, so both boundary
+states take the middle ramp.
+
+The =TCC<100= steam cutoff at =678= needs the same treatment. The nominal
+trajectory sits near 65 C, so the *cutoff* side is the one at risk of being
+unexercised, not the active side. B-0021 already measured 300 of 300 nominal
+states below 100 C, which says exactly that.
+
+=QUR= and =QUS= read =TESUB8(10)= and =TESUB8(11)=, so they take walk inputs
+like the three items before them.
+
+Append =tier2_heat= to =LIBM_SYSTEM_TESTS= in =xtask/src/main.rs=.
