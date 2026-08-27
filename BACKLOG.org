@@ -14,17 +14,17 @@ earlier phases will change what the right decomposition is.
 
 Rewrite this block at the end of every iteration. Keep it to five lines.
 
-- Phase: 3, two of eight items done. Phase 2's model is complete
-- Last completed: B-0028, =TESUB5= and =TESUB6= at 0 ULP; Tier 1 is finished
+- Phase: 3, three of eight done. Phase 2's model is complete
+- Last completed: B-0029, the Tier 3 trace. 113,088 draws traced and replayed
 - In flight: (none)
-- Baseline: =cargo xtask ci= green; 229 tests default, 343 with =oracle=, plus
+- Baseline: =cargo xtask ci= green; 229 tests default, 349 with =oracle=, plus
   a 38-test =oracle,libm-system= run; provenance *849/1589 (53.4%)*
 - Toolchain: rustup, pinned to rustc 1.97.1, wasm32 installed, libm 0.2.16
 - Remote: private jkitchin/tep-rust, CI green on all 7 jobs
 - *Blocked on B-0026a*, which closes Phase 2: Tier 2's "rel err < 1e-12" is not
   achievable relative-to-result on a balance equation, because balances cancel.
   The port is not in question; the *metric* is. Phase 3 is unblocked and is
-  where work continues; next is B-0029, the Tier 3 trace differ.
+  where work continues; next is B-0030, the walk spans and noise magnitudes.
 
 * Phase 0: foundations
 
@@ -1133,13 +1133,25 @@ Done when:
       compared. The count alone is not enough: a port can make the right number
       of draws in the wrong order. The word catches both
 
-** NEXT B-0029 Tier 3 harness: RNG call-trace instrumentation and the differ
+** DONE B-0029 Tier 3 harness: RNG call-trace instrumentation and the differ
 :PROPERTIES:
 :ID:    B-0029
 :PHASE: 3
 :TIER:  3
 :DEPS:  B-0028
 :PLAN:  Validation > Tier 3
+:COMMIT: 7a7bbdc
+:RESULT: One instrumentation edit on =TESUB7= records the whole stream into
+         =COMMON/RNGTRC/=; every draw in the file comes through it. Per-step
+         rather than per-run, capacity 4096 against a worst observed *462*,
+         with the counter continuing past the cap so overflow is an error.
+         *The instrument is checked against what it claims to explain*:
+         replaying a trace from the generator word before an evaluation must
+         land on the word after, and does, over *113,088 draws across 400
+         evaluations*. The trace lengths match B-0027's uninstrumented census
+         exactly, which is two independent methods agreeing. A real evaluation
+         contains both scalings: 30 signed (the walk) and 432 unit (36
+         compositions at twelve each).
 :END:
 
 Instrument =TESUB7= on both sides to record every draw, and diff the traces.
@@ -1151,9 +1163,15 @@ state is exposed too (=COMMON/WLK/=), but draw *order* is not a value in any
 the harness that makes the next six items measurable is worth its own iteration.
 
 Done when:
-- [ ] The instrumented Fortran records (call index, sign flag, result) per draw
-- [ ] =TepRng= records the same, behind a feature so the shipped core does not
-- [ ] A differ that reports the first divergent index, not just a count
+- [X] The instrumented Fortran records sign flag and result per draw, indexed
+      by position
+- [X] The port records the same. *Not* behind a feature in the end:
+      =TracingRng= is a separate type that wraps =TepRng=, so the shipped plant
+      carries no buffer by construction rather than by configuration, and there
+      is no feature combination in which the wrong one ships
+- [X] A differ that reports the first divergent index *and its kind*: wrong
+      value, wrong scaling, too few draws, or too many. The four have different
+      causes and the message says which
 
 ** TODO B-0030 The walk state, its spans, and the noise magnitudes
 :PROPERTIES:

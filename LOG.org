@@ -3261,3 +3261,108 @@ expected, counting per phase gets most of the value, and
 
 *B-0026a is still open* and still one line. It is the only thing between Phase 2
 and closed.
+
+* 2026-08-27 B-0029 The Tier 3 trace, built before the thing it will measure
+:PROPERTIES:
+:ITEM:     B-0029
+:PHASE:    3
+:TIER:     3
+:COMMIT:   7a7bbdc
+:GFORTRAN: 15.2.0
+:STATUS:   DONE
+:END:
+** Preflight
+Clean and green, identical to B-0028's closing numbers. gfortran 15.2.0,
+unchanged. Provenance *849/1589 (53.4%)*, unchanged: this item builds a
+measuring instrument, not ported model code.
+
+** What changed
+=instrument.rs= gained one edit: =TESUB7= now records every draw into a new
+=COMMON/RNGTRC/=. =tepsim_oracle::tier3= reads it and diffs two traces.
+=tepsim_core::disturbance= gained =Draw= and =TracingRng=.
+
+** Validation numbers
+*The instrument checked against what it claims to explain.* Replaying a trace's
+draws from the generator word before an evaluation must land exactly on the word
+after:
+
+: 113,088 draws traced and replayed across 400 evaluations, all exact.
+
+*Trace lengths against B-0027's uninstrumented census*, which measured the same
+quantity by a completely different method:
+
+| time | draws | what |
+|------+-------+------|
+| 0 | 0 | noise skipped, walks reset |
+| 1e-6 | 264 | noise only |
+| 0.15 | 462 | noise, walk advance, gas analysers |
+| 0.30 | 522 | and the product analyser |
+
+Exact agreement at every point.
+
+*Scalings in one real evaluation*: 30 signed, 432 unit. The 30 is
+9 x 3 + 3, the walk advance; the 432 is 36 compositions at twelve each.
+
+*Capacity headroom*: worst evaluation 462 draws against a capacity of 4096.
+
+** Surprises and decisions
+*One edit covers the whole stream.* Every stochastic quantity in =teprob.f=
+comes through =TESUB7=, so instrumenting that one function records everything:
+the walk segments, the spike dwells, the measurement noise and all three
+analysers. The edit is appended *after* both assignments to the function result,
+so nothing it does can reach the returned value, and the pristine-probe test
+that already exists checks that rather than leaving it as an argument.
+
+*The trace is per-step, and that is not an optimisation.* A 48-hour run makes
+tens of millions of draws. Clearing before each evaluation and comparing one
+step at a time reports the first divergence *at the step it happened*, which is
+what a person debugging needs; a run-length trace would report an index into
+something enormous. It also bounds the buffer at 4096 against a worst case of
+462.
+
+*The instrument is tested against the generator word, which is the strongest
+check available.* A trace that dropped a draw, recorded one twice, or reordered
+any of them would fail to land on the word the evaluation actually left behind.
+That single property covers completeness, ordering and fidelity at once, and it
+holds over 113,088 draws.
+
+*Two independent methods now agree on the counts.* B-0027 measured them with no
+instrumentation at all, by stepping a port-side generator from the word before
+to the word after. The trace lengths match that census exactly. Either method
+alone would be a claim; the two agreeing is evidence.
+
+*The port side is a separate type, not a feature.* The item said to put
+recording behind a cargo feature. =TracingRng= wraps =TepRng= instead, so the
+shipped plant carries no buffer *by construction* rather than by configuration,
+and there is no feature combination in which the wrong one ships. =TepRng= also
+stays =Copy= and one =f64= wide, which it could not if a trace lived inside it.
+
+*The differ reports a kind, not just an index.* Four things can go wrong and
+they have different causes: a wrong value means the generator is already
+displaced and the real fault is earlier; a wrong scaling means =TESUB7= was
+called with the wrong sign flag; too few or too many draws means a consumer was
+skipped or added. B-0028's bug was the "too few" case, and it produced
+*identical values*, so a differ that only reported values would have said
+nothing useful.
+
+** Next
+B-0030: the walk spans and the noise magnitudes, =teprob.f:1256-1367=.
+
+Constants only, 149 of them: =XNS(1..41)=, five span arrays of twelve, and the
+initial walk state. No behaviour, so it is the =tests/constants.rs= and
+=tests/nominal_state.rs= treatment: reparse the Fortran, derive each value
+independently, and assert against =COMMON/WLK/= from a =TEINIT='d oracle.
+
+One thing to check rather than assume: B-0028's Tier 1 sweep read these spans
+and found them *all =D=-suffixed* in the range it sampled, which is unusual for
+this file. Confirm it across all 149 rather than inferring it from twelve; the
+=273.15= and =1.8= findings both came from the original being inconsistent
+about exactly this.
+
+B-0030 also removes a wart. =tier1_disturbance.rs= currently reads =XNS= and
+the spans out of the oracle to avoid duplicating them before they are
+transcribed; once they exist in the core, that test should read them from there
+and the comment saying so can go.
+
+*B-0026a is still open.* Phase 2's model is complete and proved bit-exact; only
+its acceptance criterion waits.
