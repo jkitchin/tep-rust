@@ -1380,7 +1380,7 @@ been about.
 :TIER:  none
 :DEPS:  B-0034
 :PLAN:  Anatomy > Control layer
-:COMMIT: pending
+:COMMIT: 8cd17c9
 :RESULT: 7 items, B-0036 to B-0041. Four findings reshape the phase.
          *The scheme is a cascade*, not 19 flat loops: 11 write a valve, 8
          write another loop's setpoint rescaled by its span, and =CONTRL20=

@@ -4058,3 +4058,98 @@ ported.
 
 The =d00= through =d21= datasets are closed-loop, so Tier 7 cannot start until
 this phase lands. That makes Phase 4 the gate on Phases 5 and 7 both.
+
+* 2026-08-27 B-0035 Decompose Phase 4: a cascade, an override, and a dead controller
+:PROPERTIES:
+:ITEM:     B-0035
+:PHASE:    4
+:TIER:     none
+:COMMIT:   8cd17c9
+:GFORTRAN: 15.2.0
+:STATUS:   DONE
+:END:
+** Preflight
+Clean and green. gfortran 15.2.0, unchanged. =xtask fidelity= 100 of 100 steps,
+worst 3.521e-14. =validate --tiers 1,2,3,4= all green. Provenance
+*1123/1589 (70.7%)*, unchanged: this item produces backlog items.
+
+** What changed
+Phase 4 decomposed into *B-0036* through *B-0041*, plus *B-0037b* which the
+decomposition itself created.
+
+** Validation numbers
+None. What this item produced is four facts, extracted from
+=reference/fortran/temain_mod.f= mechanically rather than read.
+
+** Surprises and decisions
+*The scheme is a cascade, and =PLAN.org= describes it as nineteen flat loops.*
+Extracting each =CONTRLn='s output line showed eight subroutines with *no*
+=XMV= assignment at all. They write another loop's setpoint:
+
+: SETPT(3) = SETPT(3) + DXMV * 1.017 / 100.
+
+The outer loop works in percent-of-span and multiplies back into the inner
+loop's engineering units. The pairs are 13 to 3, 14 to 1, 15 to 2, 16 to 9, 17
+to 4, 18 to 10, 19 to 6, and 20 to 16. That last one drives an *outer* loop, so
+there are three layers, not two.
+
+This is the finding that justifies the item. A port written from the plan's
+description would have nineteen loops all writing valves, would run, and would
+control nothing correctly.
+
+*=CONTRL6= is not a PI controller.* =temain_mod.f:710-753= is a latching
+override on the purge valve, keyed on separator pressure: wide open above 2950
+kPa, shut below 2300, each latched by =FLAG= until pressure returns through
+2633.7, at which point the valve is reset to 40.060 and =SETPT(6)= and
+=ERROLD6= are reset with it. The PI runs only in the final =ELSE=, so while an
+override is latched the controller does not run and its error history does not
+advance.
+
+=FLAG= lives in =COMMON/FLAG6/=, so it is genuine carried state. Worth checking
+rather than assuming: the file contains no =SAVE= statement anywhere, and a
+local without one has no guaranteed persistence, so a state machine on a bare
+local would have been a real bug resting on gfortran's storage choices.
+
+*=CONTRL22= is dead code, and the override explains it.* Twenty controllers are
+defined and nineteen are called. =CONTRL22= is a separator-pressure controller
+writing =XMV(6)=, which is the valve =CONTRL6= already owns, and its setpoint
+is initialised to *2633.7* -- exactly the override's reset threshold. So it
+looks like the pressure loop that =CONTRL6='s override replaced, left in place
+with its tuning intact.
+
+It is also the only controller whose error is *not* normalised by a span. Every
+other loop computes =(SETPT - XMEAS) * 100. / span=; =CONTRL22= computes
+=SETPT(12) - XMEAS(13)= raw. Consistent with it predating the others.
+
+*The integral multiplier is the loop's own period.* =DELTAT * 3.= in the
+3-second loops, =* 360.= in the 360-second ones, =* 900.= in =CONTRL20=, and it
+agrees with the scheduler loop for loop. A port that wrote =3.= everywhere,
+which is what the first reading of one subroutine suggests, would scale the
+integral action of the slow loops by 120 and 300.
+
+*The provenance question needs answering before any of this is ported, not
+after.* =xtask provenance= scans =teprob.f= alone and the =@port= claim syntax
+names no file, so 1,408 lines of control layer would land with no coverage
+accounting whatever. That is B-0036, and it comes first.
+
+** Next
+B-0036: teach =xtask provenance= and the oracle about a second file.
+
+Two pieces. The scanner needs =@port temain_mod.f:477-514= to parse and to
+report per file, while a bare =teprob.f:= keeps working unchanged -- there are
+about ninety existing claims and none of them should need editing.
+
+The oracle needs to compile =temain_mod.f= and expose each =CONTRLn=. That is
+*easier* than =TESUB5= was, not harder: they take no arguments and communicate
+entirely through =COMMON=, so the binding is a bare =fn contrl1_()= and the
+state is set through blocks the oracle already mirrors, plus =CTRLALL= and the
+nineteen per-loop ones.
+
+One thing to watch. =temain_mod.f= is a =PROGRAM=, not a library: it has a main
+entry point, it opens fifteen files under =~/=, and it runs 172,800 steps on
+load. Compiling it whole into the test binary would be wrong. Either extract
+the subroutines, which means editing vendored source and is forbidden, or use
+the instrumentation path that already exists for exactly this reason and rename
+=PROGRAM= to a subroutine nothing calls. The second is in keeping: =ISD= was
+hoisted the same way, and the pristine probe already proves such edits change
+no numbers.
