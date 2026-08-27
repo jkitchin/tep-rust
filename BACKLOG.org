@@ -898,7 +898,7 @@ that Phase 3 brings. The seam is the same one =crate::plant= already draws:
       states past limits had to be added; five of the eight were previously
       validated only on their not-tripping side
 
-** TODO B-0024b Measurement noise and the sampled analysers
+** NEXT B-0024b Measurement noise and the sampled analysers
 :PROPERTIES:
 :ID:    B-0024b
 :PHASE: 3
