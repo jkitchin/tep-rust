@@ -1133,7 +1133,7 @@ Done when:
       compared. The count alone is not enough: a port can make the right number
       of draws in the wrong order. The word catches both
 
-** TODO B-0029 Tier 3 harness: RNG call-trace instrumentation and the differ
+** NEXT B-0029 Tier 3 harness: RNG call-trace instrumentation and the differ
 :PROPERTIES:
 :ID:    B-0029
 :PHASE: 3
