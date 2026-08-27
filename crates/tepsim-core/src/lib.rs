@@ -38,6 +38,7 @@ extern crate alloc;
 #[cfg(test)]
 pub(crate) mod testing;
 
+pub mod balances;
 pub mod component;
 pub mod constants;
 pub mod equilibrium;
@@ -56,6 +57,7 @@ pub mod thermo;
 pub mod variables;
 pub mod vessels;
 
+pub use balances::{Balances, CoolantInlet, QuirkFixes, balances};
 pub use component::{ByComponent, Component, Composition};
 pub use equilibrium::{Equilibrium, VapourSpace, equilibrium};
 pub use flows::{FlowDrift, Flows, flows};

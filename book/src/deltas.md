@@ -34,7 +34,12 @@ from when it arrives.
 Read this section before re-litigating a quirk. It is the list of things that
 have been *noticed* but not yet *decided*.
 
-- Nothing open. D-001 through D-006 are decided and measured.
+- **D-007 is open, and blocks Tier 2 acceptance.** Not the quirk itself, which
+  is decided and reproduced, but the *measure*: `PLAN.org`'s "rel err < 1e-12"
+  cannot be read as relative-to-result for a balance equation. See B-0026a in
+  `BACKLOG.org` and the module documentation of
+  `crates/tepsim-oracle/tests/tier2_balances.rs`, which carries the numbers.
+- D-001 through D-006 are decided and measured.
 
 ---
 
@@ -429,3 +434,81 @@ measurement 20, and the delta against the correct value would be 34%.
 are far enough apart that taking the dead one would be visible. The Tier 2
 differential in `crates/tepsim-oracle/tests/tier2_measurements.rs` covers it
 against the oracle, and is bit-identical under `libm-system`.
+
+---
+
+## D-007 — a shutdown freezes the plant instead of stopping it
+
+**Class C.** `teprob.f:807-811`, in `TEFUNC`. **Reproduced by default; the fix
+is blocked on sign-off (B-0025b).**
+
+### What the original does
+
+```fortran
+      IF(ISD.NE.0)THEN
+      DO 9030 I=1,NN
+      YP(I)=0.0
+ 9030 CONTINUE
+      ENDIF
+```
+
+When any of the eight shutdown conditions holds, all fifty derivatives become
+zero. The state stops moving, the clock keeps running, and the caller is told
+nothing: `ISD` is a local, and the returned vector is indistinguishable from a
+plant at perfect steady state.
+
+### Why it is Class C rather than B
+
+Because published results depend on it. Every `d00`-`d21` dataset was generated
+by a driver that kept integrating through a trip, and a run that ended instead
+would produce a shorter, different file. Changing this changes
+benchmark comparability, which is the definition `PLAN.org` gives for the class.
+
+### What this port does
+
+Reproduces it, and says so. [`tepsim_core::balances::Balances`] carries the
+trip and a `frozen` flag alongside the derivative, so a caller never has to
+infer a freeze from a vector of zeros. B-0024a's typed
+[`tepsim_core::measurements::ShutdownCause`] means it can also say *which*
+limit fired, which the original cannot.
+
+The fix is [`tepsim_core::balances::QuirkFixes::trip_ends_the_run`], **off by
+default**. `PLAN.org` requires "a full Tier 5 and Tier 6 delta report and an
+explicit sign-off before it becomes the default", and Tier 5 does not exist
+until Phase 5.
+
+Note that B-0025's backlog entry originally said the freeze should *not* be the
+default. That is the opposite of what `PLAN.org` says, and `PLAN.org` is the
+design of record. It is also the only reading Tier 2 can live with: the
+adversarial pool contains thirteen states that trip, and a port that did not
+freeze would disagree with the oracle on all fifty components for each of them.
+
+### Measured effect
+
+The delta itself is Phase 6 work. What is measured now:
+
+- The freeze fires on exactly the states the Fortran freezes, over all three
+  pools: 2,412 running and 13 frozen, with no disagreement.
+- Turning the fix on changes the derivative on all 8 tripping adversarial
+  boundaries and on none of the 17 that do not trip.
+
+### A second, open question this exposed
+
+Comparing the assembled derivative revealed that **28 of the 50 components
+exceed Tier 2's 1e-12 relative gate under the vendored libm**, worst `YP(2)` at
+1.393e-4 — while the whole right-hand side is *bit-identical* to the Fortran
+under `libm-system`.
+
+That is cancellation, not error: a balance is inflow minus outflow, and near
+steady state those nearly agree, so a one-ULP difference in each term is 1e-16
+of the terms and 1e-4 of the result. The 22 components that do meet 1e-12 are
+exactly the ones that do not cancel.
+
+Choosing what Tier 2 should measure against for a cancelling quantity changes
+what Tier 2 means, so it is recorded here and left open. **B-0026a.**
+
+### Measured by
+
+`crates/tepsim-oracle/tests/tier2_balances.rs`, and
+`the_fix_is_off_by_default_and_changes_the_answer_when_on` in
+`crates/tepsim-core/src/balances.rs`.

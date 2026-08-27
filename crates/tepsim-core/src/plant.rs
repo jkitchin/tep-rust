@@ -45,15 +45,23 @@
 //!
 //! # Status
 //!
-//! Structure only. [`Plant::derivatives`] returns
-//! [`PlantError::NotImplemented`] until the physics lands over B-0017 to
-//! B-0025. It deliberately does *not* return zeros: an all-zero derivative is a
-//! perfectly valid answer describing a frozen plant, and would let a later item
-//! pass a test it should have failed.
+//! The pure phase is complete as of B-0025: [`Plant::derivatives`] runs the
+//! whole model, from unpacking the state to the fifty balances. The two impure
+//! phases are still stubs and land with Phase 3, which brings the RNG and the
+//! disturbance walks.
 
+use crate::balances::{CoolantInlet, QuirkFixes, VALVE_STICTION, balances};
+use crate::equilibrium::equilibrium;
+use crate::flows::{FlowDrift, flows};
+use crate::heat::{HeatDrift, heat_transfer};
+use crate::kinetics::{ReactionDrift, kinetics};
+use crate::measurements::{Shutdown, measurements};
 use crate::state::{Derivative, State};
+use crate::streams::{FeedConditions, streams};
+use crate::stripper::stripper;
 use crate::thermo::TemperatureError;
 use crate::variables::MeasIndex;
+use crate::vessels::{TemperatureSeeds, unpack};
 
 /// How many continuous measurements the plant produces, `XMEAS(1..22)`.
 pub const N_CONTINUOUS: usize = 22;
@@ -73,6 +81,31 @@ pub struct Inputs {
     /// Class C quirk: this type carries a magnitude so the eventual fix does
     /// not need a new type, and the faithful path clamps.
     pub disturbances: [f64; 20],
+}
+
+impl Inputs {
+    /// The twenty disturbance flags as `teprob.f:341-344` leaves them.
+    ///
+    /// ```fortran
+    ///       IF(IDV(I).GT.0)THEN
+    ///       IDV(I)=1
+    ///       ELSE
+    ///       IDV(I)=0
+    ///       ENDIF
+    /// ```
+    ///
+    /// *Any* positive magnitude becomes exactly one, so this is a threshold
+    /// and not a rounding: 0.4 gives 1, not 0. That is the Class C quirk this
+    /// type's `disturbances` field exists to make fixable later, and until
+    /// there is a sign-off the faithful path is the only path.
+    #[must_use]
+    pub fn clamped_disturbances(&self) -> [f64; 20] {
+        let mut out = [0.0; 20];
+        for (slot, raw) in out.iter_mut().zip(self.disturbances) {
+            *slot = if raw > 0.0 { 1.0 } else { 0.0 };
+        }
+        out
+    }
 }
 
 impl Default for Inputs {
@@ -95,6 +128,12 @@ pub struct Signals {
     pub continuous: [f64; N_CONTINUOUS],
     /// `XCMP(23..41)`, the analyser inputs (`teprob.f:717-735`).
     pub compositions: [f64; N_SAMPLED],
+    /// Whether the plant is down, and why (`teprob.f:702-710`).
+    ///
+    /// Carried here rather than left to the derivative because the post-phase
+    /// needs it: `teprob.f:711` skips the noise entirely when `ISD` is set, so
+    /// [`Plant::sample_measurements`] cannot do its job without knowing.
+    pub shutdown: Shutdown,
 }
 
 impl Default for Signals {
@@ -102,6 +141,7 @@ impl Default for Signals {
         Self {
             continuous: [0.0; N_CONTINUOUS],
             compositions: [0.0; N_SAMPLED],
+            shutdown: Shutdown::default(),
         }
     }
 }
@@ -135,16 +175,17 @@ impl core::ops::Index<MeasIndex> for Measurements {
 /// Why a derivative evaluation could not produce an answer.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum PlantError {
-    /// The physics has not been ported yet. Removed when B-0025 lands.
-    NotImplemented,
     /// A temperature solve failed. See [`TemperatureError`] and delta D-001.
+    ///
+    /// The only way an evaluation can fail. The original cannot fail at all:
+    /// `TESUB2` returns its guess and reports success, which is what delta
+    /// D-001 is about.
     Temperature(TemperatureError),
 }
 
 impl core::fmt::Display for PlantError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Self::NotImplemented => f.write_str("the plant model is not ported yet"),
             Self::Temperature(e) => write!(f, "temperature solve failed: {e}"),
         }
     }
@@ -176,10 +217,53 @@ impl SimTime {
 /// Owned, `Send` and `Clone`, so a process can run as many of these as it
 /// likes. The original supports exactly one, which is a large part of why this
 /// port exists.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Plant {
     /// The latched valve commands, `VCV` (`teprob.f:799-804`).
     valve_command: [f64; 12],
+    /// The four Newton warm-start temperatures.
+    ///
+    /// Genuine persistent state, not a cache: `TESUB2` takes its temperature
+    /// as both guess and answer, so every evaluation starts from the previous
+    /// one's result. See [`mod@crate::vessels`].
+    seeds: TemperatureSeeds,
+    /// Which Class C quirks are fixed rather than reproduced. All off by
+    /// default; see [`QuirkFixes`].
+    pub quirks: QuirkFixes,
+    /// The walk-driven inputs the pure phase reads (`teprob.f:407-416`).
+    ///
+    /// Produced by [`Plant::advance_discrete`] once Phase 3 lands. Until then
+    /// they sit at their nominal values, which is what `TEINIT` leaves.
+    walks: WalkInputs,
+}
+
+/// Everything `teprob.f:407-416` reads out of the disturbance walks.
+///
+/// Grouped so that the pure phase takes one argument rather than five, and so
+/// that Phase 3 has one place to fill in.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct WalkInputs {
+    /// `XST(1..3,4)`, `TST(1)` and `TST(4)`.
+    pub feed: FeedConditions,
+    /// `TESUB8(9)` and `TESUB8(12)`.
+    pub flow: FlowDrift,
+    /// `TESUB8(10)` and `TESUB8(11)`.
+    pub heat: HeatDrift,
+    /// `TESUB8(7)` and `TESUB8(8)`.
+    pub reaction: ReactionDrift,
+    /// `TCWR` and `TCWS`.
+    pub coolant: CoolantInlet,
+}
+
+impl Default for Plant {
+    fn default() -> Self {
+        Self {
+            valve_command: [0.0; 12],
+            seeds: TemperatureSeeds::default(),
+            quirks: QuirkFixes::default(),
+            walks: WalkInputs::default(),
+        }
+    }
 }
 
 impl Plant {
@@ -201,8 +285,41 @@ impl Plant {
     /// latches the valve commands. See the module documentation for why this
     /// cannot be merged with [`Plant::sample_measurements`].
     ///
-    /// Stubbed: the walk machinery is Phase 3 and the latch is B-0025.
-    pub fn advance_discrete(&mut self, _t: SimTime, _u: &Inputs) {}
+    /// The walk advance itself is Phase 3; the valve latch lands here now.
+    // @port teprob.f:793-804
+    pub fn advance_discrete(&mut self, t: SimTime, u: &Inputs) {
+        // teprob.f:793-798. Only six valves can stick, and only under three
+        // specific disturbances. `IVST` is zero for the rest, which makes
+        // their threshold zero and so makes them track exactly.
+        let clamped = u.clamped_disturbances();
+        let idv = |n: usize| clamped[n - 1];
+        let mut sticking = [0.0; 12];
+        sticking[9] = idv(14);
+        sticking[10] = idv(15);
+        for valve in [4, 6, 7, 8] {
+            sticking[valve] = idv(19);
+        }
+
+        // teprob.f:799-804. The command is latched unless it has moved
+        // further than the valve's stiction band, and then clamped to travel.
+        for ((command, stuck), wanted) in self
+            .valve_command
+            .iter_mut()
+            .zip(sticking)
+            .zip(u.manipulated)
+        {
+            let threshold = VALVE_STICTION * stuck;
+            if t.hours() == 0.0 || (*command - wanted).abs() > threshold {
+                *command = wanted;
+            }
+            // teprob.f:803-804, written as the two guards the listing writes
+            // rather than as a `clamp`, so it can be checked a line at a time.
+            // Identical for every finite input; `VCV` is never NaN here
+            // because it is either a manipulated variable or a previous
+            // clamped value.
+            *command = command.clamp(0.0, 100.0);
+        }
+    }
 
     /// **Pure.** The derivative of the state, and the noise-free signals.
     ///
@@ -213,15 +330,111 @@ impl Plant {
     ///
     /// # Errors
     ///
-    /// [`PlantError::NotImplemented`] until B-0025. After that, a failed
-    /// temperature solve (delta D-001).
+    /// [`PlantError::Temperature`] if any of the four Newton solves runs out
+    /// of iterations. The original silently returns its guess instead; that is
+    /// delta D-001, and it has never fired on the physical domain.
+    ///
+    /// # Note on the warm start
+    ///
+    /// This takes `&self`, so it cannot carry the converged temperatures
+    /// forward: that would make it impure and defeat the whole split. The
+    /// seeds it uses are the ones [`Plant::step_seeds`] last stored, which the
+    /// integrator advances once per step. Evaluating twice at the same point
+    /// therefore gives bit-identical answers, which is what
+    /// [`assert_derivatives_are_pure`] checks.
+    // @port teprob.f:407-710, 762-792, 805
     pub fn derivatives(
         &self,
         _t: SimTime,
-        _y: &State,
-        _u: &Inputs,
+        y: &State,
+        u: &Inputs,
     ) -> Result<(Derivative, Signals), PlantError> {
-        Err(PlantError::NotImplemented)
+        let w = &self.walks;
+        let unpacked = unpack(y, self.seeds)?;
+        let eq = equilibrium(&unpacked);
+        let mut table = streams(&unpacked, &eq, &w.feed);
+
+        let idv = u.clamped_disturbances();
+
+        let mut flow = flows(y, &unpacked, &eq, &table, &idv, w.flow);
+        let _ = stripper(&mut table, &mut flow, unpacked.stripper.celsius);
+        let heat = heat_transfer(y, &unpacked, &table, &flow, w.heat);
+        let kin = kinetics(&eq.reactor, unpacked.reactor.kelvin(), w.reaction);
+        let pressures = (
+            eq.reactor.pressure,
+            eq.separator.pressure,
+            eq.mixing_pressure,
+        );
+        let measured = measurements(y, &unpacked, &table, &flow, &heat, pressures);
+        let assembled = balances(
+            y,
+            &table,
+            &flow,
+            &kin,
+            &heat,
+            measured.shutdown,
+            w.coolant,
+            &self.valve_command,
+            self.quirks,
+        );
+
+        Ok((
+            assembled.derivative,
+            Signals {
+                continuous: measured.continuous,
+                // `XCMP` is B-0024b; it needs nothing this phase does not
+                // already have, but it belongs with the analysers that read it.
+                compositions: [0.0; N_SAMPLED],
+                shutdown: measured.shutdown,
+            },
+        ))
+    }
+
+    /// Advance the Newton warm-start temperatures, once per outer step.
+    ///
+    /// The original carries `TCR`, `TCS`, `TCC` and `TCV` in `COMMON`, so
+    /// every evaluation seeds itself from the previous one's answer. That
+    /// makes `TEFUNC` path-dependent in the last bits, and reproducing it is
+    /// what makes the port bit-exact; see [`mod@crate::vessels`].
+    ///
+    /// It cannot live inside [`Plant::derivatives`], which is `&self` on
+    /// purpose. The integrator calls it once per step, alongside the other two
+    /// impure phases.
+    ///
+    /// # Errors
+    ///
+    /// As [`Plant::derivatives`].
+    pub fn step_seeds(&mut self, y: &State) -> Result<(), PlantError> {
+        self.seeds = unpack(y, self.seeds)?.seeds;
+        Ok(())
+    }
+
+    /// The warm-start temperatures this plant will use next.
+    #[must_use]
+    pub const fn seeds(&self) -> TemperatureSeeds {
+        self.seeds
+    }
+
+    /// Set the warm-start temperatures, for a harness that needs to place the
+    /// plant in a known condition.
+    pub const fn set_seeds(&mut self, seeds: TemperatureSeeds) {
+        self.seeds = seeds;
+    }
+
+    /// Set the latched valve commands directly, for the same reason.
+    pub const fn set_valve_command(&mut self, command: [f64; 12]) {
+        self.valve_command = command;
+    }
+
+    /// The walk-driven inputs the pure phase reads. Phase 3 fills these in.
+    #[must_use]
+    pub const fn walk_inputs(&self) -> &WalkInputs {
+        &self.walks
+    }
+
+    /// Set the walk-driven inputs.
+    pub const fn set_walk_inputs(&mut self, walks: WalkInputs) {
+        self.walks = walks;
     }
 
     /// **Impure.** Exactly once per outer step, *after* the derivative call.
@@ -254,6 +467,10 @@ impl Plant {
     ) -> Result<(State, Measurements), PlantError> {
         self.advance_discrete(t, u);
         let (derivative, signals) = self.derivatives(t, y, u)?;
+        // Once per step, after the derivative and never inside it: the warm
+        // start is persistent state, and folding it into the pure phase would
+        // make an RK4 driver advance it four times.
+        self.step_seeds(y)?;
         let measurements = self.sample_measurements(t, &signals);
         Ok((y.step(dt, &derivative), measurements))
     }
@@ -315,32 +532,174 @@ pub fn assert_derivatives_are_pure(plant: &Plant, t: SimTime, y: &State, u: &Inp
 mod tests {
     use super::*;
 
+    /// The plant's nominal operating point, from `TEINIT`.
+    ///
+    /// Hand-built fixtures are not usable here. Several were tried and every
+    /// one tripped the shutdown detector, most often on *level low*: the
+    /// vessels need tens of lbmol of liquid before `VLR/35.3145` clears 2
+    /// cubic metres, and a plausible-looking small state is a plant that has
+    /// already emptied itself. A tripped plant returns fifty zeros, which is
+    /// exactly the answer these tests exist to distinguish from a bug.
+    fn running_state() -> State {
+        State::from_flat(&crate::constants::NOMINAL_STATE)
+    }
+
+    /// The nominal state really is a healthy plant. Everything below depends
+    /// on it, and a fixture that quietly tripped would make every one of these
+    /// tests vacuous.
+    #[test]
+    fn the_nominal_state_does_not_trip() {
+        let mut plant = Plant::new();
+        let u = Inputs {
+            manipulated: [50.0; 12],
+            disturbances: [0.0; 20],
+        };
+        plant.advance_discrete(SimTime(0.0), &u);
+        let (_, signals) = plant
+            .derivatives(SimTime(0.1), &running_state(), &u)
+            .expect("converges");
+        assert!(
+            !signals.shutdown.is_tripped(),
+            "the nominal operating point trips: {:?}",
+            signals.shutdown.first()
+        );
+    }
+
+    /// The property the whole three-phase split exists to provide, now that
+    /// there is physics behind it to test.
     #[test]
     fn the_derivative_is_pure() {
-        // Currently weak: there is no physics, so both evaluations fail the
-        // same way. It strengthens by itself as B-0017 onward land, which is
-        // why the assertion exists now rather than later.
-        let plant = Plant::new();
-        assert_derivatives_are_pure(&plant, SimTime(0.0), &State::default(), &Inputs::default());
-    }
-
-    #[test]
-    fn the_unported_plant_says_so_rather_than_returning_zeros() {
-        let plant = Plant::new();
-        let outcome = plant.derivatives(SimTime(0.0), &State::default(), &Inputs::default());
-        assert_eq!(outcome, Err(PlantError::NotImplemented));
-    }
-
-    #[test]
-    fn a_euler_step_propagates_the_failure_rather_than_stepping() {
         let mut plant = Plant::new();
-        let outcome = plant.euler_step(
-            SimTime(0.0),
-            &State::default(),
-            &Inputs::default(),
-            1.0 / 3600.0,
+        let u = Inputs {
+            manipulated: [50.0; 12],
+            disturbances: [0.0; 20],
+        };
+        plant.advance_discrete(SimTime(0.0), &u);
+        assert_derivatives_are_pure(&plant, SimTime(0.1), &running_state(), &u);
+    }
+
+    /// The plant produces a derivative that actually moves. An all-zero answer
+    /// would satisfy every structural test and describe a frozen plant.
+    #[test]
+    fn the_derivative_is_not_all_zeros_on_a_running_plant() {
+        let mut plant = Plant::new();
+        let u = Inputs {
+            manipulated: [50.0; 12],
+            disturbances: [0.0; 20],
+        };
+        plant.advance_discrete(SimTime(0.0), &u);
+        let (derivative, signals) = plant
+            .derivatives(SimTime(0.1), &running_state(), &u)
+            .expect("converges");
+        let moving = derivative
+            .to_flat()
+            .iter()
+            .filter(|v| v.to_bits() != 0.0_f64.to_bits())
+            .count();
+        assert!(moving > 30, "only {moving} of 50 derivatives are non-zero");
+        assert_eq!(signals.continuous.len(), N_CONTINUOUS);
+    }
+
+    /// A euler step advances the state and the warm-start seeds together.
+    #[test]
+    fn a_euler_step_advances_both_the_state_and_the_seeds() {
+        let mut plant = Plant::new();
+        let u = Inputs {
+            manipulated: [50.0; 12],
+            disturbances: [0.0; 20],
+        };
+        let y = running_state();
+        let before = plant.seeds();
+        let (next, _) = plant
+            .euler_step(SimTime(0.0), &y, &u, 1.0 / 3600.0)
+            .expect("converges");
+        assert!(
+            next.to_flat()
+                .iter()
+                .zip(y.to_flat())
+                .any(|(a, b)| a.to_bits() != b.to_bits()),
+            "the state did not move"
         );
-        assert_eq!(outcome, Err(PlantError::NotImplemented));
+        assert!(
+            plant.seeds() != before,
+            "the warm-start seeds did not advance, so the next evaluation \
+             would start from a stale guess and the port would not be \
+             bit-exact"
+        );
+    }
+
+    /// The latch tracks the command exactly when nothing is sticking, and
+    /// clamps to the valve's travel.
+    #[test]
+    fn the_valve_latch_tracks_the_command_and_clamps_to_travel() {
+        let mut plant = Plant::new();
+        let mut u = Inputs {
+            manipulated: [42.0; 12],
+            ..Inputs::default()
+        };
+        plant.advance_discrete(SimTime(1.0), &u);
+        // Exact: the latch is a copy, not an arithmetic result.
+        for command in plant.valve_command() {
+            assert_eq!(command.to_bits(), 42.0_f64.to_bits());
+        }
+
+        u.manipulated[0] = -5.0;
+        u.manipulated[1] = 150.0;
+        plant.advance_discrete(SimTime(1.0), &u);
+        assert!((plant.valve_command()[0] - 0.0).abs() < f64::EPSILON);
+        assert!((plant.valve_command()[1] - 100.0).abs() < f64::EPSILON);
+    }
+
+    /// `IDV(19)` makes four valves stick: the command has to move more than
+    /// the stiction band before the valve follows it.
+    #[test]
+    fn a_sticking_valve_ignores_a_small_command_change() {
+        let mut plant = Plant::new();
+        let mut u = Inputs {
+            manipulated: [50.0; 12],
+            disturbances: [0.0; 20],
+        };
+        // Latch at 50 first, at a non-zero time so the `TIME = 0` branch does
+        // not force it.
+        plant.advance_discrete(SimTime(1.0), &u);
+        u.disturbances[18] = 1.0; // IDV(19)
+
+        // Valve 5 sticks; valve 1 does not.
+        u.manipulated[4] = 51.0;
+        u.manipulated[0] = 51.0;
+        plant.advance_discrete(SimTime(1.0), &u);
+        assert!(
+            (plant.valve_command()[4] - 50.0).abs() < f64::EPSILON,
+            "valve 5 should have stuck at 50"
+        );
+        assert!(
+            (plant.valve_command()[0] - 51.0).abs() < f64::EPSILON,
+            "valve 1 does not stick under IDV(19)"
+        );
+
+        // Past the band, it moves.
+        u.manipulated[4] = 55.0;
+        plant.advance_discrete(SimTime(1.0), &u);
+        assert!((plant.valve_command()[4] - 55.0).abs() < f64::EPSILON);
+    }
+
+    /// The disturbance clamp is a threshold, not a rounding. `teprob.f:341`
+    /// tests `.GT.0`, so any positive magnitude becomes exactly one.
+    #[test]
+    fn the_disturbance_clamp_is_a_threshold_not_a_rounding() {
+        let mut u = Inputs::default();
+        // A magnitude the eventual Class C fix would honour, which the
+        // faithful path must still turn into a full-strength fault.
+        u.disturbances[0] = 0.4;
+        u.disturbances[1] = 1.0;
+        u.disturbances[2] = -1.0;
+        let clamped = u.clamped_disturbances();
+        assert!(
+            (clamped[0] - 1.0).abs() < f64::EPSILON,
+            "0.4 becomes 1, not 0"
+        );
+        assert!((clamped[1] - 1.0).abs() < f64::EPSILON);
+        assert!((clamped[2] - 0.0).abs() < f64::EPSILON);
     }
 
     #[test]

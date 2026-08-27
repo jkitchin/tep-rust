@@ -125,6 +125,7 @@ const LIBM_SYSTEM_TESTS: &[&str] = &[
     "tier2_stripper",
     "tier2_heat",
     "tier2_measurements",
+    "tier2_balances",
 ];
 
 fn cmd_ci(root: &Path, fast: bool) -> Result<(), String> {

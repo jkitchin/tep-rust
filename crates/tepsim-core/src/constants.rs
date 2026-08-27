@@ -376,3 +376,91 @@ pub const VTC: f64 = single(156.5);
 //
 // @port teprob.f:1121
 pub const VTV: f64 = single(5000.0);
+
+// ---------------------------------------------------------------------------
+// The nominal initial state
+// ---------------------------------------------------------------------------
+
+/// `YY(1..50)` as `TEINIT` sets them: the plant's nominal operating point.
+///
+/// This is the condition every published `d00`-`d21` run starts from, and the
+/// only state in the file that is a *plant* rather than an arbitrary vector.
+/// Without it `tepsim-core` cannot start a simulation at all.
+///
+/// # Precision
+///
+/// 3 of the 50 carry a `D` suffix: `YY(20)`, `YY(22)` and `YY(24)`, the three
+/// written in exponential form because they are near 1e-2. The other 47 are
+/// ordinary decimals with no suffix, so they are single precision and are
+/// widened.
+///
+/// That split is not arbitrary: the three exponential literals needed a suffix
+/// to be double, and whoever wrote them supplied one, while the 47 plain
+/// decimals did not. `YY(43) = 22.21000000` is written to eight decimal places
+/// and stored to seven significant figures.
+///
+/// Getting one wrong shifts the starting point rather than the model, so it
+/// would show up as a trajectory that diverges from the published data while
+/// every Tier 1 and Tier 2 number stayed perfect. `tests/nominal_state.rs`
+/// reparses the Fortran and checks all fifty.
+//
+// Transcribed digit for digit; `single` does the rounding. See the note on the
+// pre-exponentials in `crate::kinetics` for why clippy's advice to shorten
+// these is exactly backwards here.
+#[allow(
+    clippy::excessive_precision,
+    reason = "transcribed verbatim from teprob.f; `single` does the rounding"
+)]
+// @port teprob.f:1053-1102
+pub const NOMINAL_STATE: [f64; 50] = [
+    single(10.40491389),  // YY(1), teprob.f:1053
+    single(4.363996017),  // YY(2), teprob.f:1054
+    single(7.570059737),  // YY(3), teprob.f:1055
+    single(0.4230042431), // YY(4), teprob.f:1056
+    single(24.15513437),  // YY(5), teprob.f:1057
+    single(2.942597645),  // YY(6), teprob.f:1058
+    single(154.3770655),  // YY(7), teprob.f:1059
+    single(159.1865960),  // YY(8), teprob.f:1060
+    single(2.808522723),  // YY(9), teprob.f:1061
+    single(63.75581199),  // YY(10), teprob.f:1062
+    single(26.74026066),  // YY(11), teprob.f:1063
+    single(46.38532432),  // YY(12), teprob.f:1064
+    single(0.2464521543), // YY(13), teprob.f:1065
+    single(15.20484404),  // YY(14), teprob.f:1066
+    single(1.852266172),  // YY(15), teprob.f:1067
+    single(52.44639459),  // YY(16), teprob.f:1068
+    single(41.20394008),  // YY(17), teprob.f:1069
+    single(0.5699317760), // YY(18), teprob.f:1070
+    single(0.4306056376), // YY(19), teprob.f:1071
+    7.9906200783e-03,     // YY(20), teprob.f:1072
+    single(0.9056036089), // YY(21), teprob.f:1073
+    1.6054258216e-02,     // YY(22), teprob.f:1074
+    single(0.7509759687), // YY(23), teprob.f:1075
+    8.8582855955e-02,     // YY(24), teprob.f:1076
+    single(48.27726193),  // YY(25), teprob.f:1077
+    single(39.38459028),  // YY(26), teprob.f:1078
+    single(0.3755297257), // YY(27), teprob.f:1079
+    single(107.7562698),  // YY(28), teprob.f:1080
+    single(29.77250546),  // YY(29), teprob.f:1081
+    single(88.32481135),  // YY(30), teprob.f:1082
+    single(23.03929507),  // YY(31), teprob.f:1083
+    single(62.85848794),  // YY(32), teprob.f:1084
+    single(5.546318688),  // YY(33), teprob.f:1085
+    single(11.92244772),  // YY(34), teprob.f:1086
+    single(5.555448243),  // YY(35), teprob.f:1087
+    single(0.9218489762), // YY(36), teprob.f:1088
+    single(94.59927549),  // YY(37), teprob.f:1089
+    single(77.29698353),  // YY(38), teprob.f:1090
+    single(63.05263039),  // YY(39), teprob.f:1091
+    single(53.97970677),  // YY(40), teprob.f:1092
+    single(24.64355755),  // YY(41), teprob.f:1093
+    single(61.30192144),  // YY(42), teprob.f:1094
+    single(22.21000000),  // YY(43), teprob.f:1095
+    single(40.06374673),  // YY(44), teprob.f:1096
+    single(38.10034370),  // YY(45), teprob.f:1097
+    single(46.53415582),  // YY(46), teprob.f:1098
+    single(47.44573456),  // YY(47), teprob.f:1099
+    single(41.10581288),  // YY(48), teprob.f:1100
+    single(18.11349055),  // YY(49), teprob.f:1101
+    single(50.00000000),  // YY(50), teprob.f:1102
+];

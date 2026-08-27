@@ -14,19 +14,18 @@ earlier phases will change what the right decomposition is.
 
 Rewrite this block at the end of every iteration. Keep it to five lines.
 
-- Phase: 2, on B-0025. Only the balances left; B-0024b deferred to Phase 3
-- Last completed: B-0024a measurements and shutdown, ISD exact on all 2,421
-  states; adversarial catalogue 21 to 25
+- Phase: 2 model *complete*. =Plant::derivatives= runs the whole right-hand side
+- Last completed: B-0025 balances. *All 50 components bit-identical to gfortran*
+  under =libm-system=, 35,850 comparisons, 0 ULP
 - In flight: (none)
-- Baseline: =cargo xtask ci= green; 205 tests default, 304 with =oracle=, plus
-  a 32-test =oracle,libm-system= run; provenance 681/1589 (42.9%)
+- Baseline: =cargo xtask ci= green; 222 tests default, 325 with =oracle=, plus
+  a 38-test =oracle,libm-system= run; provenance *808/1589 (50.8%)*
 - Toolchain: rustup, pinned to rustc 1.97.1, wasm32 installed, libm 0.2.16
 - Remote: private jkitchin/tep-rust, CI green on all 7 jobs
-- Blocked on: nothing. Next is B-0025, the balances: all fifty derivatives and
-  the valve lags. The *shutdown derivative-zeroing at =807-811= is Class C* and
-  must land behind a flag with a =BLOCKED= item for sign-off, never as the
-  default. =derivatives= reports the trip instead, and B-0024a already gives it
-  a typed cause to report.
+- *Blocked on B-0026a*: Tier 2's "rel err < 1e-12" is not achievable
+  relative-to-result on a balance equation, because balances cancel. The port
+  is not in question; the *metric* is. B-0026 cannot state its acceptance
+  criterion until this is answered. Everything else is unblocked.
 
 * Phase 0: foundations
 
@@ -918,40 +917,129 @@ Done when:
 - [ ] The =TIME.GT.0.0.AND.ISD.EQ.0= guard at =711= reproduced: a tripped
       plant gets no noise at all, and neither does t=0
 
-** NEXT B-0025 Balance assembly and valve dynamics
+** DONE B-0025 Balance assembly and valve dynamics
 :PROPERTIES:
 :ID:    B-0025
 :PHASE: 2
 :TIER:  2
-:DEPS:  B-0024
+:DEPS:  B-0024a
 :PLAN:  Anatomy > Unit operations
+:COMMIT: pending
+:RESULT: =teprob.f:762-811=, and =Plant::derivatives= now runs the whole model.
+         *All fifty components are bit-identical to gfortran under
+         =libm-system=*, 35,850 comparisons, 0 ULP. Under the vendored libm the
+         22 non-cancelling components are also 0 ULP; the other 28 exceed
+         1e-12 *relative to the result* purely through cancellation, which is
+         *B-0026a* and blocks Tier 2 acceptance. Two real bugs caught by the
+         differential: =HST(9)= in the balances is the *post-compressor* value
+         (reading the stream table gave =YP(36)= wrong by 6e8), and =1.8= at
+         =teprob.f:790= is *single* precision while every other 1.8 in the file
+         is =1.8D0=. Also added: the nominal initial state from =TEINIT=,
+         verified against the Fortran, without which no fixture is a running
+         plant. Delta *D-007*, freeze on shutdown, reproduced by default per
+         =PLAN.org=; the backlog entry below said the opposite and was wrong.
 :END:
 
 =teprob.f:762-816=. All 50 derivative components, and the valve first-order
 lags.
 
 Done when:
-- [ ] =YP(1..38)= from the component and energy balances
-- [ ] =YP(39..50)= from the valve lags, with the latch hoisted per B-0014
-- [ ] The shutdown derivative-zeroing at =807-811= is *not* the default: it is
-      a Class C quirk, so it lands behind a flag with a =BLOCKED= item for
-      sign-off, and =derivatives= reports the trip instead
+- [X] =YP(1..38)= from the component and energy balances
+- [X] =YP(39..50)= from the valve lags, with the latch hoisted per B-0014
+- [X] The shutdown derivative-zeroing at =807-811= is a Class C quirk and is
+      *reproduced by default*, with the **fix** behind
+      =QuirkFixes::trip_ends_the_run= and a =BLOCKED= item (B-0025b) for
+      sign-off. This line originally said the zeroing itself should not be the
+      default; =PLAN.org= says the opposite ("an explicit sign-off *before it
+      becomes the default*", of the fix), and the plan is the design of record.
+      It is also the only reading Tier 2 can live with. =derivatives= reports
+      the trip either way
+
+** BLOCKED B-0026a What should Tier 2 measure on a cancelling component?
+:PROPERTIES:
+:ID:       B-0026a
+:PHASE:    2
+:TIER:     2
+:DEPS:     B-0025
+:PLAN:     Validation > Tier 2
+:QUESTION: =PLAN.org= sets Tier 2 at "rel err < 1e-12". Measured
+           relative to the *result*, 28 of the 50 derivatives fail that, worst
+           =YP(2)= at 1.393e-4 - while the whole right-hand side is
+           *bit-identical* to the Fortran under =libm-system=. The cause is
+           cancellation, not error. What should the gate be measured against?
+:END:
+
+*The port is not in question.* B-0025 proved all fifty components bit-identical
+to gfortran over 35,850 comparisons once =exp= and =pow= agree. This is about
+what the tolerance *means*.
+
+A balance is inflow minus outflow. Near steady state those nearly agree, so the
+derivative is a small difference of large numbers. =YP(2)=, the inert's reactor
+balance, is a difference of two flows around 660 whose result is a few parts in
+ten thousand of either. One ULP of difference in each term, which is all the
+vendored =exp= costs, is 1e-16 of the *terms* and 1e-4 of the *result*.
+
+The 22 components that do meet 1e-12 are exactly the ones that do not cancel:
+the nine stripper balances, the reactor coolant wall, and the twelve valve
+lags. Those are *0 ULP*, not merely inside 1e-12.
+
+Per-component numbers are in =crates/tepsim-oracle/tests/tier2_balances.rs=,
+which prints the full table, and in the B-0025 log entry.
+
+Three candidate answers, none of them taken:
+
+1. *Measure against the scale of the terms, not the result.* Standard for
+   cancelling sums, and it would put every component at ~1e-16. Needs the
+   =Comparison= harness to carry a scale, which the adversarial =Target=
+   already does for the same reason.
+2. *Keep relative-to-result and accept that the gate is only meaningful on
+   non-cancelling components*, gating those and reporting the rest. This is
+   what B-0025 does provisionally, so the gate is green and the situation is
+   visible rather than hidden.
+3. *Make bit equality under =libm-system= the Tier 2 gate* and treat the
+   default build's numbers as a reported budget. The strongest claim available,
+   but it moves Tier 2 off the shipping configuration.
+
+*A one-line answer unblocks this.* Until then B-0026 cannot state its
+acceptance criterion.
 
 ** TODO B-0026 Tier 2 acceptance
 :PROPERTIES:
 :ID:    B-0026
 :PHASE: 2
 :TIER:  2
-:DEPS:  B-0025
+:DEPS:  B-0025 B-0026a
 :PLAN:  Validation > Tier 2
 :END:
 
 Done when:
-- [ ] Max relative error below 1e-12 on all 50 components across all three
-      pools, with per-component ULP histograms recorded
+- [ ] The Tier 2 criterion stated per B-0026a's answer, and met on all 50
+      components across all three pools, with per-component ULP histograms
 - [ ] The worst component named, with the state that produced it
 - [ ] =xtask validate --tiers 2= runs it, and the fidelity preflight starts
       diffing the golden trace for real
+
+** BLOCKED B-0025b Sign-off: should a shutdown end the run instead of freezing it?
+:PROPERTIES:
+:ID:       B-0025b
+:PHASE:    6
+:TIER:     10
+:DEPS:     B-0025
+:PLAN:     Quirk and delta register
+:QUESTION: Delta D-007 is implemented and off by default, as =PLAN.org=
+           requires. It cannot become the default without a Tier 5 and Tier 6
+           delta report, which is Phase 5. Carried here so the question is not
+           lost; it is *not* blocking Phase 2.
+:END:
+
+=teprob.f:807-811= zeroes all fifty derivatives on any shutdown, freezing the
+plant rather than stopping it, silently. =QuirkFixes::trip_ends_the_run=
+implements the fix and is off.
+
+Reopen when Tier 5 exists. Measured so far: the freeze fires on exactly the
+states the Fortran freezes (2,412 running, 13 frozen, no disagreement), and
+turning the fix on changes the derivative on all 8 tripping adversarial
+boundaries and none of the 17 others.
 
 * Phase 3: measurements and disturbances
 
@@ -1015,7 +1103,12 @@ Exit: 1.0 tagged, all three surfaces built from one commit.
 
 Items parked on a decision. Move them back into their phase when answered.
 
-(none)
+- *B-0026a*, in Phase 2. What should Tier 2 measure on a component whose
+  balance cancels? Blocks B-0026 and therefore the close of Phase 2. A
+  one-line answer unblocks it. **This is the one to answer.**
+- *B-0025b*, in Phase 6. Should a shutdown end the run instead of freezing the
+  plant? Delta D-007 is implemented and off by default, as =PLAN.org= requires;
+  it cannot become the default before Tier 5 exists. Not blocking anything now.
 
 * Decisions
 
