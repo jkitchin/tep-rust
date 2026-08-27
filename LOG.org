@@ -4153,3 +4153,102 @@ the instrumentation path that already exists for exactly this reason and rename
 =PROGRAM= to a subroutine nothing calls. The second is in keeping: =ISD= was
 hoisted the same way, and the pristine probe already proves such edits change
 no numbers.
+
+* 2026-08-27 B-0036 Provenance and the oracle over two files
+:PROPERTIES:
+:ITEM:     B-0036
+:PHASE:    4
+:TIER:     none
+:COMMIT:   855430b
+:GFORTRAN: 15.2.0
+:STATUS:   DONE
+:END:
+** Preflight
+Clean and green. gfortran 15.2.0. =xtask fidelity= 100 of 100, worst 3.521e-14.
+Provenance *1123/1589 (70.7%)* on entry.
+
+** What changed
+=xtask provenance= is two-file aware. The oracle compiles =temain_mod.f= and
+binds all twenty =CONTRLn= with their =COMMON= blocks.
+
+** Validation numbers
+Provenance now reports per file:
+
+: reference/fortran/teprob.f       1123 of 1589 (70.7%)
+: reference/fortran/temain_mod.f      0 of 1408  (0.0%)
+: total                            1123 of 2997 (37.5%)
+
+The =teprob.f= figure is unchanged, which is the point: ninety existing claims
+parse identically.
+
+** Surprises and decisions
+*The coverage number nearly halved, and that is the correct answer.* 70.7%
+became 37.5% the moment a second vendored file was counted. Nothing regressed;
+1,408 lines of control layer had simply been invisible. Doing this *before*
+porting any of it means the number goes up from an honest floor rather than
+appearing to fall later.
+
+*An unknown file name is an error, not a shrug.* The first draft filtered
+unrecognised claims out, which is the obvious thing. It is also the worst
+possible behaviour: a mistyped =teprob.for:= would stop counting, coverage
+would drop by however many lines that claim covered, and the report would give
+no hint why. It now fails and quotes what it saw.
+
+*=temain_mod.f= is an unnamed main program.* No =PROGRAM= statement, so
+gfortran compiles it to =MAIN__= and emits a =main=. Linked into a Rust test
+binary that collides with the harness, and had it run it would open fifteen
+files under =~/= and simulate 48 hours on load.
+
+One instrumentation edit turns it into =SUBROUTINE TEMAIN_UNUSED=, which
+nothing calls. The anchor is the one comment in the file with *two* spaces
+before "MEASUREMENT"; the twenty-three copies inside the subroutines have
+three. The uniqueness assertion that =instrument.rs= applies to every edit is
+what makes an anchor that near-miss safe to use.
+
+*Parameterless subroutines are the easiest binding in the project.* Each
+=CONTRLn= takes no arguments and communicates entirely through =COMMON=, so the
+binding is a bare =fn contrl1_()= and everything else is a struct mirroring a
+block. =TESUB5=, with fourteen arguments and six written back, was far harder.
+
+*Three of the seven tests are findings, not plumbing.*
+
+The velocity form is confirmed *incremental*: a proportional loop makes no
+further move on an unchanged error. A positional implementation would ramp its
+valve without limit at a constant offset, and it is an easy thing to write by
+accident.
+
+The purge override latches in *both* directions, and while latched =ERROLD6=
+does not advance. That confirms B-0035's reading of the branch structure: the
+PI really is inside the final =ELSE= and really does not run.
+
+A cascade controller moves a setpoint and leaves every valve untouched, checked
+by comparing all twelve.
+
+*=XMV(6)=40.060= and =SETPT(6)=0.33712= are single precision*, and the override
+thresholds are mixed: 2950 and 2300 are exactly representable, 2633.7 is not.
+The same trap as =teprob.f= throughout, in a file this project had not read
+until today. The first version of the override test used =40.060_f64= and
+failed, which is the third time this session that writing the double literal
+has been the mistake.
+
+*The checksums needed nothing.* =reference_integrity.rs= walks =reference/= and
+requires every file present to be listed in the manifest, so =temain_mod.f= was
+already covered. Checked rather than assumed.
+
+** Next
+B-0037: the velocity-form PI controller itself.
+
+One type with two shapes, and a Tier 1-style differential against all twenty
+=CONTRLn= bodies over a sweep of measurement and setpoint values. The oracle
+side exists now, so this is a straight port-and-compare.
+
+Three things the source settles that a summary would not. The error is
+normalised by a per-loop span before the gain, so every gain is in
+percent-of-span. The integral multiplier is the loop's own period, =3.=,
+=360.= or =900.=, and B-0035 confirmed it matches the scheduler loop for loop.
+And =CONTRL22= has no normalisation at all, which is consistent with it being
+the older loop the override replaced.
+
+Bind the sweep to the *published* tuning as well as to random values: B-0038
+transcribes it, but a differential that only ever sees random gains would miss
+a constant that is wrong in the fourth digit.

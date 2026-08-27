@@ -14,16 +14,15 @@ earlier phases will change what the right decomposition is.
 
 Rewrite this block at the end of every iteration. Keep it to five lines.
 
-- Phase: 4, decomposed into 7 items. Phases 2 and 3 are closed
-- Last completed: B-0035. The control scheme is a *cascade* with a latching
-  pressure override, and one of its twenty controllers is dead code
+- Phase: 4, one of eight done. Phases 2 and 3 are closed
+- Last completed: B-0036. Two-file provenance, and all twenty controllers bound
 - In flight: (none)
-- Baseline: =cargo xtask ci= green; 255 tests default, 398 with =oracle=;
-  =validate --tiers 1,2,3,4= all green; provenance *1123/1589 (70.7%)*
+- Baseline: =cargo xtask ci= green; 258 tests default, 408 with =oracle=;
+  =validate --tiers 1,2,3,4= green; provenance *1123/1589 (70.7%)* on
+  =teprob.f=, *0/1408* on =temain_mod.f=, 37.5% combined
 - Toolchain: rustup, pinned to rustc 1.97.1, wasm32 installed, libm 0.2.16
 - Remote: private jkitchin/tep-rust, CI green on all 7 jobs
-- Blocked on: nothing. Next is B-0036, which teaches =xtask provenance= and the
-  oracle about =temain_mod.f= before any of it is ported.
+- Blocked on: nothing. Next is B-0037, the velocity-form PI controller.
 
 * Phase 0: foundations
 
@@ -1404,13 +1403,26 @@ something in the decomposition that reshaped the phase.
       B-0036. =xtask provenance= scans =teprob.f= alone and the =@port= syntax
       names no file, so 1,408 lines would otherwise land uncounted
 
-** NEXT B-0036 Provenance and the oracle over two files
+** DONE B-0036 Provenance and the oracle over two files
 :PROPERTIES:
 :ID:    B-0036
 :PHASE: 4
 :TIER:  none
 :DEPS:  B-0035
 :PLAN:  Testing, CI, and release engineering
+:COMMIT: 855430b
+:RESULT: Claims carry a file; the report is per file with a combined total; the
+         ninety existing claims parse unchanged. An unrecognised file name is
+         an *error*, not a silent drop, since dropping it shows up as coverage
+         falling for no reason. The oracle compiles =temain_mod.f= and binds
+         all twenty controllers with =CTRLALL=, =FLAG6= and the twenty per-loop
+         blocks. One instrumentation edit: the file is an *unnamed* main
+         program, so it defines =main=; it becomes =SUBROUTINE TEMAIN_UNUSED=.
+         Seven tests, three of them findings: the velocity form is confirmed
+         incremental, the override latches both ways without advancing
+         =ERROLD6=, and a cascade controller moves a setpoint and no valve.
+         =XMV(6)=40.060= and =SETPT(6)=0.33712= are *single precision*.
+         Provenance is now 1123/1589 on =teprob.f= and 0/1408 on the driver.
 :END:
 
 =xtask provenance= scans =teprob.f= alone, and the =@port= claim syntax names
@@ -1422,13 +1434,12 @@ so there is no =CONTRL1_= to call. The controllers are parameterless
 =SUBROUTINE=s reading and writing =COMMON=, which makes them *easier* to bind
 than =TESUB5= was, not harder.
 
-Done when:
-- [ ] =@port temain_mod.f:477-514= parses, and =xtask provenance= reports
-      coverage per file
-- [ ] Existing claims keep working unchanged; a bare =teprob.f:= still means
-      =teprob.f=
-- [ ] The oracle compiles =temain_mod.f= and can call each =CONTRLn=
-- [ ] =reference/= checksums cover it, as they already do for =teprob.f=
+- [X] =@port temain_mod.f:477-514= parses, and coverage is reported per file
+- [X] Existing claims unchanged, all ninety of them
+- [X] The oracle compiles =temain_mod.f= and can call each =CONTRLn=
+- [X] =reference/= checksums already covered it: =reference_integrity.rs= walks
+      the directory and requires every file to be listed, so nothing was
+      needed. Worth checking rather than assuming
 
 ** TODO B-0037 The velocity-form PI controller
 :PROPERTIES:
