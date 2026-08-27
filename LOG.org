@@ -2206,3 +2206,120 @@ The naming quirk is already located and does not need rediscovering: =R1F= and
 =R2F= arrive as disturbance drift factors from =TESUB8= and are *reassigned in
 place* as pressure powers at =507-508=. Read =503-511= as written rather than
 tidying it, and give it a Class A delta entry.
+
+* 2026-08-27 B-0019 Reaction kinetics, and two constants that are not what they look like
+:PROPERTIES:
+:ITEM:     B-0019
+:PHASE:    2
+:TIER:     2
+:COMMIT:   80d217e
+:GFORTRAN: 15.2.0
+:STATUS:   DONE
+:END:
+** Preflight
+Clean and green, identical to B-0018's closing numbers. =xtask fidelity=:
+golden trace intact, recorded with gfortran 15.2.0, local 15.2.0 (matches), 0
+of 100 steps diffed as expected. Provenance *416/1589 (26.2%)*, unchanged.
+gfortran unchanged, so no re-baseline.
+
+B-0018's equilibrium numbers were re-run as part of the gate and did not move:
+max rel err 6.230e-16, and 0 ULP under =libm-system=.
+
+** What changed
+=tepsim_core::kinetics= ports =teprob.f:503-528=: the four reaction rates,
+the eight net-production terms, and the heat release. =math= gained =pow=;
+=constants= gained =single_quotient=. The stated range was =500-520=, which
+starts three lines before =RR(1)= and stops eight lines before =RH=; both ends
+are corrected in the backlog.
+
+** Validation numbers
+*Tier 2, three fields, all three pools.* 2,417 states, zero convergence
+failures, so delta D-001 still has not fired.
+
+| field | cases  | max rel err | max ulp | ulp histogram                          |
+|-------+--------+-------------+---------+----------------------------------------|
+| RR    |  9,668 | 8.492e-16   |       7 | 0:7231 1:1439 2:732 3:235 4:22 5:7 6:1 7:1 |
+| CRXR  | 19,336 | 8.492e-16   |       7 | 0:14026 1:3003 2:1763 3:450 4:72 5:16 6:4 7:2 |
+| RH    |  2,417 | 7.419e-16   |       6 | 0:1586 1:472 2:299 3:50 4:8 5:1 6:1    |
+
+Worst overall *8.492e-16 on =RR(2)=* at =perturbed#618=; worst ULP *7, on
+=RR(1)=* at =perturbed#1279=. Percentiles p50=0, p90=2, p99=3 on all three.
+Gate is 1e-12.
+
+*Under =--features oracle,libm-system=: 0 ULP on all three fields.* The
+algebra is exact; the entire 8.5e-16 is =exp= and =pow= rounding.
+
+*=pow=, measured the way B-0018 measured =exp=.* 40,000 arguments over
+[0.25, 5000] at both orders: *3,992 differ (9.980%), worst -1 ULP*. B-0019 was
+written expecting =pow= to be worse than =exp=, since it is the harder function
+to round. It is not: 9.980% against 9.945%, both one ULP, both always low.
+Every later item can budget for one number rather than two.
+
+*=CRXR(2)= is exactly zero in the Fortran on all 200 nominal states*, which is
+what makes delta D-003 benign rather than a latent garbage read.
+
+** Surprises and decisions
+*The precision trap in this range is not the one the backlog named.* It named
+the single-precision literals, which were expected and handled. The one that
+would have cost a session is =40000.0/1.987= at =teprob.f:503=: *both operands
+are REAL(4), so Fortran evaluates the division itself in single precision* and
+only then widens. Fortran types an expression from its operands, never from its
+destination.
+
+Three candidate readings, checked against a gfortran program compiled with the
+pinned flags rather than argued from the standard:
+
+| form | bits |
+|------+------|
+| what gfortran stores | =0x40D3A8B680000000= |
+| =single(40000.0) / single(1.987)= | =0x40D3A8B670F51E20= |
+| =40000.0_f64 / 1.987_f64= | =0x40D3A8B66F0ED0F9= |
+
+The tell is 29 trailing zero mantissa bits. Getting it wrong measures
+*2.398e-6* on the plant, six orders past the gate, and it sits inside a =DEXP=
+argument so it is amplified rather than carried. =constants::single_quotient=
+exists for it and a test asserts the trailing-zero signature on all three
+activation energies.
+
+*The second trap was mine, and the protocol caught it.* The pre-exponentials
+were first written hand-rounded to =31.585_954= for =31.5859536=. Those are
+*different f32 values*, 6e-8 apart. CLAUDE.md already says constants are
+transcribed and never retyped; writing the digits verbatim and letting =single=
+round is not a style preference, and this is the concrete reason.
+
+*=pow= was expected to be worse than =exp= and is not.* Recorded because the
+opposite expectation is the natural one and would otherwise be re-derived every
+time someone reasons about the error budget.
+
+*D-003 was not anticipated by the backlog.* =CRXR(2)= is never assigned by any
+line of =teprob.f= and is read at =763=. It gives the right answer, zero,
+because =COMMON= is static storage. The guarantee is the linker's, not the
+model's, so the oracle is now *required* to report zero rather than assumed to.
+
+*D-002 is the one a port without a differential would get wrong.* Reading
+=R1F= at =teprob.f:510= as still the drift factor produces a coherent rate law
+that is self-consistent on every run. It measures 100% relative error against
+the oracle. Both readings were tried.
+
+*=xtask ci= now takes a list.* =LIBM_SYSTEM_TESTS= names the files re-run
+under the platform libm, so B-0020 onward append one string instead of editing
+the command.
+
+** Next
+B-0020, stream compositions, molecular weights and enthalpies,
+=teprob.f:529-564=.
+
+*Audit every inline literal in the range before writing any code.* This
+iteration's most expensive near-miss was an arithmetic expression between two
+suffix-less literals, which looks like nothing at all in a listing. The rule
+that catches it: in fixed-form Fortran, any sub-expression whose operands are
+all suffix-less literals is evaluated at =REAL(4)= and widened afterwards.
+Grep the range for =/= and =*= between bare numbers, not just for the numbers
+themselves.
+
+The range's own named quirk is easier: =HST(10)=HST(9)= at =teprob.f:562= is an
+aliasing, not a copy, and should be reproduced as one. Nine =TESUB1= calls feed
+it, all of which Tier 1 proved bit-exact, so any difference is in the assembly.
+
+Run the differential in both configurations from the start, and append
+=tier2_streams= to =LIBM_SYSTEM_TESTS=.

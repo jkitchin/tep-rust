@@ -14,18 +14,18 @@ earlier phases will change what the right decomposition is.
 
 Rewrite this block at the end of every iteration. Keep it to five lines.
 
-- Phase: 2, on B-0019. Equilibrium landed; =exp= now costs 1 ULP on 9.9% of calls
-- Last completed: B-0018 vapour-liquid equilibrium, 6.230e-16 max rel err,
-  and 0 ULP under =libm-system=
+- Phase: 2, on B-0020. Kinetics landed; error is 8.5e-16, all of it libm
+- Last completed: B-0019 reaction kinetics, 0 ULP under =libm-system=, and two
+  single-precision traps found in inline literals
 - In flight: (none)
-- Baseline: =cargo xtask ci= green; 152 tests default, 228 with =oracle=, plus
-  a 3-test =oracle,libm-system= run; provenance 416/1589 (26.2%)
+- Baseline: =cargo xtask ci= green; 160 tests default, 239 with =oracle=, plus
+  a 7-test =oracle,libm-system= run; provenance 444/1589 (27.9%)
 - Toolchain: rustup, pinned to rustc 1.97.1, wasm32 installed, libm 0.2.16
 - Remote: private jkitchin/tep-rust, CI green on all 7 jobs
-- Blocked on: nothing. Next is B-0019, reaction kinetics. Every Phase 2
-  differential now runs *twice*, default and =libm-system=; the second is
-  where 0 ULP is still asserted, and skipping it silently costs the ability to
-  see a reassociation.
+- Blocked on: nothing. Next is B-0020, stream compositions and enthalpies.
+  *Audit every inline literal for the =40000.0/1.987= trap before writing
+  code*: a quotient or product of two suffix-less literals is folded in single
+  precision, and it does not look like anything.
 
 * Phase 0: foundations
 
@@ -693,13 +693,25 @@ Done when:
       later item inherits it. 9.945% of arguments, one ULP, and it is
       re-measured by a test on every machine rather than quoted from here
 
-** NEXT B-0019 Reaction kinetics
+** DONE B-0019 Reaction kinetics
 :PROPERTIES:
 :ID:    B-0019
 :PHASE: 2
 :TIER:  2
 :DEPS:  B-0018
 :PLAN:  Anatomy > Unit operations
+:COMMIT: 80d217e
+:RESULT: =teprob.f:503-528=, not =500-520=: the range starts at =RR(1)= and
+         runs through =RH=, which the acceptance list already required. Tier 2
+         max rel err *8.492e-16* on =RR(2)= at =perturbed#618=, worst 7 ULP;
+         *0 ULP under =libm-system=*, so the algebra is exact. =pow= differs
+         from gfortran on *9.980%* of arguments by one ULP, near-identical to
+         =exp='s 9.945%. Two silent precision traps found and measured:
+         =40000.0/1.987= is folded in *single* precision by Fortran's typing
+         rules (getting it wrong measures 2.398e-6, six orders past the gate),
+         and hand-rounding =31.5859536= gives a different f32. Deltas *D-002*
+         (=R1F=/=R2F= reassigned in place; the misreading measures 100%) and
+         *D-003* (=CRXR(2)= never assigned, read anyway) recorded and asserted.
 :END:
 
 =teprob.f:500-520=. Four reactions, Arrhenius in =TKR=, fractional pressure
@@ -713,15 +725,13 @@ at =507-508=: the Class A naming quirk, which must be read carefully rather
 than tidied.
 
 Done when:
-- [ ] =RR(1..4)=, =CRXR(1..8)=, =RH=; the =PPR(1)>0 .AND. PPR(3)>0= branch
-- [ ] =**1.1544= and =**0.3735= go through the vendored =libm= =pow=, with its
-      disagreement with gfortran measured the way B-0018 measured =exp='s.
-      Expect it to be *worse*: =pow= is the harder function, and =DEXP= also
-      appears here at =503-505= inside the Arrhenius terms
-- [ ] Tier 2 differential *in both configurations*, default and
-      =libm-system=, asserting 1e-12 and 0 ULP respectively. See B-0018 and
-      =CLAUDE.md=
-- [ ] delta entry for the =R1F=/=R2F= rename
+- [X] =RR(1..4)=, =CRXR(1..8)=, =RH=; the =PPR(1)>0 .AND. PPR(3)>0= branch
+- [X] =**1.1544= and =**0.3735= go through the vendored =libm= =pow=, with its
+      disagreement with gfortran measured. It is *not* worse than =exp='s:
+      9.980% against 9.945%, both at exactly one ULP
+- [X] Tier 2 differential in both configurations: 8.492e-16 and 0 ULP
+- [X] delta entry for the =R1F=/=R2F= rename (D-002), and for =CRXR(2)=
+      never being assigned (D-003), which was not anticipated
 
 ** TODO B-0020 Stream compositions, molecular weights and enthalpies
 :PROPERTIES:
