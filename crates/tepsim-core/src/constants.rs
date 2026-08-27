@@ -464,3 +464,69 @@ pub const NOMINAL_STATE: [f64; 50] = [
     single(18.11349055),  // YY(49), teprob.f:1101
     single(50.00000000),  // YY(50), teprob.f:1102
 ];
+
+// ---------------------------------------------------------------------------
+// Measurement noise magnitudes
+// ---------------------------------------------------------------------------
+
+/// `XNS(1..41)`: the standard deviation of each measurement's noise.
+///
+/// `teprob.f:713`, `747` and `756` pass these to `TESUB6`, one per
+/// measurement, so `XMEAS(i)` is reported with a noise of `XNS(i)`.
+///
+/// # All forty-one are double precision
+///
+/// Unusually for this file. Everything from `teprob.f:1256` to `1359`, the
+/// noise magnitudes and the walk spans together, carries a `D` suffix: 101
+/// constants without exception. That is checked across all of them rather than
+/// inferred from a sample, because the `273.15` and the `1.8` findings both
+/// came from the original being inconsistent about exactly this.
+///
+/// The magnitudes are in each measurement's own units, so they span four
+/// orders: 0.0012 for the A feed in standard cubic metres per hour, 22 for the
+/// E feed in kilograms per hour.
+//
+// @port teprob.f:1256-1296
+pub const MEASUREMENT_NOISE: [f64; 41] = [
+    0.0012e0, // XNS(1), teprob.f:1256
+    18.000e0, // XNS(2), teprob.f:1257
+    22.000e0, // XNS(3), teprob.f:1258
+    0.0500e0, // XNS(4), teprob.f:1259
+    0.2000e0, // XNS(5), teprob.f:1260
+    0.2100e0, // XNS(6), teprob.f:1261
+    0.3000e0, // XNS(7), teprob.f:1262
+    0.5000e0, // XNS(8), teprob.f:1263
+    0.0100e0, // XNS(9), teprob.f:1264
+    0.0017e0, // XNS(10), teprob.f:1265
+    0.0100e0, // XNS(11), teprob.f:1266
+    1.0000e0, // XNS(12), teprob.f:1267
+    0.3000e0, // XNS(13), teprob.f:1268
+    0.1250e0, // XNS(14), teprob.f:1269
+    1.0000e0, // XNS(15), teprob.f:1270
+    0.3000e0, // XNS(16), teprob.f:1271
+    0.1150e0, // XNS(17), teprob.f:1272
+    0.0100e0, // XNS(18), teprob.f:1273
+    1.1500e0, // XNS(19), teprob.f:1274
+    0.2000e0, // XNS(20), teprob.f:1275
+    0.0100e0, // XNS(21), teprob.f:1276
+    0.0100e0, // XNS(22), teprob.f:1277
+    0.250e0,  // XNS(23), teprob.f:1278
+    0.100e0,  // XNS(24), teprob.f:1279
+    0.250e0,  // XNS(25), teprob.f:1280
+    0.100e0,  // XNS(26), teprob.f:1281
+    0.250e0,  // XNS(27), teprob.f:1282
+    0.025e0,  // XNS(28), teprob.f:1283
+    0.250e0,  // XNS(29), teprob.f:1284
+    0.100e0,  // XNS(30), teprob.f:1285
+    0.250e0,  // XNS(31), teprob.f:1286
+    0.100e0,  // XNS(32), teprob.f:1287
+    0.250e0,  // XNS(33), teprob.f:1288
+    0.025e0,  // XNS(34), teprob.f:1289
+    0.050e0,  // XNS(35), teprob.f:1290
+    0.050e0,  // XNS(36), teprob.f:1291
+    0.010e0,  // XNS(37), teprob.f:1292
+    0.010e0,  // XNS(38), teprob.f:1293
+    0.010e0,  // XNS(39), teprob.f:1294
+    0.500e0,  // XNS(40), teprob.f:1295
+    0.500e0,  // XNS(41), teprob.f:1296
+];

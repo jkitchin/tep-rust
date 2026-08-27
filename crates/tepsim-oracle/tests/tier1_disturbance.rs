@@ -27,7 +27,7 @@
 #![cfg(feature = "oracle")]
 
 use tepsim_core::disturbance::{
-    ChannelSpans, NOISE_DRAWS, SEGMENT_DRAWS, SegmentStart, noise, walk_segment,
+    CHANNEL_SPANS, ChannelSpans, NOISE_DRAWS, SEGMENT_DRAWS, SegmentStart, noise, walk_segment,
 };
 use tepsim_core::{TepRng, constants};
 use tepsim_oracle::tier1::{Comparison, Sampler};
@@ -90,10 +90,11 @@ fn tesub6_matches_the_fortran_over_the_state_space() {
     for index in 0..20_000_u64 {
         let seed = seed_for(index);
         let std = if index % 2 == 0 {
-            // XNS(1..41) are the magnitudes the model actually uses. They are
-            // B-0030's to transcribe, so they are read from the oracle here
-            // rather than duplicated.
-            oracle.teproc().xns[(index as usize / 2) % 41]
+            // The magnitudes the model actually uses, from the port's own
+            // table. B-0030 transcribed it, and
+            // `walk_constants_vs_oracle.rs` asserts it against gfortran, so
+            // reading it here is not circular.
+            constants::MEASUREMENT_NOISE[(index as usize / 2) % 41]
         } else {
             between(&mut sampler, 0.0, 25.0)
         };
@@ -150,16 +151,9 @@ fn tesub5_matches_the_fortran_over_the_state_space() {
         // Half the cases use a real channel's spans, half are drawn, so the
         // sweep covers both the operating point and the wider space.
         let (spans, flag) = if index % 2 == 0 {
-            let wlk = oracle.wlk();
-            let channel = (index as usize / 2) % 12;
+            // A real channel's spans, from the port's own table; see above.
             (
-                ChannelSpans {
-                    duration_span: wlk.hspan[channel],
-                    duration_centre: wlk.hzero[channel],
-                    value_span: wlk.sspan[channel],
-                    value_centre: wlk.szero[channel],
-                    slope_span: wlk.spspan[channel],
-                },
+                CHANNEL_SPANS[(index as usize / 2) % 12],
                 i32::from(index % 4 == 0),
             )
         } else {

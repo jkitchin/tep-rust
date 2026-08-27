@@ -60,7 +60,9 @@ pub mod vessels;
 
 pub use balances::{Balances, CoolantInlet, QuirkFixes, balances};
 pub use component::{ByComponent, Component, Composition};
-pub use disturbance::{ChannelSpans, Draw, Segment, SegmentStart, TracingRng, noise, walk_segment};
+pub use disturbance::{
+    CHANNEL_SPANS, ChannelSpans, Draw, Segment, SegmentStart, TracingRng, noise, walk_segment,
+};
 pub use equilibrium::{Equilibrium, VapourSpace, equilibrium};
 pub use flows::{FlowDrift, Flows, flows};
 pub use heat::{HeatDrift, HeatTransfer, heat_transfer};

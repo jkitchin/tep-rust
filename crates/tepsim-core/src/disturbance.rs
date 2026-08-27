@@ -271,6 +271,135 @@ impl TracingRng {
     }
 }
 
+/// The twelve disturbance channels' span parameters, as `TEINIT` sets them.
+///
+/// Indexed by channel minus one. `IDVWLK` maps disturbances onto these at
+/// `teprob.f:347-358`, which is B-0031's work; the table itself never changes.
+///
+/// # Reading the table
+///
+/// A channel re-segments every `duration_centre` plus or minus
+/// `duration_span` hours, and each segment ends at `value_centre` plus or
+/// minus `value_span`, scaled by the channel's disturbance flag. So
+/// `value_centre` is what the channel reads with its disturbance off, and the
+/// spans are how far it wanders when on.
+///
+/// Three things are visible in the table that the line ranges do not show:
+///
+/// - **Channels 10 to 12 have zero value and slope spans.** They are not walks
+///   at all: `teprob.f:372-396` runs them through a spike rule that uses only
+///   their *duration* parameters, so their `SSPAN` and `SPSPAN` are dead.
+/// - **`SPSPAN` is zero for every channel.** No walk in this model ends a
+///   segment with a nonzero slope, so `teprob.f:1530` always computes zero and
+///   each segment is really a cubic through two points with flat ends. The
+///   draw still happens, which is what keeps the stream aligned.
+/// - **Channels 3 to 6 sit at 45, 45, 35 and 40**, the feed and coolant inlet
+///   temperatures in Celsius, so those channels are absolute temperatures.
+///   Channels 7 and 8 sit at 1.0 and are multipliers on the reaction rates.
+///
+/// All sixty literals carry a `D` suffix; see
+/// [`crate::constants::MEASUREMENT_NOISE`].
+//
+// @port teprob.f:1300-1359
+pub const CHANNEL_SPANS: [ChannelSpans; 12] = [
+    // Channel 1. teprob.f:1300-1304.
+    ChannelSpans {
+        duration_span: 0.2e0,
+        duration_centre: 0.5e0,
+        value_span: 0.03e0,
+        value_centre: 0.485e0,
+        slope_span: 0.0e0,
+    },
+    // Channel 2. teprob.f:1305-1309.
+    ChannelSpans {
+        duration_span: 0.7e0,
+        duration_centre: 1.0e0,
+        value_span: 0.003e0,
+        value_centre: 0.005e0,
+        slope_span: 0.0e0,
+    },
+    // Channel 3. teprob.f:1310-1314.
+    ChannelSpans {
+        duration_span: 0.25e0,
+        duration_centre: 0.5e0,
+        value_span: 10.0e0,
+        value_centre: 45.0e0,
+        slope_span: 0.0e0,
+    },
+    // Channel 4. teprob.f:1315-1319.
+    ChannelSpans {
+        duration_span: 0.7e0,
+        duration_centre: 1.0e0,
+        value_span: 10.0e0,
+        value_centre: 45.0e0,
+        slope_span: 0.0e0,
+    },
+    // Channel 5. teprob.f:1320-1324.
+    ChannelSpans {
+        duration_span: 0.15e0,
+        duration_centre: 0.25e0,
+        value_span: 10.0e0,
+        value_centre: 35.0e0,
+        slope_span: 0.0e0,
+    },
+    // Channel 6. teprob.f:1325-1329.
+    ChannelSpans {
+        duration_span: 0.15e0,
+        duration_centre: 0.25e0,
+        value_span: 10.0e0,
+        value_centre: 40.0e0,
+        slope_span: 0.0e0,
+    },
+    // Channel 7. teprob.f:1330-1334.
+    ChannelSpans {
+        duration_span: 1.0e0,
+        duration_centre: 2.0e0,
+        value_span: 0.25e0,
+        value_centre: 1.0e0,
+        slope_span: 0.0e0,
+    },
+    // Channel 8. teprob.f:1335-1339.
+    ChannelSpans {
+        duration_span: 1.0e0,
+        duration_centre: 2.0e0,
+        value_span: 0.25e0,
+        value_centre: 1.0e0,
+        slope_span: 0.0e0,
+    },
+    // Channel 9. teprob.f:1340-1344.
+    ChannelSpans {
+        duration_span: 0.4e0,
+        duration_centre: 0.5e0,
+        value_span: 0.25e0,
+        value_centre: 0.0e0,
+        slope_span: 0.0e0,
+    },
+    // Channel 10. teprob.f:1345-1349.
+    ChannelSpans {
+        duration_span: 1.5e0,
+        duration_centre: 2.0e0,
+        value_span: 0.0e0,
+        value_centre: 0.0e0,
+        slope_span: 0.0e0,
+    },
+    // Channel 11. teprob.f:1350-1354.
+    ChannelSpans {
+        duration_span: 2.0e0,
+        duration_centre: 3.0e0,
+        value_span: 0.0e0,
+        value_centre: 0.0e0,
+        slope_span: 0.0e0,
+    },
+    // Channel 12. teprob.f:1355-1359.
+    ChannelSpans {
+        duration_span: 1.5e0,
+        duration_centre: 2.0e0,
+        value_span: 0.0e0,
+        value_centre: 0.0e0,
+        slope_span: 0.0e0,
+    },
+];
+
 /// How many draws [`noise`] consumes. Asserted rather than assumed, because
 /// Tier 3 depends on it.
 pub const NOISE_DRAWS: usize = 12;
