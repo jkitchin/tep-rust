@@ -39,6 +39,247 @@ pub(crate) struct Randsd {
     pub g: f64,
 }
 
+// ---------------------------------------------------------------------------
+// The closed-loop driver, `reference/fortran/temain_mod.f`
+//
+// The nineteen active controllers and the twentieth that is never called. Each
+// is a parameterless `SUBROUTINE` communicating entirely through `COMMON`,
+// which makes the binding trivial and the *state* the whole difficulty.
+// ---------------------------------------------------------------------------
+
+/// `COMMON/CTRLALL/`: the twenty setpoints and the controller sample time.
+///
+/// `SETPT` is indexed one-based in the Fortran; slot 12 belongs to the dead
+/// `CONTRL22` and slot 21 is unused.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Ctrlall {
+    pub setpt: [f64; 20],
+    pub deltat: f64,
+}
+
+/// `COMMON/FLAG6/`: the purge override's latch.
+///
+/// Zero when the PI loop is running, 1 while the valve is latched open, 2
+/// while it is latched shut. See `temain_mod.f:710-731`.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Flag6 {
+    pub flag: i32,
+}
+
+/// `COMMON/CTRL1/`: controller 1's tuning and error history.
+///
+/// proportional-only; the presence of `taui` is what distinguishes the two shapes.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Ctrl1 {
+    pub gain: f64,
+    pub errold: f64,
+}
+
+/// `COMMON/CTRL2/`: controller 2's tuning and error history.
+///
+/// proportional-only; the presence of `taui` is what distinguishes the two shapes.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Ctrl2 {
+    pub gain: f64,
+    pub errold: f64,
+}
+
+/// `COMMON/CTRL3/`: controller 3's tuning and error history.
+///
+/// proportional-only; the presence of `taui` is what distinguishes the two shapes.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Ctrl3 {
+    pub gain: f64,
+    pub errold: f64,
+}
+
+/// `COMMON/CTRL4/`: controller 4's tuning and error history.
+///
+/// proportional-only; the presence of `taui` is what distinguishes the two shapes.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Ctrl4 {
+    pub gain: f64,
+    pub errold: f64,
+}
+
+/// `COMMON/CTRL5/`: controller 5's tuning and error history.
+///
+/// PI; the presence of `taui` is what distinguishes the two shapes.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Ctrl5 {
+    pub gain: f64,
+    pub taui: f64,
+    pub errold: f64,
+}
+
+/// `COMMON/CTRL6/`: controller 6's tuning and error history.
+///
+/// proportional-only; the presence of `taui` is what distinguishes the two shapes.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Ctrl6 {
+    pub gain: f64,
+    pub errold: f64,
+}
+
+/// `COMMON/CTRL7/`: controller 7's tuning and error history.
+///
+/// proportional-only; the presence of `taui` is what distinguishes the two shapes.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Ctrl7 {
+    pub gain: f64,
+    pub errold: f64,
+}
+
+/// `COMMON/CTRL8/`: controller 8's tuning and error history.
+///
+/// proportional-only; the presence of `taui` is what distinguishes the two shapes.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Ctrl8 {
+    pub gain: f64,
+    pub errold: f64,
+}
+
+/// `COMMON/CTRL9/`: controller 9's tuning and error history.
+///
+/// proportional-only; the presence of `taui` is what distinguishes the two shapes.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Ctrl9 {
+    pub gain: f64,
+    pub errold: f64,
+}
+
+/// `COMMON/CTRL10/`: controller 10's tuning and error history.
+///
+/// PI; the presence of `taui` is what distinguishes the two shapes.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Ctrl10 {
+    pub gain: f64,
+    pub taui: f64,
+    pub errold: f64,
+}
+
+/// `COMMON/CTRL11/`: controller 11's tuning and error history.
+///
+/// PI; the presence of `taui` is what distinguishes the two shapes.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Ctrl11 {
+    pub gain: f64,
+    pub taui: f64,
+    pub errold: f64,
+}
+
+/// `COMMON/CTRL13/`: controller 13's tuning and error history.
+///
+/// PI; the presence of `taui` is what distinguishes the two shapes.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Ctrl13 {
+    pub gain: f64,
+    pub taui: f64,
+    pub errold: f64,
+}
+
+/// `COMMON/CTRL14/`: controller 14's tuning and error history.
+///
+/// PI; the presence of `taui` is what distinguishes the two shapes.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Ctrl14 {
+    pub gain: f64,
+    pub taui: f64,
+    pub errold: f64,
+}
+
+/// `COMMON/CTRL15/`: controller 15's tuning and error history.
+///
+/// PI; the presence of `taui` is what distinguishes the two shapes.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Ctrl15 {
+    pub gain: f64,
+    pub taui: f64,
+    pub errold: f64,
+}
+
+/// `COMMON/CTRL16/`: controller 16's tuning and error history.
+///
+/// PI; the presence of `taui` is what distinguishes the two shapes.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Ctrl16 {
+    pub gain: f64,
+    pub taui: f64,
+    pub errold: f64,
+}
+
+/// `COMMON/CTRL17/`: controller 17's tuning and error history.
+///
+/// PI; the presence of `taui` is what distinguishes the two shapes.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Ctrl17 {
+    pub gain: f64,
+    pub taui: f64,
+    pub errold: f64,
+}
+
+/// `COMMON/CTRL18/`: controller 18's tuning and error history.
+///
+/// PI; the presence of `taui` is what distinguishes the two shapes.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Ctrl18 {
+    pub gain: f64,
+    pub taui: f64,
+    pub errold: f64,
+}
+
+/// `COMMON/CTRL19/`: controller 19's tuning and error history.
+///
+/// PI; the presence of `taui` is what distinguishes the two shapes.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Ctrl19 {
+    pub gain: f64,
+    pub taui: f64,
+    pub errold: f64,
+}
+
+/// `COMMON/CTRL20/`: controller 20's tuning and error history.
+///
+/// PI; the presence of `taui` is what distinguishes the two shapes.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Ctrl20 {
+    pub gain: f64,
+    pub taui: f64,
+    pub errold: f64,
+}
+
+/// `COMMON/CTRL22/`: controller 22's tuning and error history.
+///
+/// PI; the presence of `taui` is what distinguishes the two shapes.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Ctrl22 {
+    pub gain: f64,
+    pub taui: f64,
+    pub errold: f64,
+}
+
 unsafe extern "C" {
     /// `SUBROUTINE TEFUNC(NN, TIME, YY, YP)`, from `teprob.f:194`.
     ///
@@ -272,6 +513,68 @@ unsafe extern "C" {
     pub(crate) static mut const_: Const;
     pub(crate) static mut shutdn_: Shutdn;
     pub(crate) static mut rngtrc_: Rngtrc;
+    pub(crate) static mut ctrlall_: Ctrlall;
+    pub(crate) static mut flag6_: Flag6;
+    pub(crate) static mut ctrl1_: Ctrl1;
+    /// `SUBROUTINE CONTRL1`: no arguments; reads and writes `COMMON`.
+    pub(crate) fn contrl1_();
+    pub(crate) static mut ctrl2_: Ctrl2;
+    /// `SUBROUTINE CONTRL2`: no arguments; reads and writes `COMMON`.
+    pub(crate) fn contrl2_();
+    pub(crate) static mut ctrl3_: Ctrl3;
+    /// `SUBROUTINE CONTRL3`: no arguments; reads and writes `COMMON`.
+    pub(crate) fn contrl3_();
+    pub(crate) static mut ctrl4_: Ctrl4;
+    /// `SUBROUTINE CONTRL4`: no arguments; reads and writes `COMMON`.
+    pub(crate) fn contrl4_();
+    pub(crate) static mut ctrl5_: Ctrl5;
+    /// `SUBROUTINE CONTRL5`: no arguments; reads and writes `COMMON`.
+    pub(crate) fn contrl5_();
+    pub(crate) static mut ctrl6_: Ctrl6;
+    /// `SUBROUTINE CONTRL6`: no arguments; reads and writes `COMMON`.
+    pub(crate) fn contrl6_();
+    pub(crate) static mut ctrl7_: Ctrl7;
+    /// `SUBROUTINE CONTRL7`: no arguments; reads and writes `COMMON`.
+    pub(crate) fn contrl7_();
+    pub(crate) static mut ctrl8_: Ctrl8;
+    /// `SUBROUTINE CONTRL8`: no arguments; reads and writes `COMMON`.
+    pub(crate) fn contrl8_();
+    pub(crate) static mut ctrl9_: Ctrl9;
+    /// `SUBROUTINE CONTRL9`: no arguments; reads and writes `COMMON`.
+    pub(crate) fn contrl9_();
+    pub(crate) static mut ctrl10_: Ctrl10;
+    /// `SUBROUTINE CONTRL10`: no arguments; reads and writes `COMMON`.
+    pub(crate) fn contrl10_();
+    pub(crate) static mut ctrl11_: Ctrl11;
+    /// `SUBROUTINE CONTRL11`: no arguments; reads and writes `COMMON`.
+    pub(crate) fn contrl11_();
+    pub(crate) static mut ctrl13_: Ctrl13;
+    /// `SUBROUTINE CONTRL13`: no arguments; reads and writes `COMMON`.
+    pub(crate) fn contrl13_();
+    pub(crate) static mut ctrl14_: Ctrl14;
+    /// `SUBROUTINE CONTRL14`: no arguments; reads and writes `COMMON`.
+    pub(crate) fn contrl14_();
+    pub(crate) static mut ctrl15_: Ctrl15;
+    /// `SUBROUTINE CONTRL15`: no arguments; reads and writes `COMMON`.
+    pub(crate) fn contrl15_();
+    pub(crate) static mut ctrl16_: Ctrl16;
+    /// `SUBROUTINE CONTRL16`: no arguments; reads and writes `COMMON`.
+    pub(crate) fn contrl16_();
+    pub(crate) static mut ctrl17_: Ctrl17;
+    /// `SUBROUTINE CONTRL17`: no arguments; reads and writes `COMMON`.
+    pub(crate) fn contrl17_();
+    pub(crate) static mut ctrl18_: Ctrl18;
+    /// `SUBROUTINE CONTRL18`: no arguments; reads and writes `COMMON`.
+    pub(crate) fn contrl18_();
+    pub(crate) static mut ctrl19_: Ctrl19;
+    /// `SUBROUTINE CONTRL19`: no arguments; reads and writes `COMMON`.
+    pub(crate) fn contrl19_();
+    pub(crate) static mut ctrl20_: Ctrl20;
+    /// `SUBROUTINE CONTRL20`: no arguments; reads and writes `COMMON`.
+    pub(crate) fn contrl20_();
+    pub(crate) static mut ctrl22_: Ctrl22;
+    /// `SUBROUTINE CONTRL22`: no arguments; reads and writes `COMMON`.
+    pub(crate) fn contrl22_();
 
     /// `SUBROUTINE TESUB1(Z, T, H, ITY)`: mixture enthalpy. `teprob.f:1376`.
     pub(crate) fn tesub1_(z: *const f64, t: *const f64, h: *mut f64, ity: *const i32);

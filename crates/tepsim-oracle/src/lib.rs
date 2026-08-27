@@ -56,7 +56,12 @@ pub mod tier3;
 mod ffi;
 
 #[cfg(feature = "oracle")]
-pub use ffi::{Const, TRACE_CAPACITY, Teproc, Wlk};
+pub use ffi::{Const, Ctrlall, Flag6, TRACE_CAPACITY, Teproc, Wlk};
+#[cfg(feature = "oracle")]
+pub use ffi::{
+    Ctrl1, Ctrl2, Ctrl3, Ctrl4, Ctrl5, Ctrl6, Ctrl7, Ctrl8, Ctrl9, Ctrl10, Ctrl11, Ctrl13, Ctrl14,
+    Ctrl15, Ctrl16, Ctrl17, Ctrl18, Ctrl19, Ctrl20, Ctrl22,
+};
 #[cfg(feature = "oracle")]
 pub use oracle::{N_STATES, Oracle, WalkSegment, WalkSegmentStart, WalkSpans};
 
@@ -64,7 +69,11 @@ pub use oracle::{N_STATES, Oracle, WalkSegment, WalkSegmentStart, WalkSpans};
 mod oracle {
     use std::sync::{Mutex, MutexGuard, OnceLock};
 
-    use crate::ffi::{self, Const, Teproc, Wlk};
+    use crate::ffi::{self, Const, Ctrlall, Flag6, Teproc, Wlk};
+    use crate::ffi::{
+        Ctrl1, Ctrl2, Ctrl3, Ctrl4, Ctrl5, Ctrl6, Ctrl7, Ctrl8, Ctrl9, Ctrl10, Ctrl11, Ctrl13,
+        Ctrl14, Ctrl15, Ctrl16, Ctrl17, Ctrl18, Ctrl19, Ctrl20, Ctrl22,
+    };
 
     /// The original integrates 50 states. `teprob.f:24-26` invites callers to
     /// append their own beyond that; we never do, so this is exact.
@@ -367,6 +376,410 @@ mod oracle {
         pub fn tesub8(&mut self, i: i32, t: f64) -> f64 {
             // SAFETY: no arrays involved.
             unsafe { ffi::tesub8_(&i, &t) }
+        }
+
+        /// `COMMON/CTRLALL/`: setpoints and the controller sample time.
+        pub fn ctrlall(&mut self) -> Ctrlall {
+            // SAFETY: we hold the lock; `Ctrlall` mirrors the Fortran layout.
+            unsafe { (&raw const ffi::ctrlall_).read() }
+        }
+
+        /// Set `COMMON/CTRLALL/`.
+        pub fn set_ctrlall(&mut self, value: &Ctrlall) {
+            // SAFETY: as above.
+            unsafe { (&raw mut ffi::ctrlall_).write(*value) };
+        }
+
+        /// `COMMON/FLAG6/`: the purge override's latch.
+        pub fn flag6(&mut self) -> i32 {
+            // SAFETY: as above.
+            unsafe { (&raw const ffi::flag6_.flag).read() }
+        }
+
+        /// Set the purge override's latch.
+        pub fn set_flag6(&mut self, flag: i32) {
+            // SAFETY: as above.
+            unsafe { (&raw mut ffi::flag6_.flag).write(flag) };
+        }
+
+        /// Run `CONTRL1` once. `temain_mod.f`.
+        pub fn contrl1(&mut self) {
+            // SAFETY: we hold the lock, and the routine takes no arguments;
+            // everything it touches is a `COMMON` block this crate mirrors.
+            unsafe { ffi::contrl1_() };
+        }
+
+        /// `COMMON/CTRL1/`.
+        pub fn ctrl1(&mut self) -> Ctrl1 {
+            // SAFETY: as above; `Ctrl1` mirrors the Fortran layout.
+            unsafe { (&raw const ffi::ctrl1_).read() }
+        }
+
+        /// Set `COMMON/CTRL1/`.
+        pub fn set_ctrl1(&mut self, value: &Ctrl1) {
+            // SAFETY: as above, writing a correctly typed value.
+            unsafe { (&raw mut ffi::ctrl1_).write(*value) };
+        }
+
+        /// Run `CONTRL2` once. `temain_mod.f`.
+        pub fn contrl2(&mut self) {
+            // SAFETY: we hold the lock, and the routine takes no arguments;
+            // everything it touches is a `COMMON` block this crate mirrors.
+            unsafe { ffi::contrl2_() };
+        }
+
+        /// `COMMON/CTRL2/`.
+        pub fn ctrl2(&mut self) -> Ctrl2 {
+            // SAFETY: as above; `Ctrl2` mirrors the Fortran layout.
+            unsafe { (&raw const ffi::ctrl2_).read() }
+        }
+
+        /// Set `COMMON/CTRL2/`.
+        pub fn set_ctrl2(&mut self, value: &Ctrl2) {
+            // SAFETY: as above, writing a correctly typed value.
+            unsafe { (&raw mut ffi::ctrl2_).write(*value) };
+        }
+
+        /// Run `CONTRL3` once. `temain_mod.f`.
+        pub fn contrl3(&mut self) {
+            // SAFETY: we hold the lock, and the routine takes no arguments;
+            // everything it touches is a `COMMON` block this crate mirrors.
+            unsafe { ffi::contrl3_() };
+        }
+
+        /// `COMMON/CTRL3/`.
+        pub fn ctrl3(&mut self) -> Ctrl3 {
+            // SAFETY: as above; `Ctrl3` mirrors the Fortran layout.
+            unsafe { (&raw const ffi::ctrl3_).read() }
+        }
+
+        /// Set `COMMON/CTRL3/`.
+        pub fn set_ctrl3(&mut self, value: &Ctrl3) {
+            // SAFETY: as above, writing a correctly typed value.
+            unsafe { (&raw mut ffi::ctrl3_).write(*value) };
+        }
+
+        /// Run `CONTRL4` once. `temain_mod.f`.
+        pub fn contrl4(&mut self) {
+            // SAFETY: we hold the lock, and the routine takes no arguments;
+            // everything it touches is a `COMMON` block this crate mirrors.
+            unsafe { ffi::contrl4_() };
+        }
+
+        /// `COMMON/CTRL4/`.
+        pub fn ctrl4(&mut self) -> Ctrl4 {
+            // SAFETY: as above; `Ctrl4` mirrors the Fortran layout.
+            unsafe { (&raw const ffi::ctrl4_).read() }
+        }
+
+        /// Set `COMMON/CTRL4/`.
+        pub fn set_ctrl4(&mut self, value: &Ctrl4) {
+            // SAFETY: as above, writing a correctly typed value.
+            unsafe { (&raw mut ffi::ctrl4_).write(*value) };
+        }
+
+        /// Run `CONTRL5` once. `temain_mod.f`.
+        pub fn contrl5(&mut self) {
+            // SAFETY: we hold the lock, and the routine takes no arguments;
+            // everything it touches is a `COMMON` block this crate mirrors.
+            unsafe { ffi::contrl5_() };
+        }
+
+        /// `COMMON/CTRL5/`.
+        pub fn ctrl5(&mut self) -> Ctrl5 {
+            // SAFETY: as above; `Ctrl5` mirrors the Fortran layout.
+            unsafe { (&raw const ffi::ctrl5_).read() }
+        }
+
+        /// Set `COMMON/CTRL5/`.
+        pub fn set_ctrl5(&mut self, value: &Ctrl5) {
+            // SAFETY: as above, writing a correctly typed value.
+            unsafe { (&raw mut ffi::ctrl5_).write(*value) };
+        }
+
+        /// Run `CONTRL6` once. `temain_mod.f`.
+        pub fn contrl6(&mut self) {
+            // SAFETY: we hold the lock, and the routine takes no arguments;
+            // everything it touches is a `COMMON` block this crate mirrors.
+            unsafe { ffi::contrl6_() };
+        }
+
+        /// `COMMON/CTRL6/`.
+        pub fn ctrl6(&mut self) -> Ctrl6 {
+            // SAFETY: as above; `Ctrl6` mirrors the Fortran layout.
+            unsafe { (&raw const ffi::ctrl6_).read() }
+        }
+
+        /// Set `COMMON/CTRL6/`.
+        pub fn set_ctrl6(&mut self, value: &Ctrl6) {
+            // SAFETY: as above, writing a correctly typed value.
+            unsafe { (&raw mut ffi::ctrl6_).write(*value) };
+        }
+
+        /// Run `CONTRL7` once. `temain_mod.f`.
+        pub fn contrl7(&mut self) {
+            // SAFETY: we hold the lock, and the routine takes no arguments;
+            // everything it touches is a `COMMON` block this crate mirrors.
+            unsafe { ffi::contrl7_() };
+        }
+
+        /// `COMMON/CTRL7/`.
+        pub fn ctrl7(&mut self) -> Ctrl7 {
+            // SAFETY: as above; `Ctrl7` mirrors the Fortran layout.
+            unsafe { (&raw const ffi::ctrl7_).read() }
+        }
+
+        /// Set `COMMON/CTRL7/`.
+        pub fn set_ctrl7(&mut self, value: &Ctrl7) {
+            // SAFETY: as above, writing a correctly typed value.
+            unsafe { (&raw mut ffi::ctrl7_).write(*value) };
+        }
+
+        /// Run `CONTRL8` once. `temain_mod.f`.
+        pub fn contrl8(&mut self) {
+            // SAFETY: we hold the lock, and the routine takes no arguments;
+            // everything it touches is a `COMMON` block this crate mirrors.
+            unsafe { ffi::contrl8_() };
+        }
+
+        /// `COMMON/CTRL8/`.
+        pub fn ctrl8(&mut self) -> Ctrl8 {
+            // SAFETY: as above; `Ctrl8` mirrors the Fortran layout.
+            unsafe { (&raw const ffi::ctrl8_).read() }
+        }
+
+        /// Set `COMMON/CTRL8/`.
+        pub fn set_ctrl8(&mut self, value: &Ctrl8) {
+            // SAFETY: as above, writing a correctly typed value.
+            unsafe { (&raw mut ffi::ctrl8_).write(*value) };
+        }
+
+        /// Run `CONTRL9` once. `temain_mod.f`.
+        pub fn contrl9(&mut self) {
+            // SAFETY: we hold the lock, and the routine takes no arguments;
+            // everything it touches is a `COMMON` block this crate mirrors.
+            unsafe { ffi::contrl9_() };
+        }
+
+        /// `COMMON/CTRL9/`.
+        pub fn ctrl9(&mut self) -> Ctrl9 {
+            // SAFETY: as above; `Ctrl9` mirrors the Fortran layout.
+            unsafe { (&raw const ffi::ctrl9_).read() }
+        }
+
+        /// Set `COMMON/CTRL9/`.
+        pub fn set_ctrl9(&mut self, value: &Ctrl9) {
+            // SAFETY: as above, writing a correctly typed value.
+            unsafe { (&raw mut ffi::ctrl9_).write(*value) };
+        }
+
+        /// Run `CONTRL10` once. `temain_mod.f`.
+        pub fn contrl10(&mut self) {
+            // SAFETY: we hold the lock, and the routine takes no arguments;
+            // everything it touches is a `COMMON` block this crate mirrors.
+            unsafe { ffi::contrl10_() };
+        }
+
+        /// `COMMON/CTRL10/`.
+        pub fn ctrl10(&mut self) -> Ctrl10 {
+            // SAFETY: as above; `Ctrl10` mirrors the Fortran layout.
+            unsafe { (&raw const ffi::ctrl10_).read() }
+        }
+
+        /// Set `COMMON/CTRL10/`.
+        pub fn set_ctrl10(&mut self, value: &Ctrl10) {
+            // SAFETY: as above, writing a correctly typed value.
+            unsafe { (&raw mut ffi::ctrl10_).write(*value) };
+        }
+
+        /// Run `CONTRL11` once. `temain_mod.f`.
+        pub fn contrl11(&mut self) {
+            // SAFETY: we hold the lock, and the routine takes no arguments;
+            // everything it touches is a `COMMON` block this crate mirrors.
+            unsafe { ffi::contrl11_() };
+        }
+
+        /// `COMMON/CTRL11/`.
+        pub fn ctrl11(&mut self) -> Ctrl11 {
+            // SAFETY: as above; `Ctrl11` mirrors the Fortran layout.
+            unsafe { (&raw const ffi::ctrl11_).read() }
+        }
+
+        /// Set `COMMON/CTRL11/`.
+        pub fn set_ctrl11(&mut self, value: &Ctrl11) {
+            // SAFETY: as above, writing a correctly typed value.
+            unsafe { (&raw mut ffi::ctrl11_).write(*value) };
+        }
+
+        /// Run `CONTRL13` once. `temain_mod.f`.
+        pub fn contrl13(&mut self) {
+            // SAFETY: we hold the lock, and the routine takes no arguments;
+            // everything it touches is a `COMMON` block this crate mirrors.
+            unsafe { ffi::contrl13_() };
+        }
+
+        /// `COMMON/CTRL13/`.
+        pub fn ctrl13(&mut self) -> Ctrl13 {
+            // SAFETY: as above; `Ctrl13` mirrors the Fortran layout.
+            unsafe { (&raw const ffi::ctrl13_).read() }
+        }
+
+        /// Set `COMMON/CTRL13/`.
+        pub fn set_ctrl13(&mut self, value: &Ctrl13) {
+            // SAFETY: as above, writing a correctly typed value.
+            unsafe { (&raw mut ffi::ctrl13_).write(*value) };
+        }
+
+        /// Run `CONTRL14` once. `temain_mod.f`.
+        pub fn contrl14(&mut self) {
+            // SAFETY: we hold the lock, and the routine takes no arguments;
+            // everything it touches is a `COMMON` block this crate mirrors.
+            unsafe { ffi::contrl14_() };
+        }
+
+        /// `COMMON/CTRL14/`.
+        pub fn ctrl14(&mut self) -> Ctrl14 {
+            // SAFETY: as above; `Ctrl14` mirrors the Fortran layout.
+            unsafe { (&raw const ffi::ctrl14_).read() }
+        }
+
+        /// Set `COMMON/CTRL14/`.
+        pub fn set_ctrl14(&mut self, value: &Ctrl14) {
+            // SAFETY: as above, writing a correctly typed value.
+            unsafe { (&raw mut ffi::ctrl14_).write(*value) };
+        }
+
+        /// Run `CONTRL15` once. `temain_mod.f`.
+        pub fn contrl15(&mut self) {
+            // SAFETY: we hold the lock, and the routine takes no arguments;
+            // everything it touches is a `COMMON` block this crate mirrors.
+            unsafe { ffi::contrl15_() };
+        }
+
+        /// `COMMON/CTRL15/`.
+        pub fn ctrl15(&mut self) -> Ctrl15 {
+            // SAFETY: as above; `Ctrl15` mirrors the Fortran layout.
+            unsafe { (&raw const ffi::ctrl15_).read() }
+        }
+
+        /// Set `COMMON/CTRL15/`.
+        pub fn set_ctrl15(&mut self, value: &Ctrl15) {
+            // SAFETY: as above, writing a correctly typed value.
+            unsafe { (&raw mut ffi::ctrl15_).write(*value) };
+        }
+
+        /// Run `CONTRL16` once. `temain_mod.f`.
+        pub fn contrl16(&mut self) {
+            // SAFETY: we hold the lock, and the routine takes no arguments;
+            // everything it touches is a `COMMON` block this crate mirrors.
+            unsafe { ffi::contrl16_() };
+        }
+
+        /// `COMMON/CTRL16/`.
+        pub fn ctrl16(&mut self) -> Ctrl16 {
+            // SAFETY: as above; `Ctrl16` mirrors the Fortran layout.
+            unsafe { (&raw const ffi::ctrl16_).read() }
+        }
+
+        /// Set `COMMON/CTRL16/`.
+        pub fn set_ctrl16(&mut self, value: &Ctrl16) {
+            // SAFETY: as above, writing a correctly typed value.
+            unsafe { (&raw mut ffi::ctrl16_).write(*value) };
+        }
+
+        /// Run `CONTRL17` once. `temain_mod.f`.
+        pub fn contrl17(&mut self) {
+            // SAFETY: we hold the lock, and the routine takes no arguments;
+            // everything it touches is a `COMMON` block this crate mirrors.
+            unsafe { ffi::contrl17_() };
+        }
+
+        /// `COMMON/CTRL17/`.
+        pub fn ctrl17(&mut self) -> Ctrl17 {
+            // SAFETY: as above; `Ctrl17` mirrors the Fortran layout.
+            unsafe { (&raw const ffi::ctrl17_).read() }
+        }
+
+        /// Set `COMMON/CTRL17/`.
+        pub fn set_ctrl17(&mut self, value: &Ctrl17) {
+            // SAFETY: as above, writing a correctly typed value.
+            unsafe { (&raw mut ffi::ctrl17_).write(*value) };
+        }
+
+        /// Run `CONTRL18` once. `temain_mod.f`.
+        pub fn contrl18(&mut self) {
+            // SAFETY: we hold the lock, and the routine takes no arguments;
+            // everything it touches is a `COMMON` block this crate mirrors.
+            unsafe { ffi::contrl18_() };
+        }
+
+        /// `COMMON/CTRL18/`.
+        pub fn ctrl18(&mut self) -> Ctrl18 {
+            // SAFETY: as above; `Ctrl18` mirrors the Fortran layout.
+            unsafe { (&raw const ffi::ctrl18_).read() }
+        }
+
+        /// Set `COMMON/CTRL18/`.
+        pub fn set_ctrl18(&mut self, value: &Ctrl18) {
+            // SAFETY: as above, writing a correctly typed value.
+            unsafe { (&raw mut ffi::ctrl18_).write(*value) };
+        }
+
+        /// Run `CONTRL19` once. `temain_mod.f`.
+        pub fn contrl19(&mut self) {
+            // SAFETY: we hold the lock, and the routine takes no arguments;
+            // everything it touches is a `COMMON` block this crate mirrors.
+            unsafe { ffi::contrl19_() };
+        }
+
+        /// `COMMON/CTRL19/`.
+        pub fn ctrl19(&mut self) -> Ctrl19 {
+            // SAFETY: as above; `Ctrl19` mirrors the Fortran layout.
+            unsafe { (&raw const ffi::ctrl19_).read() }
+        }
+
+        /// Set `COMMON/CTRL19/`.
+        pub fn set_ctrl19(&mut self, value: &Ctrl19) {
+            // SAFETY: as above, writing a correctly typed value.
+            unsafe { (&raw mut ffi::ctrl19_).write(*value) };
+        }
+
+        /// Run `CONTRL20` once. `temain_mod.f`.
+        pub fn contrl20(&mut self) {
+            // SAFETY: we hold the lock, and the routine takes no arguments;
+            // everything it touches is a `COMMON` block this crate mirrors.
+            unsafe { ffi::contrl20_() };
+        }
+
+        /// `COMMON/CTRL20/`.
+        pub fn ctrl20(&mut self) -> Ctrl20 {
+            // SAFETY: as above; `Ctrl20` mirrors the Fortran layout.
+            unsafe { (&raw const ffi::ctrl20_).read() }
+        }
+
+        /// Set `COMMON/CTRL20/`.
+        pub fn set_ctrl20(&mut self, value: &Ctrl20) {
+            // SAFETY: as above, writing a correctly typed value.
+            unsafe { (&raw mut ffi::ctrl20_).write(*value) };
+        }
+
+        /// Run `CONTRL22` once. `temain_mod.f`.
+        pub fn contrl22(&mut self) {
+            // SAFETY: we hold the lock, and the routine takes no arguments;
+            // everything it touches is a `COMMON` block this crate mirrors.
+            unsafe { ffi::contrl22_() };
+        }
+
+        /// `COMMON/CTRL22/`.
+        pub fn ctrl22(&mut self) -> Ctrl22 {
+            // SAFETY: as above; `Ctrl22` mirrors the Fortran layout.
+            unsafe { (&raw const ffi::ctrl22_).read() }
+        }
+
+        /// Set `COMMON/CTRL22/`.
+        pub fn set_ctrl22(&mut self, value: &Ctrl22) {
+            // SAFETY: as above, writing a correctly typed value.
+            unsafe { (&raw mut ffi::ctrl22_).write(*value) };
         }
     }
 }

@@ -41,13 +41,19 @@ const SHIPPED_CRATES: &[&str] = &[
 const PROVENANCE_MARKER: &str = "@port";
 
 /// The file a claim refers to, following the marker.
-const PROVENANCE_TAG: &str = "teprob.f:";
+/// The vendored files a `@port` claim can name.
+///
+/// A claim is `@port <file>:<range>`, and the file must be one of these. An
+/// unrecognised name is *not* silently ignored: `cmd_provenance` reports it,
+/// because a typo in a claim is a claim that stops counting and nothing else
+/// would notice.
+const PROVENANCE_FILES: &[(&str, &str)] = &[
+    ("teprob.f:", "reference/fortran/teprob.f"),
+    ("temain_mod.f:", "reference/fortran/temain_mod.f"),
+];
 
 /// The pinned toolchain manifest, relative to the workspace root.
 const TOOLCHAIN_FILE: &str = "rust-toolchain.toml";
-
-/// Path to the vendored original, relative to the workspace root.
-const REFERENCE_FORTRAN: &str = "reference/fortran/teprob.f";
 
 /// Path to the committed golden trace, relative to the workspace root.
 const GOLDEN_TRACE: &str = tepsim_oracle::golden::PATH;
@@ -572,44 +578,89 @@ impl fmt::Display for LineRange {
 }
 
 fn cmd_provenance(root: &Path) -> Result<(), String> {
-    let fortran = root.join(REFERENCE_FORTRAN);
-    let Ok(source) = fs::read_to_string(&fortran) else {
-        return Err(format!(
-            "{REFERENCE_FORTRAN} not present, so coverage cannot be computed.\n\
-             Vendor the reference material first (B-0003). Failing rather than \
-             reporting a vacuous all-clear."
-        ));
-    };
-    let total = source.lines().count();
-
-    let mut claimed = Vec::new();
+    // Every vendored file, with its claims collected across the whole tree.
+    let mut claims: Vec<Vec<LineRange>> = vec![Vec::new(); PROVENANCE_FILES.len()];
     let mut files_with_claims = 0usize;
+    let mut unknown = Vec::new();
+
     for file in rust_sources(root)? {
         let text =
             fs::read_to_string(&file).map_err(|e| format!("reading {}: {e}", file.display()))?;
-        let found = parse_annotations(&text);
+        let (found, bad) = parse_annotations(&text);
         if !found.is_empty() {
             files_with_claims += 1;
         }
-        claimed.extend(found);
+        for claim in found {
+            claims[claim.file].push(claim.range);
+        }
+        for entry in bad {
+            unknown.push((file.clone(), entry));
+        }
     }
 
-    let merged = merge(claimed);
-    let claimed_lines: usize = merged.iter().map(|r| r.len()).sum();
-    let unclaimed = gaps(&merged, total);
+    // A mistyped file name is a claim that stopped counting. Coverage would
+    // fall with no explanation, so it is an error rather than a warning.
+    if !unknown.is_empty() {
+        let known: Vec<&str> = PROVENANCE_FILES.iter().map(|(tag, _)| *tag).collect();
+        let lines: Vec<String> = unknown
+            .iter()
+            .map(|(path, entry)| format!("  {}: @port {}", path.display(), entry.tag))
+            .collect();
+        return Err(format!(
+            "{} claim(s) name a file provenance does not know about:\n{}\n\
+             Known prefixes: {known:?}. A mistyped name is a claim that stops \
+             counting, which shows up as coverage falling for no reason.",
+            unknown.len(),
+            lines.join("\n")
+        ));
+    }
 
-    println!("provenance against {REFERENCE_FORTRAN}");
-    println!("  total lines:     {total}");
     println!(
-        "  claimed:         {claimed_lines} ({:.1}%) across {files_with_claims} file(s)",
-        percent(claimed_lines, total)
+        "provenance across {} vendored file(s)",
+        PROVENANCE_FILES.len()
     );
-    println!("  unclaimed spans: {}", unclaimed.len());
-    for range in &unclaimed {
-        println!("    {range}  ({} lines)", range.len());
+    let mut any_missing = false;
+    let (mut total_all, mut claimed_all) = (0usize, 0usize);
+
+    for (index, (_, path)) in PROVENANCE_FILES.iter().enumerate() {
+        let full = root.join(path);
+        let Ok(source) = fs::read_to_string(&full) else {
+            return Err(format!(
+                "{path} not present, so coverage cannot be computed.\n\
+                 Vendor the reference material first (B-0003). Failing rather \
+                 than reporting a vacuous all-clear."
+            ));
+        };
+        let total = source.lines().count();
+        let merged = merge(core::mem::take(&mut claims[index]));
+        let claimed_lines: usize = merged.iter().map(|r| r.len()).sum();
+        let unclaimed = gaps(&merged, total);
+        total_all += total;
+        claimed_all += claimed_lines;
+
+        println!("\n{path}");
+        println!("  total lines:     {total}");
+        println!(
+            "  claimed:         {claimed_lines} ({:.1}%)",
+            percent(claimed_lines, total)
+        );
+        println!("  unclaimed spans: {}", unclaimed.len());
+        for range in &unclaimed {
+            println!("    {range}  ({} lines)", range.len());
+        }
+        if unclaimed.is_empty() {
+            println!("  every line of this file is claimed by some Rust function");
+        } else {
+            any_missing = true;
+        }
     }
-    if unclaimed.is_empty() {
-        println!("  every line of the original is claimed by some Rust function");
+
+    println!(
+        "\ntotal: {claimed_all} of {total_all} ({:.1}%) across {files_with_claims} Rust file(s)",
+        percent(claimed_all, total_all)
+    );
+    if !any_missing {
+        println!("every line of every vendored file is claimed");
     }
     Ok(())
 }
@@ -657,31 +708,72 @@ fn rust_sources(root: &Path) -> Result<Vec<PathBuf>, String> {
 /// happily counted its own doc comments and test fixtures, reporting 2.6%
 /// coverage of a file that nothing had ported. A tool that overstates coverage
 /// is worse than no tool, so a claim must look exactly like a claim.
-fn parse_annotations(text: &str) -> Vec<LineRange> {
-    text.lines().filter_map(parse_claim_line).collect()
+fn parse_annotations(text: &str) -> (Vec<Claim>, Vec<UnknownClaim>) {
+    let mut claims = Vec::new();
+    let mut unknown = Vec::new();
+    for line in text.lines() {
+        match parse_claim_line(line) {
+            Some(Ok(claim)) => claims.push(claim),
+            Some(Err(bad)) => unknown.push(bad),
+            None => {}
+        }
+    }
+    (claims, unknown)
 }
 
 /// Parse one line as `// @port teprob.f:505-522`, in any comment style.
 ///
 /// Returns `None` for prose that merely mentions the convention, for string
 /// fixtures, and for a bare tag with no marker.
-fn parse_claim_line(line: &str) -> Option<LineRange> {
+/// One `@port` claim: which file, and which lines of it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Claim {
+    /// Index into [`PROVENANCE_FILES`].
+    file: usize,
+    range: LineRange,
+}
+
+/// A claim whose file name is not one of [`PROVENANCE_FILES`].
+///
+/// Reported rather than dropped. A mistyped file name is a claim that silently
+/// stops counting, and the coverage number would go *down* with no explanation.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct UnknownClaim {
+    tag: String,
+}
+
+fn parse_claim_line(line: &str) -> Option<Result<Claim, UnknownClaim>> {
     let body = strip_comment_prefix(line.trim_start())?;
     let after_marker = body.trim_start().strip_prefix(PROVENANCE_MARKER)?;
     // Require whitespace after the marker so `@ported` is not a claim.
     if !after_marker.starts_with(char::is_whitespace) {
         return None;
     }
-    let after_tag = after_marker.trim_start().strip_prefix(PROVENANCE_TAG)?;
+    let rest = after_marker.trim_start();
+
+    let Some((file, after_tag)) = PROVENANCE_FILES
+        .iter()
+        .enumerate()
+        .find_map(|(index, (tag, _))| rest.strip_prefix(tag).map(|r| (index, r)))
+    else {
+        // It is a `@port` claim; it just names something unrecognised. Take
+        // the first word so the report can quote it.
+        let tag: String = rest.split_whitespace().next().unwrap_or(rest).to_string();
+        return Some(Err(UnknownClaim { tag }));
+    };
+
     let (start, tail) = take_usize(after_tag)?;
     let end = match tail.strip_prefix('-').and_then(take_usize) {
         Some((e, _)) => e,
         None => start,
     };
-    Some(LineRange {
-        start,
-        end: end.max(start),
-    })
+    Some(Ok(Claim {
+        file,
+        range: LineRange {
+            start,
+            end: end.max(start),
+        },
+    }))
 }
 
 /// Strip `//`, `///` or `//!` from the front of an already-trimmed line.
@@ -924,19 +1016,31 @@ mod tests {
         LineRange { start, end }
     }
 
+    /// The ranges a text claims against `teprob.f`, which is what the
+    /// pre-B-0036 tests below were written against.
+    fn teprob_ranges(text: &str) -> Vec<LineRange> {
+        let (claims, unknown) = parse_annotations(text);
+        assert!(unknown.is_empty(), "unexpected unknown claim: {unknown:?}");
+        claims
+            .into_iter()
+            .filter(|c| c.file == 0)
+            .map(|c| c.range)
+            .collect()
+    }
+
     #[test]
     fn parses_a_line_comment_claim() {
         assert_eq!(
-            parse_annotations("// @port teprob.f:505-522"),
+            teprob_ranges("// @port teprob.f:505-522"),
             vec![r(505, 522)]
         );
     }
 
     #[test]
     fn parses_doc_and_module_doc_claims() {
-        assert_eq!(parse_annotations("/// @port teprob.f:1"), vec![r(1, 1)]);
+        assert_eq!(teprob_ranges("/// @port teprob.f:1"), vec![r(1, 1)]);
         assert_eq!(
-            parse_annotations("//! @port teprob.f:1552-1560"),
+            teprob_ranges("//! @port teprob.f:1552-1560"),
             vec![r(1552, 1560)]
         );
     }
@@ -944,7 +1048,7 @@ mod tests {
     #[test]
     fn indentation_and_trailing_text_are_allowed() {
         assert_eq!(
-            parse_annotations("        // @port teprob.f:100-200 (TEFUNC prologue)"),
+            teprob_ranges("        // @port teprob.f:100-200 (TEFUNC prologue)"),
             vec![r(100, 200)]
         );
     }
@@ -952,7 +1056,7 @@ mod tests {
     #[test]
     fn parses_several_across_lines() {
         let text = "// @port teprob.f:1-10\ncode();\n/// @port teprob.f:20-30\n";
-        assert_eq!(parse_annotations(text), vec![r(1, 10), r(20, 30)]);
+        assert_eq!(teprob_ranges(text), vec![r(1, 10), r(20, 30)]);
     }
 
     // The next four are the regression tests for the false-positive bug: the
@@ -962,36 +1066,82 @@ mod tests {
     #[test]
     fn prose_mentioning_the_convention_is_not_a_claim() {
         let text = "//! Annotations look like `@port teprob.f:505-522`.";
-        assert_eq!(parse_annotations(text), vec![]);
+        assert_eq!(teprob_ranges(text), vec![]);
     }
 
     #[test]
     fn a_string_fixture_is_not_a_claim() {
         let text = r#"assert_eq!(parse("@port teprob.f:1-10"), vec![]);"#;
-        assert_eq!(parse_annotations(text), vec![]);
+        assert_eq!(teprob_ranges(text), vec![]);
     }
 
     #[test]
     fn a_bare_tag_without_the_marker_is_not_a_claim() {
-        assert_eq!(parse_annotations("// see teprob.f:505-522"), vec![]);
+        assert_eq!(teprob_ranges("// see teprob.f:505-522"), vec![]);
     }
 
     #[test]
     fn a_marker_glued_to_a_word_is_not_a_claim() {
-        assert_eq!(parse_annotations("// @ported teprob.f:1-10"), vec![]);
+        assert_eq!(teprob_ranges("// @ported teprob.f:1-10"), vec![]);
     }
 
     #[test]
     fn ignores_a_claim_with_no_number() {
-        assert_eq!(parse_annotations("// @port teprob.f:foo"), vec![]);
+        assert_eq!(teprob_ranges("// @port teprob.f:foo"), vec![]);
+    }
+
+    #[test]
+    fn a_claim_names_its_file() {
+        let teprob = parse_claim_line("// @port teprob.f:100-200").expect("a claim");
+        let driver = parse_claim_line("// @port temain_mod.f:477-514").expect("a claim");
+        assert_eq!(
+            teprob,
+            Ok(Claim {
+                file: 0,
+                range: r(100, 200)
+            })
+        );
+        assert_eq!(
+            driver,
+            Ok(Claim {
+                file: 1,
+                range: r(477, 514)
+            })
+        );
+        // A single line is a range of one, as before.
+        assert_eq!(
+            parse_claim_line("// @port teprob.f:42"),
+            Some(Ok(Claim {
+                file: 0,
+                range: r(42, 42)
+            }))
+        );
+    }
+
+    /// A claim naming an unknown file is reported, not dropped.
+    ///
+    /// Silently ignoring it would show up as coverage falling with no
+    /// explanation, which is the worst way for a typo to present.
+    #[test]
+    fn an_unknown_file_is_an_error_and_not_a_shrug() {
+        let bad = parse_claim_line("// @port teprob.for:1-9").expect("recognised as a claim");
+        assert!(bad.is_err(), "an unknown file should not parse as a claim");
+        // And it quotes what it saw, so the typo is visible in the message.
+        let Err(entry) = bad else { unreachable!() };
+        assert!(entry.tag.starts_with("teprob.for"), "{}", entry.tag);
+    }
+
+    /// Prose about the convention must still not count as coverage.
+    #[test]
+    fn prose_mentioning_the_marker_is_still_not_a_claim() {
+        assert!(parse_claim_line("// a line reading @ported teprob.f:1-9").is_none());
+        assert!(parse_claim_line("//! `@port teprob.f:1-9` above a function").is_none());
+        assert!(parse_claim_line("let x = 1; // @port").is_none());
     }
 
     #[test]
     fn a_reversed_range_is_clamped_not_panicked() {
-        assert_eq!(
-            parse_annotations("// @port teprob.f:90-10"),
-            vec![r(90, 90)]
-        );
+        assert_eq!(teprob_ranges("// @port teprob.f:90-10"), vec![r(90, 90)]);
     }
 
     #[test]

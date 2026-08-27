@@ -86,10 +86,40 @@ const EDITS: &[Edit] = &[
     },
 ];
 
+/// The one edit `temain_mod.f` needs.
+///
+/// The file is an *unnamed main program*: it has no `PROGRAM` statement, so
+/// gfortran compiles it to `MAIN__` and emits a `main` that calls it. Linking
+/// that into a Rust test binary would collide with the harness's own entry
+/// point, and worse, running it would open fifteen files under `~/` and
+/// simulate 48 hours.
+///
+/// Turning the main program into a subroutine nothing calls solves both. The
+/// nineteen `CONTRLn` subroutines below it are unaffected and become linkable,
+/// which is the whole point: they are what Phase 4 ports.
+///
+/// The anchor is the one comment in the file with *two* spaces before
+/// "MEASUREMENT"; the twenty-three copies inside the subroutines have three.
+/// That is exactly the kind of near-miss the uniqueness assertion exists for.
+const DRIVER_EDITS: &[Edit] = &[Edit {
+    what: "make temain_mod.f's unnamed main program a subroutine nothing calls",
+    from: "C  MEASUREMENT AND VALVE COMMON BLOCK\nC\n      DOUBLE PRECISION XMEAS, XMV\n",
+    to: "C  MEASUREMENT AND VALVE COMMON BLOCK\nC\n      SUBROUTINE TEMAIN_UNUSED\n      DOUBLE PRECISION XMEAS, XMV\n",
+}];
+
+/// Apply the driver edit. See [`DRIVER_EDITS`].
+pub(crate) fn instrument_driver(source: &str) -> String {
+    apply(source, DRIVER_EDITS)
+}
+
 /// Apply every edit, or panic with a message that says which one failed and why.
 pub(crate) fn instrument(source: &str) -> String {
+    apply(source, EDITS)
+}
+
+fn apply(source: &str, edits: &[Edit]) -> String {
     let mut out = source.to_string();
-    for edit in EDITS {
+    for edit in edits {
         let hits = out.matches(edit.from).count();
         assert!(
             hits != 0,

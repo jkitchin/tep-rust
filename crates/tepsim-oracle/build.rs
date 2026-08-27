@@ -66,8 +66,6 @@ fn main() {
     let instrumented_path = out_dir.join("teprob_instrumented.f");
     std::fs::write(&instrumented_path, &instrumented).expect("writing instrumented source");
 
-    // Only teprob.f. temain.f and temain_mod.f each declare a PROGRAM, which
-    // would collide with the Rust test harness's own entry point.
     let object = out_dir.join("teprob.o");
     run(
         Command::new(gfortran())
@@ -78,11 +76,40 @@ fn main() {
         "compiling the instrumented teprob.f",
     );
 
+    // The closed-loop driver, for Phase 4. Its nineteen `CONTRLn` subroutines
+    // are what the control layer is ported from, and they are only linkable
+    // once the file's unnamed main program stops defining `main`; see
+    // instrument.rs. `temain.f` stays out: it is the older single-loop driver
+    // and nothing in this project ports from it.
+    let driver_source = reference.join("temain_mod.f");
+    println!("cargo:rerun-if-changed={}", driver_source.display());
+    let driver_pristine = std::fs::read_to_string(&driver_source)
+        .unwrap_or_else(|e| panic!("reading {}: {e}", driver_source.display()));
+    let driver_path = out_dir.join("temain_mod_instrumented.f");
+    std::fs::write(
+        &driver_path,
+        instrument::instrument_driver(&driver_pristine),
+    )
+    .expect("writing instrumented driver");
+    let driver_object = out_dir.join("temain_mod.o");
+    run(
+        Command::new(gfortran())
+            .args(FORTRAN_FLAGS)
+            .arg(&driver_path)
+            .arg("-o")
+            .arg(&driver_object),
+        "compiling the instrumented temain_mod.f",
+    );
+
     let archive = out_dir.join("libteoracle.a");
     let _ = std::fs::remove_file(&archive);
     run(
-        Command::new("ar").arg("crs").arg(&archive).arg(&object),
-        "archiving teprob.o",
+        Command::new("ar")
+            .arg("crs")
+            .arg(&archive)
+            .arg(&object)
+            .arg(&driver_object),
+        "archiving teprob.o and temain_mod.o",
     );
 
     // Build a standalone probe from the *pristine* source so a test can prove
