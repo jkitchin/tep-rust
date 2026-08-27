@@ -133,6 +133,17 @@ const TIER2_TESTS: &[&str] = &[
     "tier2_balances",
 ];
 
+/// The Tier 3 differentials, in the order the stream is consumed.
+const TIER3_TESTS: &[&str] = &[
+    "rng_call_order",
+    "tier3_harness",
+    "tier1_disturbance",
+    "tier3_walk",
+    "tier3_walk_inputs",
+    "tier3_analysers",
+    "fault_table",
+];
+
 const LIBM_SYSTEM_TESTS: &[&str] = &[
     "tier2_equilibrium",
     "tier2_kinetics",
@@ -390,8 +401,80 @@ fn cmd_validate(root: &Path, flags: &[String]) -> Result<(), String> {
                 }
                 step(root, "cargo", &exact)?;
             }
+            3 => {
+                if which("gfortran").is_none() {
+                    return Err(
+                        "tier 3 needs gfortran, which is not on PATH. Per CLAUDE.md, \
+                         a session without it must not do model work."
+                            .to_string(),
+                    );
+                }
+                println!("\n=== tier 3: the generator stream vs the Fortran ===");
+                for target in TIER3_TESTS {
+                    step(
+                        root,
+                        "cargo",
+                        &[
+                            "test",
+                            "-p",
+                            "tepsim-oracle",
+                            "--features",
+                            "oracle",
+                            "--release",
+                            "--test",
+                            target,
+                            "--",
+                            "--nocapture",
+                            "--test-threads",
+                            "1",
+                        ],
+                    )?;
+                }
+            }
+            4 => {
+                if which("gfortran").is_none() {
+                    return Err(
+                        "tier 4 needs gfortran, which is not on PATH. Per CLAUDE.md, \
+                         a session without it must not do model work."
+                            .to_string(),
+                    );
+                }
+                // Diagnostic, not a gate: `PLAN.org` is explicit that
+                // long-horizon divergence is expected. Both configurations are
+                // run, because the *contrast* is the result.
+                println!("\n=== tier 4: trajectories (diagnostic, not a gate) ===");
+                for features in ["oracle", "oracle,libm-system"] {
+                    println!(
+                        "\n--- with the {} libm ---",
+                        if features.contains("system") {
+                            "platform"
+                        } else {
+                            "vendored"
+                        }
+                    );
+                    step(
+                        root,
+                        "cargo",
+                        &[
+                            "test",
+                            "-p",
+                            "tepsim-oracle",
+                            "--features",
+                            features,
+                            "--release",
+                            "--test",
+                            "tier4_trajectory",
+                            "--",
+                            "--nocapture",
+                            "--include-ignored",
+                            "--test-threads",
+                            "1",
+                        ],
+                    )?;
+                }
+            }
             other => println!(
-                "\n[skip] tier {other}: not implemented yet. Tiers 3-10 land \
+                "\n[skip] tier {other}: not implemented yet. Tiers 5-10 land \
                  with their phases; see BACKLOG.org."
             ),
         }
