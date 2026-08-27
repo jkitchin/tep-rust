@@ -733,7 +733,7 @@ Done when:
 - [X] delta entry for the =R1F=/=R2F= rename (D-002), and for =CRXR(2)=
       never being assigned (D-003), which was not anticipated
 
-** TODO B-0020 Stream compositions, molecular weights and enthalpies
+** NEXT B-0020 Stream compositions, molecular weights and enthalpies
 :PROPERTIES:
 :ID:    B-0020
 :PHASE: 2
