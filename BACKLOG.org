@@ -1303,7 +1303,7 @@ comes out 0 ULP. This item moves it from six copies in the tests into
       copy. The plant's version is checked separately, in
       =tier3_walk_inputs.rs=, against the oracle with all twenty faults on
 
-** TODO B-0033 The twenty disturbances as injection points and profiles
+** NEXT B-0033 The twenty disturbances as injection points and profiles
 :PROPERTIES:
 :ID:    B-0033
 :PHASE: 3
