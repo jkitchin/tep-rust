@@ -654,7 +654,7 @@ Done when:
 - [X] All three =273.15= in the range (=461=, =463=, =466=) are single
       precision, like the one D-001 turns on
 
-** TODO B-0018 Vapour-liquid equilibrium and pressures
+** NEXT B-0018 Vapour-liquid equilibrium and pressures
 :PROPERTIES:
 :ID:    B-0018
 :PHASE: 2
