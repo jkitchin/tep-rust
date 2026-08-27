@@ -3154,3 +3154,110 @@ help here because no transcendental is involved. It should be bit-exact under
 
 *B-0026a is still the one to answer*, and it is one line. Phase 2's model is
 complete and proved bit-exact; only its acceptance criterion is open.
+
+* 2026-08-27 B-0028 TESUB5 and TESUB6, and a bug that changes no value at all
+:PROPERTIES:
+:ITEM:     B-0028
+:PHASE:    3
+:TIER:     1
+:COMMIT:   6fa4001
+:GFORTRAN: 15.2.0
+:STATUS:   DONE
+:END:
+** Preflight
+Clean and green, identical to B-0027's closing numbers. gfortran 15.2.0,
+unchanged. Provenance *808/1589 (50.8%)* on entry, *849 (53.4%)* on exit.
+B-0026 still BLOCKED on B-0026a; this is the next unblocked item.
+
+** What changed
+=tepsim_core::disturbance= ports =teprob.f:1506-1546=. The oracle gained a
+=tesub5_= binding, which it lacked: fourteen arguments, six written back.
+*Tier 1 is now complete* -- all eight =TESUBn= routines are ported and
+differentially tested.
+
+** Validation numbers
+*Tier 1, 20,000 pinned generator words each.*
+
+| field | cases  | max rel err | max ulp |
+|-------+--------+-------------+---------|
+| =TESUB6= sample | 20,000 | 0.000e0 | 0 |
+| =TESUB5= =ADIST= | 20,000 | 0.000e0 | 0 |
+| =TESUB5= =BDIST= | 20,000 | 0.000e0 | 0 |
+| =TESUB5= =CDIST= | 20,000 | 0.000e0 | 0 |
+| =TESUB5= =DDIST= | 20,000 | 0.000e0 | 0 |
+| =TESUB5= =TNEXT= | 20,000 | 0.000e0 | 0 |
+
+Zero non-finite cases. Neither routine touches a transcendental, so bit
+equality is the only acceptable answer and the =libm-system= run offers no
+cover: both are exact in *both* configurations.
+
+*Draw counts*, recovered by stepping a port-side generator from the word before
+each call to the word after: *3* for =TESUB5=, *12* for =TESUB6=, on every case
+and for both flag values.
+
+** Surprises and decisions
+*The bug worth finding here changes no value at all.* =IDVWLK= multiplies the
+two *endpoint* draws at =teprob.f:1529-1530= but not the *duration* draw at
+=1528=. So an inactive channel still consumes all three.
+
+The obvious optimisation is to skip the two endpoint draws when the flag is
+zero, since they are multiplied by zero anyway. Doing that produces *identical
+segment values*, because an inactive channel lands on =SZERO= with zero slope
+either way, and leaves the generator two steps behind. Every subsequent draw in
+the run then differs: the noise, the other channels, everything.
+
+It was implemented deliberately to check the test has teeth, and the Tier 1
+test caught it, on the *stream position* rather than on any value. A test that
+compared only outputs would have passed. That is the entire argument for Tier 3
+demonstrated at Tier 1, and it is why the ending generator word is compared on
+every case rather than just the draw count: a port can make the right number of
+draws in the wrong order.
+
+*A claim of mine was wrong and the measurement corrected it.* The module first
+said =TESUB6='s twelve-term sum was order-sensitive, like every balance in
+=crate::balances=. It is not. Over 500,000 consecutive samples from the real
+stream, summing the twelve draws forwards and backwards gives *bit-identical*
+results every time.
+
+The reason is conditioning: all twelve addends lie in [0, 1) and the running
+total never exceeds 12, so every addition is between operands within a factor of
+about twelve and nothing is lost to shift out. The loop is still written in call
+order, because that is what the listing says, but the module now distinguishes
+what is load-bearing (the draw order) from what is not (the arithmetic). A test
+asserts the conditioning premise directly, so a change to =unit()='s range fails
+there rather than somewhere subtler.
+
+*Half the sweep was vacuous on the first run.* =oracle.wlk()= reads
+=COMMON/WLK/=, which is all zeros until =TEINIT= runs, so the "real channel"
+half of the sweep had zero spans, =H= = 0, and non-finite cubic coefficients on
+both sides: 10,000 cases agreeing perfectly and proving nothing. The comparison
+harness reported it as =non-finite: 10000 seen, 0 mismatched=, which is exactly
+the line that made it visible. Both sweeps now call =oracle.init()= first and
+assert the spans are populated.
+
+** Next
+B-0029: the Tier 3 harness, RNG call-trace instrumentation on both sides and
+the differ.
+
+*Build it before B-0031 ports the walk advance, not after.* B-0027 established
+why: the walk state is readable from =COMMON/WLK/=, so values stay checkable per
+item as Phase 2's were, but draw *order* is not a value in any =COMMON= block
+and cannot be recovered after the fact.
+
+The instrumentation goes in =crates/tepsim-oracle/instrument.rs=, which already
+hoists =ISD= and asserts its own pre-image. Adding a counter to =TESUB7= is a
+smaller edit than that one. Record =(index, sign flag, result)= per draw; the
+sign flag matters because =TESUB7= returns different scalings for it and a port
+could call the wrong one with the right count.
+
+On the port side it belongs behind a feature, so the shipped core carries no
+counter. =TepRng= is =Copy= and holds one =f64=; a trace cannot live in it
+without changing that, so the recorder should wrap rather than extend it.
+
+One thing B-0028 makes cheap: the draw-count method needs no instrumentation at
+all, and it already works. If the traced differ turns out to be more work than
+expected, counting per phase gets most of the value, and
+=tests/rng_call_order.rs= is the working example.
+
+*B-0026a is still open* and still one line. It is the only thing between Phase 2
+and closed.
