@@ -547,8 +547,26 @@ the walk state agree, so the test is bit equality given a synchronized RNG.
 The strongest and cheapest evidence of a correct plant port. For each of tens of
 thousands of sampled states, force both implementations into the identical state
 (all fifty states, the twelve manipulated variables, the twenty IDV flags, the
-full walk state, and the RNG word), evaluate the derivative once, and compare all
-fifty components. Target maximum relative error below 1e-12.
+full walk state, the RNG word, and the nineteen held analyser readings),
+evaluate the derivative once, and compare all fifty components.
+
+*The tolerance is relative to the scale of the terms, not to the result.*
+Target maximum error below 1e-12 of the largest term entering each balance.
+
+This was originally written as relative error against the derivative itself,
+and B-0025 found that is not achievable and not because of any porting error.
+A balance is inflow minus outflow, and near steady state those nearly agree:
+=YP(2)=, the inert's reactor balance, is a difference of two flows around 660
+whose result is a few parts in ten thousand of either. One ULP of difference in
+each term, which is all the vendored =libm= costs, is 1e-16 of the terms and
+1e-4 of the result. Measured relative to the result, 28 of the 50 components
+exceed 1e-12 while the whole right-hand side is *bit-identical* to gfortran
+under =libm-system=.
+
+Relative-to-scale is the standard treatment of a cancelling sum and it is not a
+weaker claim: it is the same 1e-12, asked of the quantity that can answer it.
+Each balance therefore reports the magnitude of its largest term alongside its
+value, which is its error budget, and the gate is the error over that.
 
 Sampling matters more than volume. Draw from three pools: states along the
 nominal closed-loop trajectory at many times; random perturbations of those

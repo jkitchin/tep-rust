@@ -22,10 +22,9 @@ Rewrite this block at the end of every iteration. Keep it to five lines.
   a 38-test =oracle,libm-system= run; provenance *1101/1589 (69.3%)*
 - Toolchain: rustup, pinned to rustc 1.97.1, wasm32 installed, libm 0.2.16
 - Remote: private jkitchin/tep-rust, CI green on all 7 jobs
-- *Blocked on B-0026a*, which closes Phase 2: Tier 2's "rel err < 1e-12" is not
-  achievable relative-to-result on a balance equation, because balances cancel.
-  The port is not in question; the *metric* is. Phase 3 is unblocked and is
-  where work continues; next is B-0033, the disturbances as typed injection points.
+- Blocked on: nothing. B-0026a is *answered*: Tier 2 measures against the scale
+  of the terms, =PLAN.org= updated, decision recorded. Next is B-0026, which
+  implements it and closes Phase 2.
 
 * Phase 0: foundations
 
@@ -967,18 +966,17 @@ Done when:
       It is also the only reading Tier 2 can live with. =derivatives= reports
       the trip either way
 
-** BLOCKED B-0026a What should Tier 2 measure on a cancelling component?
+** DONE B-0026a What should Tier 2 measure on a cancelling component?
 :PROPERTIES:
 :ID:       B-0026a
 :PHASE:    2
 :TIER:     2
 :DEPS:     B-0025
 :PLAN:     Validation > Tier 2
-:QUESTION: =PLAN.org= sets Tier 2 at "rel err < 1e-12". Measured
-           relative to the *result*, 28 of the 50 derivatives fail that, worst
-           =YP(2)= at 1.393e-4 - while the whole right-hand side is
-           *bit-identical* to the Fortran under =libm-system=. The cause is
-           cancellation, not error. What should the gate be measured against?
+:RESULT:   *Answered: measure against the scale of the terms.* Each balance
+           reports the magnitude of its largest term, and the gate is the error
+           over that. Same 1e-12, asked of a quantity that can answer it. See
+           the decision entry; =PLAN.org= updated.
 :END:
 
 *The port is not in question.* B-0025 proved all fifty components bit-identical
@@ -1385,14 +1383,37 @@ Exit: 1.0 tagged, all three surfaces built from one commit.
 
 Items parked on a decision. Move them back into their phase when answered.
 
-- *B-0026a*, in Phase 2. What should Tier 2 measure on a component whose
-  balance cancels? Blocks B-0026 and therefore the close of Phase 2. A
-  one-line answer unblocks it. **This is the one to answer.**
 - *B-0025b*, in Phase 6. Should a shutdown end the run instead of freezing the
   plant? Delta D-007 is implemented and off by default, as =PLAN.org= requires;
   it cannot become the default before Tier 5 exists. Not blocking anything now.
 
 * Decisions
+
+** 2026-08-27 Tier 2 measures against the scale of the terms
+:PROPERTIES:
+:ITEM: B-0026a
+:END:
+
+=PLAN.org= set Tier 2 at "rel err < 1e-12", read as relative to the derivative.
+B-0025 measured that 28 of the 50 components cannot meet it, and established
+that the port is not the reason: under =libm-system= the whole right-hand side
+is bit-identical to gfortran, 35,850 comparisons, 0 ULP.
+
+The cause is cancellation. A balance is inflow minus outflow, those nearly
+agree near steady state, and one ULP in each term is 1e-16 of the terms and up
+to 1e-4 of the result. The 22 components that *do* meet 1e-12 are exactly the
+ones that do not cancel.
+
+*Decision: measure against the scale of the terms.* Each balance reports the
+magnitude of the largest term entering it, and the gate is the error over that.
+Same 1e-12, asked of a quantity that can answer it.
+
+Two candidates were rejected. Keeping relative-to-result and gating only the
+non-cancelling components leaves 28 of 50 ungated, which is most of the model.
+Making bit equality under =libm-system= the gate is the strongest claim
+available but moves Tier 2 off the configuration that actually ships.
+
+=PLAN.org= updated. B-0026 implements it.
 
 Append-only record of choices that changed =PLAN.org=.
 
