@@ -1051,6 +1051,187 @@ Tier 3 RNG call-trace instrumentation on both sides and the trace differ.
 Exit: Tier 3 trace diff empty; Tier 4 within =XNS(i)= for the first hours on all
 22 scenarios.
 
+Decomposed by B-0027. Every remaining line of =teprob.f= that Phase 2 did not
+claim belongs to one of these items, except the file header and =TEINIT='s
+constant blocks that Phase 1 and 2 already cover.
+
+** NEXT B-0027 Decompose Phase 3 and settle the RNG ordering question
+:PROPERTIES:
+:ID:    B-0027
+:PHASE: 3
+:TIER:  none
+:DEPS:  B-0025
+:PLAN:  Anatomy > Disturbance mechanism; Validation > Tier 3
+:END:
+
+Produces backlog items, not code, on the B-0012 precedent.
+
+The load-bearing question here is not the split, which =crate::plant= already
+settled, but *draw order*. Every RNG consumer in the file shares one generator
+word, and Tier 3 exists because getting the order wrong reproduces the right
+distribution from the wrong stream. Enumerate the consumers from the source
+before any of them is ported.
+
+Done when:
+- [ ] Every =TESUB7= call site enumerated by line, with what consumes it
+- [ ] Phase 3 decomposed into iteration-sized items, each naming its
+      =teprob.f= range
+- [ ] It is established whether the walk advance can be verified
+      incrementally, as Phase 2's could against =COMMON/TEPROC/=
+
+** TODO B-0028 Port TESUB5 and TESUB6, and finish Tier 1
+:PROPERTIES:
+:ID:    B-0028
+:PHASE: 3
+:TIER:  1
+:DEPS:  B-0027
+:PLAN:  Validation > Tier 1
+:END:
+
+=teprob.f:1506-1546=. The last two utility routines: =TESUB5= builds a cubic
+walk segment from two endpoint draws, =TESUB6= sums twelve uniforms into an
+approximately normal draw.
+
+Both *consume the generator*, unlike =TESUB1= through =TESUB4=, so Tier 1 for
+them means pinning =G= before each call rather than sweeping inputs. The
+oracle has no =tesub5_= binding yet; it takes fourteen arguments.
+
+Done when:
+- [ ] =TESUB5= and =TESUB6= ported, with a =tesub5_= binding added
+- [ ] Tier 1 for both, ULP histograms recorded, with the generator word pinned
+- [ ] The *number of draws each makes* asserted, not just the value: 3 for
+      =TESUB5=, 12 for =TESUB6=. That is what Tier 3 will depend on
+
+** TODO B-0029 Tier 3 harness: RNG call-trace instrumentation and the differ
+:PROPERTIES:
+:ID:    B-0029
+:PHASE: 3
+:TIER:  3
+:DEPS:  B-0028
+:PLAN:  Validation > Tier 3
+:END:
+
+Instrument =TESUB7= on both sides to record every draw, and diff the traces.
+
+*Build this before the walk advance, not after.* Phase 2 was verifiable
+incrementally because =COMMON/TEPROC/= exposes every intermediate; the walk
+state is exposed too (=COMMON/WLK/=), but draw *order* is not a value in any
+=COMMON= block and cannot be recovered after the fact. B-0015's lesson applies:
+the harness that makes the next six items measurable is worth its own iteration.
+
+Done when:
+- [ ] The instrumented Fortran records (call index, sign flag, result) per draw
+- [ ] =TepRng= records the same, behind a feature so the shipped core does not
+- [ ] A differ that reports the first divergent index, not just a count
+
+** TODO B-0030 The walk state, its spans, and the noise magnitudes
+:PROPERTIES:
+:ID:    B-0030
+:PHASE: 3
+:TIER:  2
+:DEPS:  B-0029
+:PLAN:  Anatomy > Disturbance mechanism
+:END:
+
+=teprob.f:1256-1367=. =XNS(1..41)=, the five span arrays for the twelve walk
+channels, and the initial walk state.
+
+Constants only, no behaviour, but 41 + 60 + 48 numbers is well past what
+anybody checks by eye, so it gets the =tests/constants.rs= treatment: reparse
+the Fortran and derive each value independently.
+
+Done when:
+- [ ] =XNS=, =HSPAN=, =HZERO=, =SSPAN=, =SZERO=, =SPSPAN= transcribed and
+      asserted against =COMMON/WLK/= from the oracle
+- [ ] The initial walk state at =1360-1367=
+- [ ] The precision of every literal checked; these are unusually
+      =D=-suffixed, which is itself worth confirming rather than assuming
+
+** TODO B-0031 The walk advance, including the spike rule
+:PROPERTIES:
+:ID:    B-0031
+:PHASE: 3
+:TIER:  3
+:DEPS:  B-0030
+:PLAN:  Anatomy > Disturbance mechanism
+:END:
+
+=teprob.f:340-406=. The =IDV= clamp, the =IDVWLK= mapping, the =DO 900= advance
+for channels 1-9 through =TESUB5=, the =DO 910= spike rule for 10-12, and the
+=TIME=0= reset.
+
+*Channels 10-12 are not walks.* =teprob.f:380-393= branches on the interpolated
+value against 0.1 and builds either a 0.1-hour pulse or a dwell whose curvature
+is =IDVWLK(I)/HWLK**2=. That is a spike train, and it is where =IDV(17)=,
+=IDV(18)= and =IDV(20)= live.
+
+Done when:
+- [ ] Both loops, both branches of the spike rule, and the reset
+- [ ] Tier 3 trace empty over a run long enough for every channel to fire at
+      least twice, including the =SWLK <= 0.1= branch
+- [ ] The =ISD=-as-sign-flag borrow at =387= reproduced; the oracle's
+      instrumentation already splits it into =IRAND=, and that split must not
+      change the draw sequence
+
+** TODO B-0032 Wire the walk outputs into the plant
+:PROPERTIES:
+:ID:    B-0032
+:PHASE: 3
+:TIER:  2
+:DEPS:  B-0031
+:PLAN:  Anatomy > Disturbance mechanism
+:END:
+
+=teprob.f:407-416=. The eight =TESUB8= reads and the four =IDV= step
+disturbances that produce =WalkInputs=.
+
+Mostly done already, and known to be right: B-0020 through B-0025 each
+recompute this block in their test harness to supply the port's inputs, and it
+comes out 0 ULP. This item moves it from six copies in the tests into
+=Plant::advance_discrete= and deletes the copies.
+
+Done when:
+- [ ] =Plant::advance_discrete= produces =WalkInputs= itself
+- [ ] The six test-side reimplementations deleted, and every Tier 2
+      differential still green
+
+** TODO B-0033 The twenty disturbances as injection points and profiles
+:PROPERTIES:
+:ID:    B-0033
+:PHASE: 3
+:TIER:  none
+:DEPS:  B-0032
+:PLAN:  Architecture > Disturbance and scenario engine
+:END:
+
+The =IDV(1..20)= flags re-expressed as =InjectionPoint= plus =Profile= pairs,
+per =PLAN.org=. A modelling item: the faithful path must produce identical
+numbers, so this is a refactor with a differential behind it rather than new
+behaviour.
+
+Done when:
+- [ ] All twenty enumerated, each naming the =teprob.f= line it acts on
+- [ ] The faithful path is bit-identical to B-0032's, on all twenty
+- [ ] The three kinds are distinguished by type: step, walk-magnitude, and
+      the valve-sticking flags that are not disturbances to the model at all
+
+** TODO B-0034 Tier 3 acceptance and the Tier 4 diagnostic
+:PROPERTIES:
+:ID:    B-0034
+:PHASE: 3
+:TIER:  3
+:DEPS:  B-0033 B-0024b
+:PLAN:  Validation > Tier 3; Validation > Tier 4
+:END:
+
+Done when:
+- [ ] Tier 3 trace diff empty on all 22 scenarios, over a run long enough to
+      exercise every channel
+- [ ] =xtask validate --tiers 3= runs it
+- [ ] Tier 4 recorded as a *diagnostic*: error against =XNS(i)= for the first
+      hours, with the divergence point and its attribution to =libm=. Not a
+      gate, per =PLAN.org=; the numbers go in the log either way
+
 * Phase 4: control layer
 
 Velocity-form PI, the 19-loop Braatz preset with its per-loop constants, and the
