@@ -1,11 +1,23 @@
 //! The transcendental functions, and why they do not come from `f64`.
 //!
-//! Two functions reach this module: `exp`, first needed by the Antoine vapour
-//! pressures at `teprob.f:485`, and `pow`, first needed by the fractional
-//! pressure orders at `teprob.f:508`. `ln` joins them in B-0021. Everything
-//! else in the model is `+`, `-`, `*`, `/` and `sqrt`, all of which IEEE-754
-//! specifies to the last bit, so they are identical on every target and need
-//! no wrapper.
+//! Three functions reach this module. `exp`, first needed by the Antoine
+//! vapour pressures at `teprob.f:485`; `pow`, first needed by the fractional
+//! pressure orders at `teprob.f:508`; and `sqrt`, first needed by the
+//! pressure-driven flows at `teprob.f:578`.
+//!
+//! # `sqrt` is here for a different reason from the other two
+//!
+//! IEEE-754 specifies `sqrt` exactly: it is correctly rounded, on every
+//! conforming platform, and it compiles to a single hardware instruction. It
+//! has none of the portability problem that `exp` and `pow` have, and it takes
+//! no `libm-system` variant because there is nothing for one to fix.
+//!
+//! It is routed through this module anyway for a mundane reason: `f64::sqrt`
+//! is a `std` method and this crate is `no_std`, so the call has to come from
+//! the `libm` crate. That is a build-time detail with no numerical content,
+//! and it is spelled out here because the obvious reading, that `sqrt` is
+//! another portability hazard, is wrong and would spread caution where none is
+//! needed.
 //!
 //! # Why the vendored crate rather than `f64::exp`
 //!
@@ -97,6 +109,16 @@ pub fn pow(x: f64, y: f64) -> f64 {
     x.powf(y)
 }
 
+/// The square root.
+///
+/// Unlike [`exp`] and [`pow`] this has a single correct answer on every
+/// platform, and it is the same function in both build configurations. See the
+/// module documentation for why it goes through here at all.
+#[must_use]
+pub fn sqrt(x: f64) -> f64 {
+    libm::sqrt(x)
+}
+
 /// Whether this build uses the platform libm rather than the vendored one.
 ///
 /// Reported by validation harnesses, so that a recorded number always says
@@ -116,6 +138,20 @@ mod tests {
         assert!(exp(f64::NEG_INFINITY) == 0.0);
         assert!(exp(f64::INFINITY).is_infinite());
         assert!(exp(f64::NAN).is_nan());
+    }
+
+    /// `sqrt` is exact, so it must agree with the platform in *both*
+    /// configurations. If this ever fails, IEEE-754 is not being honoured and
+    /// the reasoning in the module documentation no longer holds.
+    #[test]
+    fn sqrt_is_exact_in_both_configurations() {
+        assert_eq!(sqrt(4.0).to_bits(), 2.0_f64.to_bits());
+        assert_eq!(sqrt(0.0).to_bits(), 0.0_f64.to_bits());
+        assert!(sqrt(-1.0).is_nan());
+        // A value whose root is not representable, where a sloppy
+        // implementation would drift.
+        let x = 2.0_f64;
+        assert_eq!(sqrt(x).to_bits(), 0x3FF6A09E667F3BCD);
     }
 
     #[test]

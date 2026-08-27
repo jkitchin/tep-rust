@@ -37,6 +37,16 @@
 //! rather than with a physically-reachable state. The measurement is pinned by
 //! a test so that this stays a known fact rather than a forgotten omission.
 //!
+//! # The compressor clamps arrived late, on purpose
+//!
+//! `teprob.f:590-591` clamps the compressor pressure ratio at 1 and at
+//! `CPPRMX`. Both were left out of the original catalogue because `CPPRMX` is
+//! a compressor constant and the compressor did not exist yet; B-0021 added
+//! them. The `CPPRMX` target aims at the *single-precision* value
+//! 1.2999999523162842, not at 1.3: the comparison at line 591 is against what
+//! gfortran stored, and a state placed at the double literal sits on the wrong
+//! side of it.
+//!
 //! # Knobs that hold the temperature fixed
 //!
 //! Scaling a vessel's liquid holdups alone would change its specific energy,
@@ -500,6 +510,55 @@ pub fn catalogue() -> Vec<(Knob, Target, (f64, f64))> {
                 scale: 21_000.0,
             },
             (0.1, 2.0),
+        ),
+        // The two compressor pressure-ratio clamps, deferred here from B-0016
+        // because they are branches against `CPPRMX`, which does not exist
+        // until the compressor curve does (B-0021).
+        //
+        // The first lands on the same state as "PTV = PTS" above: a ratio of
+        // one *is* a zero pressure difference. It is listed separately anyway,
+        // because the catalogue is how a reader finds the state that covers a
+        // given line, and `teprob.f:590` is not `teprob.f:597`.
+        (
+            Knob::MIXING_INVENTORY,
+            Target {
+                name: "PR = 1, the compressor reverse-flow clamp",
+                why: "teprob.f:590, PR is clamped up to 1 below this",
+                observe: |s| s.common.ptv / s.common.pts,
+                value: 1.0,
+                scale: 1.0,
+            },
+            (0.1, 2.0),
+        ),
+        (
+            Knob::MIXING_INVENTORY,
+            Target {
+                name: "PR = CPPRMX, the compressor maximum-ratio clamp",
+                why: "teprob.f:591, PR is clamped down to CPPRMX above this",
+                observe: |s| s.common.ptv / s.common.pts,
+                // Single precision, so 1.2999999523162842 rather than 1.3.
+                // Aiming at the double literal would place the state on the
+                // wrong side of the comparison.
+                value: tepsim_core::flows::MAX_PRESSURE_RATIO,
+                scale: tepsim_core::flows::MAX_PRESSURE_RATIO,
+            },
+            (0.5, 6.0),
+        ),
+        // And one state *inside* the clamped region. The boundary state above
+        // sits exactly on `CPPRMX`, and `teprob.f:591` tests `.GT.`, so it
+        // does not clamp: it proves the comparison is strict, which is the
+        // subtle half. It leaves the taken branch unexercised, and a branch no
+        // sampled state enters is not evidence, so this entry covers it.
+        (
+            Knob::MIXING_INVENTORY,
+            Target {
+                name: "PR above CPPRMX, inside the clamped region",
+                why: "teprob.f:591, the branch the boundary state does not take",
+                observe: |s| s.common.ptv / s.common.pts,
+                value: 1.4,
+                scale: 1.4,
+            },
+            (0.5, 6.0),
         ),
     ]
 }

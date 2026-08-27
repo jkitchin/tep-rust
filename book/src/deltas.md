@@ -34,7 +34,7 @@ from when it arrives.
 Read this section before re-litigating a quirk. It is the list of things that
 have been *noticed* but not yet *decided*.
 
-- Nothing open. D-001, D-002 and D-003 are decided and measured.
+- Nothing open. D-001 through D-004 are decided and measured.
 
 ---
 
@@ -248,3 +248,69 @@ picking up whatever was last left in that word.
 `the_inert_has_no_net_production_in_either_implementation` in
 `crates/tepsim-oracle/tests/tier2_kinetics.rs`. 200 nominal states, all exactly
 zero.
+
+---
+
+## D-004 — the mixed feed carries 1e-10 lbmol/h that nothing accounts for
+
+**Class B.** `teprob.f:568-569`, in `TEFUNC`.
+
+### What the original does
+
+Every other valve-lagged flow is a clean proportionality:
+
+```fortran
+      FTM(1)=VPOS(1)*VRNG(1)/100.0
+```
+
+The mixed A and C feed is not:
+
+```fortran
+      FTM(4)=VPOS(4)*(1.D0-IDV(7)*0.2D0)
+     .*VRNG(4)/100.0+1.D-10
+```
+
+The trailing `+1.D-10` has no physical meaning. It is there so that `FTM(4)`
+is never exactly zero.
+
+### Why it is there
+
+`teprob.f:606` computes `FCM(I,4)=XST(I,4)*FTM(4)`, and the mixing zone
+balance at `teprob.f:783-788` sums those component flows. None of that divides
+by `FTM(4)`, so the guard is not protecting a division in this range.
+
+It protects the *composition* measurement path. With the valve shut and no
+epsilon, stream 4 contributes exactly nothing, and a controller reading a
+composition ratio off it would see 0/0. The epsilon keeps the stream infinitely
+dilute rather than absent.
+
+### Why it is Class B and not Class A
+
+Because it is numerically observable, permanently. The plant receives 1e-10
+lbmol/h of A, B and C that no feed valve delivers and no mass balance
+accounts for, for the entire run. Under normal operation `FTM(4)` is around
+9.35 lbmol/h, so the addend is 1.1e-11 relative and utterly negligible; with
+the valve shut it is the entire flow.
+
+That is the shape of a Class B quirk exactly: wrong in principle, invisible in
+practice, and the thing to demonstrate is that removing it measures as zero
+rather than assuming so.
+
+### What this port does
+
+Reproduces it, as [`tepsim_core::flows::FEED_FLOW_EPSILON`], on the faithful
+path. The eventual fix belongs in Phase 6 behind a flag, with a Tier 5 delta
+report, like every other Class B item.
+
+### Measured effect
+
+Not yet. The delta is measured when the fix lands (Phase 6, Tier 10). What is
+pinned now is the behaviour it produces: with valve 4 shut, `FTM(4)` is exactly
+1e-10 and not zero.
+
+### Measured by
+
+`the_mixed_feed_never_reaches_exactly_zero` in
+`crates/tepsim-core/src/flows.rs`, and the Tier 2 differential in
+`crates/tepsim-oracle/tests/tier2_flows.rs`, which is bit-identical to the
+Fortran under `libm-system` and would not be if the addend were dropped.
