@@ -14,17 +14,18 @@ earlier phases will change what the right decomposition is.
 
 Rewrite this block at the end of every iteration. Keep it to five lines.
 
-- Phase: 3, five of eight done. Phase 2's model is complete
-- Last completed: B-0031, the walk advance, matching in both state and stream
+- Phase: 3, six of eight done. Phase 2's model is complete
+- Last completed: B-0032, walks wired into the plant; found a term six copied
+  harnesses all dropped
 - In flight: (none)
-- Baseline: =cargo xtask ci= green; 243 tests default, 371 with =oracle=, plus
-  a 38-test =oracle,libm-system= run; provenance *1043/1589 (65.6%)*
+- Baseline: =cargo xtask ci= green; 243 tests default, 375 with =oracle=, plus
+  a 38-test =oracle,libm-system= run; provenance *1050/1589 (66.1%)*
 - Toolchain: rustup, pinned to rustc 1.97.1, wasm32 installed, libm 0.2.16
 - Remote: private jkitchin/tep-rust, CI green on all 7 jobs
 - *Blocked on B-0026a*, which closes Phase 2: Tier 2's "rel err < 1e-12" is not
   achievable relative-to-result on a balance equation, because balances cancel.
   The port is not in question; the *metric* is. Phase 3 is unblocked and is
-  where work continues; next is B-0032, wiring the walk outputs into the plant.
+  where work continues; next is B-0024b, the noise and the sampled analysers.
 
 * Phase 0: foundations
 
@@ -1245,13 +1246,25 @@ is =IDVWLK(I)/HWLK**2=. That is a spike train, and it is where =IDV(17)=,
       =IRAND= split is what makes the two comparable, and the pristine probe
       proves that split changes nothing
 
-** NEXT B-0032 Wire the walk outputs into the plant
+** DONE B-0032 Wire the walk outputs into the plant
 :PROPERTIES:
 :ID:    B-0032
 :PHASE: 3
 :TIER:  2
 :DEPS:  B-0031
 :PLAN:  Anatomy > Disturbance mechanism
+:COMMIT: d35ef97
+:RESULT: =teprob.f:340-416= runs inside =Plant::advance_discrete=, which holds
+         the generator and the channels and is the *only* place the generator
+         moves; asserted by evaluating the derivative four times, as RK4 would.
+         *The finding*: =teprob.f:407-408= subtracts two terms from the mixed
+         feed's A fraction and *all six* Tier 2 harnesses dropped the second,
+         =-IDV(2)*2.43719D-3=. Invisible because every pooled scenario has
+         =IDV= all-zero, so the term was multiplied by zero in ~2,400 states
+         per file. Six copies of one reading, not six confirmations. All twenty
+         disturbances now swept against the oracle over 10 simulated hours
+         each. The harnesses are *fixed rather than deleted*, deliberately: see
+         the acceptance note below.
 :END:
 
 =teprob.f:407-416=. The eight =TESUB8= reads and the four =IDV= step
@@ -1262,10 +1275,14 @@ recompute this block in their test harness to supply the port's inputs, and it
 comes out 0 ULP. This item moves it from six copies in the tests into
 =Plant::advance_discrete= and deletes the copies.
 
-Done when:
-- [ ] =Plant::advance_discrete= produces =WalkInputs= itself
-- [ ] The six test-side reimplementations deleted, and every Tier 2
-      differential still green
+- [X] =Plant::advance_discrete= produces =WalkInputs= itself
+- [X] The six test-side reimplementations *corrected*, not deleted, and every
+      Tier 2 differential still green. Deleting them would mean each Tier 2
+      file asked =Plant::advance_discrete= for its own inputs, so a bug there
+      would feed *both sides* of the comparison and Tier 2 would pass on
+      wrong-against-wrong. Independent inputs are worth more than one fewer
+      copy. The plant's version is checked separately, in
+      =tier3_walk_inputs.rs=, against the oracle with all twenty faults on
 
 ** TODO B-0033 The twenty disturbances as injection points and profiles
 :PROPERTIES:
