@@ -2323,3 +2323,121 @@ it, all of which Tier 1 proved bit-exact, so any difference is in the assembly.
 
 Run the differential in both configurations from the start, and append
 =tier2_streams= to =LIBM_SYSTEM_TESTS=.
+
+* 2026-08-27 B-0020 The stream table, and an enthalpy checked in the wrong slot
+:PROPERTIES:
+:ITEM:     B-0020
+:PHASE:    2
+:TIER:     2
+:COMMIT:   b70c421
+:GFORTRAN: 15.2.0
+:STATUS:   DONE
+:END:
+** Preflight
+Clean and green, identical to B-0019's closing numbers. gfortran 15.2.0,
+unchanged. Provenance *444/1589 (27.9%)*, unchanged. B-0018's and B-0019's
+differentials re-ran as part of the gate and did not move.
+
+** What changed
+=tepsim_core::streams= ports =teprob.f:529-564= together with the feed block at
+=teprob.f:1134-1169=: compositions, mean molecular weights, temperatures and
+enthalpies for ten of the thirteen streams. =stream= gained =ByStream<T>=,
+the counterpart of =ByComponent<T>=, which =XST=, =XMWS=, =TST=, =HST=, =FTM=
+and =FCM= all want.
+
+The stated range was =521-564=, which begins eight lines inside B-0019's
+kinetics block; the streams start at =529=.
+
+** Validation numbers
+*Tier 2, four fields, all three pools.* 2,417 states, zero convergence
+failures.
+
+| field | cases   | max rel err | max ulp | ulp histogram                  |
+|-------+---------+-------------+---------+--------------------------------|
+| XST   | 193,360 | 4.736e-16   |       4 | 0:189210 1:3316 2:803 3:30 4:1 |
+| XMWS  |  14,502 | 4.370e-16   |       3 | 0:14025 1:392 2:79 3:6         |
+| TST   |  24,170 | 0.000e0     |       0 | 0:24170                        |
+| HST   |  24,170 | 5.050e-16   |       4 | 0:23603 1:461 2:94 3:10 4:2    |
+
+Worst overall *5.050e-16 on =HST(6)=*, the mixing zone outlet, at
+=perturbed#1923=. *=TST= is 0 ULP under the default build*: it is copies and
+walk values, and no transcendental reaches it.
+
+*Under =--features oracle,libm-system=: 0 ULP on all four fields.*
+
+*The seven unwritten =XMWS= slots are exactly zero in the Fortran* on all 200
+nominal states, which is what makes leaving them at zero a reproduction rather
+than a guess.
+
+*=HST(9)= differs from =HST(10)= on 200 of 200 nominal states*, which is the
+measurement that justifies the slot mapping below.
+
+** Surprises and decisions
+*=HST(10)=HST(9)= is a snapshot, not an alias, and the difference is
+seventy lines away.* The backlog asked for it to be "reproduced as the
+aliasing it is". It is not an aliasing. =teprob.f:562= copies the separator
+vapour enthalpy into the purge, and =teprob.f:601= then adds the compressor
+work to =HST(9)= alone:
+
+: HST(9)=HST(9)+CPDH/FTM(9)
+
+The recycle gains compressor work; the purge does not, because it was copied
+first. Reading 562 as a live alias gives the purge a share of work it never
+receives.
+
+The consequence for validation is the part worth recording. On return,
+=COMMON='s =HST(9)= is *not* what this range computes, and =HST(10)= is. So
+this module's stream 9 enthalpy is compared against slot 10. Comparing against
+=HST(9)= would have failed, and the natural reading of that failure is a wrong
+enthalpy rather than an early one, which is a bad afternoon. A test asserts
+the two slots differ on every nominal state, so the mapping cannot be tidied
+away later without producing an explicable failure.
+
+*The walk-driven feed values are recomputed, not read back.* =teprob.f:407-412=
+overwrites =XST(1..3,4)=, =TST(1)= and =TST(4)= from =TESUB8= and the =IDV=
+flags. Reading them out of =COMMON= after the call would have been simpler and
+would have made six comparisons trivially true. Recomputing them costs four
+lines and confirms the reading of =407-412= at 0 ULP, which B-0024 would
+otherwise have to establish from scratch.
+
+*No new precision trap.* The range was audited for the =40000.0/1.987= pattern
+that B-0019 found, per that entry's instruction. There is none: every literal
+here stands alone. The feed compositions are single precision as expected, and
+typing them as doubles measures 2.526e-8.
+
+*=XMWS= is six-of-thirteen, and the other seven are dead rather than latent.*
+They are never written and never read. Filling them in would look like tidying
+and would be a divergence with no test to catch it, since nothing reads them.
+
+** Next
+B-0021, valve-lagged flows, pressure-driven flows and the compressor,
+=teprob.f:565-611=.
+
+*It is the largest remaining item in Phase 2 and the first with real control
+flow.* Everything so far has been straight-line arithmetic. This range has four
+=IF(DLP.LT.0.0)DLP=0.0= clamps, the compressor pressure-ratio clamps, and
+=IDV(6)= and =IDV(7)= gating two feeds.
+
+Three things are already known and should not be rediscovered:
+
+The *purge clamp is unreachable from a physical state*. =PTS= floors at 811.49
+mmHg against a 760 threshold, so no sampled state will ever exercise it. It
+needs a unit test at a chosen composition. The other three clamps are covered
+by B-0016 adversarial states.
+
+*Both compressor pressure-ratio clamps were deferred here from B-0016*, because
+they are branches on =PR= against =CPPRMX= and =CPPRMX= does not exist until
+the compressor curve does. Add adversarial states for them as part of this
+item, and check =adversarial::build='s =missed= list stays empty.
+
+The =1.0e-10= addend on stream 4 is a *Class B delta* and needs an entry.
+
+=HST(9)= becomes checkable in this item: once =CPDH= and =FTM(9)= exist, the
+post-bump value is what =COMMON= holds, and B-0020's stream 9 comparison
+against slot 10 can be joined by a direct one against slot 9.
+
+Append =tier2_flows= to =LIBM_SYSTEM_TESTS= in =xtask/src/main.rs=.
+
+Sizing: if the compressor and the clamps together will not fit with tests and
+validation, split at =teprob.f:588=, taking the valve-lagged and
+pressure-driven flows first and the compressor second.

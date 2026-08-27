@@ -14,18 +14,19 @@ earlier phases will change what the right decomposition is.
 
 Rewrite this block at the end of every iteration. Keep it to five lines.
 
-- Phase: 2, on B-0020. Kinetics landed; error is 8.5e-16, all of it libm
-- Last completed: B-0019 reaction kinetics, 0 ULP under =libm-system=, and two
-  single-precision traps found in inline literals
+- Phase: 2, on B-0021. Six of nine Phase 2 items done; 5.1e-16, all of it libm
+- Last completed: B-0020 stream table, 0 ULP under =libm-system=; =HST(10)= is
+  a snapshot taken before the compressor bump, not an alias
 - In flight: (none)
-- Baseline: =cargo xtask ci= green; 160 tests default, 239 with =oracle=, plus
-  a 7-test =oracle,libm-system= run; provenance 444/1589 (27.9%)
+- Baseline: =cargo xtask ci= green; 168 tests default, 250 with =oracle=, plus
+  an 11-test =oracle,libm-system= run; provenance 516/1589 (32.5%)
 - Toolchain: rustup, pinned to rustc 1.97.1, wasm32 installed, libm 0.2.16
 - Remote: private jkitchin/tep-rust, CI green on all 7 jobs
-- Blocked on: nothing. Next is B-0020, stream compositions and enthalpies.
-  *Audit every inline literal for the =40000.0/1.987= trap before writing
-  code*: a quotient or product of two suffix-less literals is folded in single
-  precision, and it does not look like anything.
+- Blocked on: nothing. Next is B-0021, flows and the compressor: the largest
+  remaining item, and the first with *clamps and unreachable branches*. The
+  purge clamp cannot be reached from a physical state, so it needs a unit test
+  rather than an adversarial one, and two compressor clamps still have to be
+  added to the B-0016 catalogue.
 
 * Phase 0: foundations
 
@@ -733,21 +734,36 @@ Done when:
 - [X] delta entry for the =R1F=/=R2F= rename (D-002), and for =CRXR(2)=
       never being assigned (D-003), which was not anticipated
 
-** NEXT B-0020 Stream compositions, molecular weights and enthalpies
+** DONE B-0020 Stream compositions, molecular weights and enthalpies
 :PROPERTIES:
 :ID:    B-0020
 :PHASE: 2
 :TIER:  2
 :DEPS:  B-0019
 :PLAN:  Anatomy > Internal streams
+:COMMIT: b70c421
+:RESULT: =teprob.f:529-564= plus the feed block at =1134-1169=, not =521-564=.
+         Ten of thirteen streams; 5, 7 and 12 are B-0022's. Tier 2 max rel err
+         *5.050e-16* on =HST=, worst 4 ULP; *0 ULP under =libm-system=*.
+         =TST= is 0 ULP under the default build too, being copies. The
+         =HST(10)=HST(9)= line is a *snapshot*, not an alias: =teprob.f:601=
+         bumps =HST(9)= alone, so on return =HST(10)= holds this range's value
+         and =HST(9)= does not, and stream 9 is compared against slot 10.
+         =XMWS= exists for six streams; the other seven are never written or
+         read, and the oracle is now required to report zero. The walk-driven
+         feed values are recomputed from =TESUB8= rather than read back, so
+         the reading of =407-412= is confirmed at 0 ULP for B-0024.
 :END:
 
 =teprob.f:521-564=. Assembles =XST=, =XMWS=, =TST= and =HST= for the streams
 known at this point, via nine =TESUB1= calls.
 
 Done when:
-- [ ] Tier 2 differential on =XST=, =XMWS=, =TST=, =HST=
-- [ ] =HST(10)=HST(9)= at =562= reproduced as the aliasing it is
+- [X] Tier 2 differential on =XST=, =XMWS=, =TST=, =HST=
+- [X] =HST(10)=HST(9)= at =562= reproduced as what it actually is: a
+      *snapshot* taken before =teprob.f:601= adds the compressor work to
+      =HST(9)= alone. Calling it an alias is the misreading, and it would give
+      the purge a share of compressor work it never receives
 
 ** TODO B-0021 Valve-lagged flows, pressure-driven flows and the compressor
 :PROPERTIES:
