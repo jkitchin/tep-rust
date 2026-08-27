@@ -44,6 +44,7 @@ pub mod component;
 pub mod constants;
 pub mod disturbance;
 pub mod equilibrium;
+pub mod fault;
 pub mod flows;
 pub mod heat;
 pub mod kinetics;
@@ -67,6 +68,7 @@ pub use disturbance::{
     CHANNEL_SPANS, ChannelSpans, Draw, Segment, SegmentStart, TracingRng, noise, walk_segment,
 };
 pub use equilibrium::{Equilibrium, VapourSpace, equilibrium};
+pub use fault::{FAULTS, Fault, Shape, fault};
 pub use flows::{FlowDrift, Flows, flows};
 pub use heat::{HeatDrift, HeatTransfer, heat_transfer};
 pub use kinetics::{Kinetics, ReactionDrift, kinetics};
