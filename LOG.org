@@ -3878,3 +3878,92 @@ disturbance to the plant; it is a disturbance to the controller's authority
 over it, which is why it produces nothing whatever in an open-loop run. A
 scenario engine that treated it as a plant disturbance would report a fault
 that does nothing and look broken.
+
+* 2026-08-27 B-0033 The twenty disturbances as what they actually are
+:PROPERTIES:
+:ITEM:     B-0033
+:PHASE:    3
+:TIER:     none
+:COMMIT:   18f8558
+:GFORTRAN: 15.2.0
+:STATUS:   DONE
+:END:
+** Preflight
+Clean and green. gfortran 15.2.0, unchanged. =xtask fidelity= now diffs for
+real: *100 of 100 steps, worst 3.521e-14*. Provenance *1101/1589 (69.3%)* on
+entry, *1123 (70.7%)* on exit.
+
+** What changed
+=tepsim_core::fault= describes all twenty disturbances: the published name
+verbatim, what the source actually does, which shape it has, and the
+=teprob.f= line it acts on. =tests/fault_table.rs= checks every claim against
+the Fortran.
+
+** Validation numbers
+*Every claim, against the oracle.* For all twenty faults: the channels the
+table claims are exactly the channels =IDVWLK= enables, and the valves it
+claims are exactly the valves =IVST= sticks.
+
+*The sticking faults change nothing.* =IDV(14)=, =IDV(15)= and =IDV(19)= leave
+all fifty derivatives *bit-identical* in an open-loop run. Every other fault
+moves something within 20 simulated hours, so the distinction is tested in both
+directions.
+
+*Step against random, by observation.* At t=0.05, before any channel is due,
+all seven step faults have already moved the derivative and none of the ten
+random ones has.
+
+** Surprises and decisions
+*The five "Unknown" faults are not unknown, and they are not one kind.* The
+header at =teprob.f:187-191= gives no description for =IDV(16)= through
+=IDV(20)=, and the literature repeats it. The *source* is entirely explicit;
+only the physical interpretation was withheld:
+
+| fault | what =teprob.f= does |
+|-------+----------------------|
+| =IDV(16)= | walk channel 9, stripper steam valve capacity |
+| =IDV(17)= | spike channel 10, reactor coolant duty |
+| =IDV(18)= | spike channel 11, condenser coolant duty |
+| =IDV(19)= | sticks valves 5, 7, 8 and 9 |
+| =IDV(20)= | spike channel 12, reactor outlet flow |
+
+So one of the five does not reach the plant at all, and three of the remaining
+four are *spike* channels rather than walks. That is why the literature reports
+17, 18 and 20 as the hardest of the twenty to detect: they are intermittent, and
+B-0031 measured the shape (66 fired segments against 1,432 dwells over 75 hours).
+
+*A sticking fault is not a plant disturbance.* It is a disturbance to the
+controller's *authority over* the plant: =IVST= widens the dead band a command
+must cross before the valve follows it (=teprob.f:801=). With the command held
+still, as in every open-loop run, it does nothing whatever.
+
+That is worth a type rather than a comment. A scenario engine that treated all
+twenty alike would inject =IDV(14)=, observe no effect, and look broken; or
+worse, someone would "fix" it. The three are marked
+=Fault::affects_the_plant() == false= and the fact is measured, not asserted.
+
+*This item added no code path.* It describes what B-0031 and B-0032 already
+implement, so the faithful path is untouched and their differentials still hold
+without modification. The value is entirely in the table being *checkable*: two
+statements of the same twenty facts, one in prose next to the code and one
+read out of =COMMON= after forcing each fault, which must agree.
+
+** Next
+B-0034 closes Phase 3: Tier 3 acceptance and the Tier 4 diagnostic.
+
+Most of Tier 3 already exists and passes. =tier3_walk.rs= compares the walk's
+draws as a trace prefix; =tier3_analysers.rs= runs 2,000 carried steps with the
+generators in lockstep and 20 faults for 6 hours each. What B-0034 owes is
+=xtask validate --tiers 3= wiring those up, and a run long enough to be called
+acceptance: PLAN.org says all 22 scenarios.
+
+Tier 4 is a *diagnostic and not a gate*, which =CLAUDE.md= is emphatic about.
+Record error against =XNS(i)= for the first hours and the divergence point, and
+attribute it: the =libm-system= feature exists precisely so the attribution can
+be demonstrated rather than asserted. Flipping it should move the divergence
+point, and if it does not, the explanation is wrong.
+
+Expect divergence to be *fast*. The plant is open-loop unstable in pressure, and
+B-0025 measured 8.5e-16 per step on the derivative; over a 48-hour run at one
+second that is 172,800 steps of amplification. The number to record is where it
+crosses =XNS(i)=, not whether it eventually does.

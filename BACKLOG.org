@@ -14,16 +14,16 @@ earlier phases will change what the right decomposition is.
 
 Rewrite this block at the end of every iteration. Keep it to five lines.
 
-- Phase: *2 is closed*; Phase 3 has seven of eight done
-- Last completed: B-0026, Tier 2 acceptance. All fifty at 6.093e-14, and the
-  fidelity preflight now diffs the port against the golden trace for real
+- Phase: *2 is closed*; Phase 3 has eight of nine done, B-0034 left
+- Last completed: B-0033, the fault table. The five "Unknown" faults explained
+  and checked against the Fortran
 - In flight: (none)
-- Baseline: =cargo xtask ci= green; 249 tests default, 385 with =oracle=, plus
-  a 38-test =oracle,libm-system= run; provenance *1101/1589 (69.3%)*
+- Baseline: =cargo xtask ci= green; 255 tests default, 396 with =oracle=, plus
+  a 38-test =oracle,libm-system= run; provenance *1123/1589 (70.7%)*
 - Toolchain: rustup, pinned to rustc 1.97.1, wasm32 installed, libm 0.2.16
 - Remote: private jkitchin/tep-rust, CI green on all 7 jobs
-- Blocked on: nothing. Next is B-0033, the disturbances as typed injection
-  points, then B-0034 closes Phase 3.
+- Blocked on: nothing. Next is B-0034, which closes Phase 3: Tier 3 acceptance
+  and the Tier 4 diagnostic.
 
 * Phase 0: foundations
 
@@ -1303,13 +1303,23 @@ comes out 0 ULP. This item moves it from six copies in the tests into
       copy. The plant's version is checked separately, in
       =tier3_walk_inputs.rs=, against the oracle with all twenty faults on
 
-** NEXT B-0033 The twenty disturbances as injection points and profiles
+** DONE B-0033 The twenty disturbances as injection points and profiles
 :PROPERTIES:
 :ID:    B-0033
 :PHASE: 3
 :TIER:  none
 :DEPS:  B-0032
 :PLAN:  Architecture > Disturbance and scenario engine
+:COMMIT: 18f8558
+:RESULT: =tepsim_core::fault= names all twenty, each citing the =teprob.f= line
+         it acts on, and every claim is *checked against the Fortran*: which
+         channels =IDVWLK= enables, which valves =IVST= sticks, and whether the
+         fault reaches the model. Three shapes; the third, *sticking*, touches
+         no equation and is measured to leave all fifty derivatives
+         bit-identical open-loop. *The five "Unknown" faults are not unknown*:
+         the source is explicit about all five, they are three different kinds
+         under one label, and one of them (=IDV(19)=) does not reach the plant
+         at all.
 :END:
 
 The =IDV(1..20)= flags re-expressed as =InjectionPoint= plus =Profile= pairs,
@@ -1317,11 +1327,13 @@ per =PLAN.org=. A modelling item: the faithful path must produce identical
 numbers, so this is a refactor with a differential behind it rather than new
 behaviour.
 
-Done when:
-- [ ] All twenty enumerated, each naming the =teprob.f= line it acts on
-- [ ] The faithful path is bit-identical to B-0032's, on all twenty
-- [ ] The three kinds are distinguished by type: step, walk-magnitude, and
-      the valve-sticking flags that are not disturbances to the model at all
+- [X] All twenty enumerated, each naming the =teprob.f= line it acts on
+- [X] The faithful path is unchanged: this adds a description, not a code
+      path, so B-0032's differentials still hold without modification
+- [X] The three kinds distinguished by type, and the distinction *measured*:
+      a sticking fault leaves all fifty derivatives bit-identical open-loop,
+      and a step fault moves them before any channel is due while a random one
+      does not
 
 ** TODO B-0034 Tier 3 acceptance and the Tier 4 diagnostic
 :PROPERTIES:
