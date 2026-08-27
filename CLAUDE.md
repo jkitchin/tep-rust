@@ -51,11 +51,11 @@ quirk that already has a decision.
 
 | Check | Needs gfortran | Covers |
 |---|---|---|
-| `xtask fidelity` | no | The golden trace is intact and well formed, and reports which gfortran recorded it. Will also diff the Rust port against it once one exists (phase 2). |
+| `xtask fidelity` | no | Runs the port forward 100 steps from the nominal state and diffs states, derivatives, measurements and the generator word against the committed trace. Also reports which gfortran recorded it. About a second. |
 | `cargo test -p tepsim-oracle --features oracle` (in the non-fast gate) | yes | The Fortran still reproduces the committed trace bit for bit. This is what catches a toolchain or flag change. |
 
-`xtask fidelity` prints how many steps it actually diffed. Until phase 2 that is
-`0 of 100`, and it says so rather than reporting a bare success.
+`xtask fidelity` prints how many steps it actually diffed, and since B-0026
+that is `100 of 100`. If it ever says fewer, something stopped it early.
 
 Four rules make this worth running:
 
@@ -270,7 +270,7 @@ macOS runners only, never Windows.
 | Tier | What it proves | Gate |
 |---|---|---|
 | 1 | `TESUB1`–`TESUB8` match the oracle | rel err < 1e-13; `TESUB7` bit-exact |
-| 2 | Single-step derivatives match | rel err < 1e-12 over all three sampling pools |
+| 2 | Single-step derivatives match | err < 1e-12 **of the scale of the terms**, over all three pools. Not of the derivative: balances cancel. See the decision of 2026-08-27 |
 | 3 | RNG call **order** matches | trace diff is empty |
 | 4 | Trajectories (diagnostic, not a gate) | error < `XNS(i)` for the first hours; divergence attributed to libm |
 | 5 | Statistical equivalence | TOST on means **and variances**, KS, ACF, Welch spectra, correlation matrix |

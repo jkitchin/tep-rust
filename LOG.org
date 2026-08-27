@@ -3772,3 +3772,109 @@ After B-0033, B-0034 closes Phase 3.
 
 *B-0026a is still open* and still one line. It is now the only thing standing
 between a complete, end-to-end-validated port and a closed Phase 2.
+
+* 2026-08-27 B-0026 Tier 2 acceptance, and the preflight goes live
+:PROPERTIES:
+:ITEM:     B-0026
+:PHASE:    2
+:TIER:     2
+:COMMIT:   831c60f
+:GFORTRAN: 15.2.0
+:STATUS:   DONE
+:END:
+** Preflight
+Clean and green. gfortran 15.2.0, unchanged. Provenance *1101/1589 (69.3%)*,
+unchanged: this item implements a metric and wires two commands.
+
+B-0026a was answered by the user: *measure against the scale of the terms*.
+=PLAN.org= updated, decision entry recorded, blocked list empty.
+
+** What changed
+=Balances= now carries a =scale=, the magnitude of the largest term entering
+each balance. =Comparison::observe_against= divides by a supplied scale rather
+than by the reference. =xtask validate --tiers 2= exists. And =xtask fidelity=
+diffs the port against the golden trace, which it has not done since B-0004c
+created it.
+
+** Validation numbers
+*Tier 2 acceptance. All fifty components, 2,412 running states, all three
+pools.*
+
+: worst 6.093e-14 at YP(7), perturbed#300, against a 1e-12 gate.
+
+Per-component, both measures, worst over the sweep:
+
+| YP | err/scale | err/value | ratio |
+|----+-----------+-----------+-------|
+|  2 | 3.811e-14 | 1.393e-4 | 3.7e9 |
+| 30 | 4.552e-15 | 2.487e-6 | 5.5e8 |
+| 38 | 8.696e-15 | 1.187e-6 | 1.4e8 |
+| 14 | 3.113e-14 | 2.618e-6 | 8.4e7 |
+|  7 | 6.093e-14 | 7.835e-7 | 1.3e7 |
+| 19-27, 37, 39-50 | 0.000e0 | 0.000e0 | 1x |
+
+*28 of 50 components cancel by more than 100x.* The 22 that do not are exactly
+0.000e0: bit-identical, not merely inside the gate.
+
+*The fidelity preflight, now real:*
+
+: 100 of 100 steps diffed, worst 3.521e-14 at YP(12) step 77, gate 1e-12.
+
+It compares states, derivatives, measurements *and* the generator word, needs
+no gfortran, and takes about a second.
+
+** Surprises and decisions
+*The scale belongs in the model, not in the harness.* Only =balances()= knows
+what the terms of a balance are. Computing the budget anywhere else would mean
+a second implementation of all fifty equations, which is exactly the thing
+B-0016 refused to do for the adversarial states and for the same reason: a
+wrong second implementation looks like coverage.
+
+*The acceptance table asserts the contrast, not just the numbers.* The decision
+of 2026-08-27 rests on the claim that these balances cancel badly. If the model
+ever stopped cancelling, relative-to-result would be the better metric and the
+decision would be stale. So the table counts how many components cancel by more
+than 100x and fails if it drops below twenty. The reason for a decision should
+expire loudly, not quietly.
+
+*The preflight earned its keep on its first run.* The first version hardcoded
+=XMV= from the listing, and transposed two digits of =XMV(1)=: 63.053630
+against 63.052630. The preflight caught it at *step 79*, as a 1.6e-5 divergence
+in =XMEAS(2)=, and nothing else in the project would have. Every Tier 2 and
+Tier 3 test forces =XMV= from a scenario, so none of them touches a
+hand-written value.
+
+=TEINIT= sets =XMV(I) = YY(I+38)= at =teprob.f:1104=, so the values now come
+from =NOMINAL_STATE=. =CLAUDE.md= already says constants are transcribed and
+never retyped; this was a fresh instance of exactly that, eight iterations
+after B-0019 found the same thing in the pre-exponentials.
+
+*Eight iterations of "0 of 100 steps diffed".* The preflight has printed that
+line every session since B-0004c, and it was honest each time. It is worth
+noting how long a placeholder can sit in a checklist while the checklist keeps
+passing: the line was read, and understood, and skipped over, on every one of
+those runs.
+
+** Next
+B-0033: the twenty disturbances as =InjectionPoint= plus =Profile= pairs, then
+B-0034 closes Phase 3.
+
+B-0033 is a refactor with a differential already behind it:
+=tier3_walk_inputs.rs= and =tier3_analysers.rs= both sweep all twenty faults
+against the oracle, so the check exists before the change. The faithful path
+must stay bit-identical.
+
+Three kinds are visible from the work rather than from the plan, and the types
+should follow them: four *step* faults on a feed composition or temperature
+(=IDV(1)= to =IDV(5)=, at =teprob.f:407-414=); ten *walk magnitude* flags
+entering through =IDVWLK= at =347-358=, three of which drive spike trains
+rather than walks; and six that are neither. =IDV(6)= and =IDV(7)= gate feed
+flows directly at =567-568=, and =IDV(14)=, =IDV(15)= and =IDV(19)= are valve
+*sticking* flags that never touch the model at all, only the latch at
+=793-798=.
+
+That last group deserves its own type. A valve-sticking flag is not a
+disturbance to the plant; it is a disturbance to the controller's authority
+over it, which is why it produces nothing whatever in an open-loop run. A
+scenario engine that treated it as a plant disturbance would report a fault
+that does nothing and look broken.

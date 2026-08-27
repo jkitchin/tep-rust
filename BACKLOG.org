@@ -14,17 +14,16 @@ earlier phases will change what the right decomposition is.
 
 Rewrite this block at the end of every iteration. Keep it to five lines.
 
-- Phase: 3, seven of eight done. *The model is complete and runs end to end*
-- Last completed: B-0024b, noise and analysers. 2,000 steps carried on both
-  sides with the generators in lockstep
+- Phase: *2 is closed*; Phase 3 has seven of eight done
+- Last completed: B-0026, Tier 2 acceptance. All fifty at 6.093e-14, and the
+  fidelity preflight now diffs the port against the golden trace for real
 - In flight: (none)
 - Baseline: =cargo xtask ci= green; 249 tests default, 385 with =oracle=, plus
   a 38-test =oracle,libm-system= run; provenance *1101/1589 (69.3%)*
 - Toolchain: rustup, pinned to rustc 1.97.1, wasm32 installed, libm 0.2.16
 - Remote: private jkitchin/tep-rust, CI green on all 7 jobs
-- Blocked on: nothing. B-0026a is *answered*: Tier 2 measures against the scale
-  of the terms, =PLAN.org= updated, decision recorded. Next is B-0026, which
-  implements it and closes Phase 2.
+- Blocked on: nothing. Next is B-0033, the disturbances as typed injection
+  points, then B-0034 closes Phase 3.
 
 * Phase 0: foundations
 
@@ -1013,21 +1012,31 @@ Three candidate answers, none of them taken:
 *A one-line answer unblocks this.* Until then B-0026 cannot state its
 acceptance criterion.
 
-** NEXT B-0026 Tier 2 acceptance
+** DONE B-0026 Tier 2 acceptance
 :PROPERTIES:
 :ID:    B-0026
 :PHASE: 2
 :TIER:  2
 :DEPS:  B-0025 B-0026a
 :PLAN:  Validation > Tier 2
+:COMMIT: 831c60f
+:RESULT: *Phase 2 is closed.* All fifty components pass at *6.093e-14* against
+         1e-12, worst =YP(7)=, over 2,412 running states, measured against the
+         scale of the terms per the decision of 2026-08-27. The 22
+         non-cancelling components are 0.000e0. The acceptance table prints
+         both measures: =YP(2)= cancels by 3.7e9, =YP(30)= by 5.5e8, and 28 of
+         50 cancel by more than 100x, which the table asserts so the decision
+         cannot silently outlive its reason. =xtask validate --tiers 2= runs
+         all nine differentials plus the =libm-system= set. *The fidelity
+         preflight is real*: 100 of 100 steps, worst *3.521e-14*, no gfortran
+         needed.
 :END:
 
-Done when:
-- [ ] The Tier 2 criterion stated per B-0026a's answer, and met on all 50
-      components across all three pools, with per-component ULP histograms
-- [ ] The worst component named, with the state that produced it
-- [ ] =xtask validate --tiers 2= runs it, and the fidelity preflight starts
-      diffing the golden trace for real
+- [X] The criterion stated per B-0026a and met on all 50 components across all
+      three pools, with the per-component table in the log
+- [X] The worst component named: =YP(7)= at =perturbed#300=, 6.093e-14
+- [X] =xtask validate --tiers 2= runs it, and the fidelity preflight diffs the
+      golden trace for real: 100 of 100 steps, worst 3.521e-14
 
 ** BLOCKED B-0025b Sign-off: should a shutdown end the run instead of freezing it?
 :PROPERTIES:
