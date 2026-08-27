@@ -14,19 +14,17 @@ earlier phases will change what the right decomposition is.
 
 Rewrite this block at the end of every iteration. Keep it to five lines.
 
-- Phase: 2, on B-0021. Six of nine Phase 2 items done; 5.1e-16, all of it libm
-- Last completed: B-0020 stream table, 0 ULP under =libm-system=; =HST(10)= is
-  a snapshot taken before the compressor bump, not an alias
+- Phase: 2, on B-0022. Seven of nine done; 1.2e-13, and it is =sqrt= near clamps
+- Last completed: B-0021 flows and the compressor, 0 ULP under =libm-system=;
+  adversarial catalogue 17 to 20
 - In flight: (none)
-- Baseline: =cargo xtask ci= green; 168 tests default, 250 with =oracle=, plus
-  an 11-test =oracle,libm-system= run; provenance 516/1589 (32.5%)
+- Baseline: =cargo xtask ci= green; 180 tests default, 267 with =oracle=, plus
+  a 17-test =oracle,libm-system= run; provenance 576/1589 (36.2%)
 - Toolchain: rustup, pinned to rustc 1.97.1, wasm32 installed, libm 0.2.16
 - Remote: private jkitchin/tep-rust, CI green on all 7 jobs
-- Blocked on: nothing. Next is B-0021, flows and the compressor: the largest
-  remaining item, and the first with *clamps and unreachable branches*. The
-  purge clamp cannot be reached from a physical state, so it needs a unit test
-  rather than an adversarial one, and two compressor clamps still have to be
-  added to the B-0016 catalogue.
+- Blocked on: nothing. Next is B-0022, the stripper. Every branch it needs is
+  *already in the adversarial catalogue* from B-0016, so for the first time in
+  Phase 2 the coverage exists before the code does. Check =missed= stays empty.
 
 * Phase 0: foundations
 
@@ -765,28 +763,38 @@ Done when:
       =HST(9)= alone. Calling it an alias is the misreading, and it would give
       the purge a share of compressor work it never receives
 
-** NEXT B-0021 Valve-lagged flows, pressure-driven flows and the compressor
+** DONE B-0021 Valve-lagged flows, pressure-driven flows and the compressor
 :PROPERTIES:
 :ID:    B-0021
 :PHASE: 2
 :TIER:  2
 :DEPS:  B-0020
 :PLAN:  Anatomy > Unit operations
+:COMMIT: 11860f1
+:RESULT: =teprob.f:565-613=. Tier 2 max rel err *1.222e-13* on =FTM(6)=;
+         *0 ULP under =libm-system=*. The ULP tail is long (743 on =FTM=, 178
+         on =FCM=) and it is =sqrt=, not algebra: near a clamp =DLP= goes to
+         zero and =sqrt= amplifies a 1-ULP pressure difference into its own
+         last bits while the absolute error stays tiny. The catalogue grew
+         17 to 20: two compressor ratio boundaries aimed at the
+         *single-precision* =CPPRMX=, plus one state inside the clamped region
+         because =teprob.f:591= is =.GT.= and the boundary state therefore does
+         *not* clamp. =UAC= is a =TEFUNC= local, so it is checked through
+         =QUC=UAC*(100-TCC)=: 300 states, 0 ULP. =HST(9)= is now checkable
+         against slot 9 directly. Delta *D-004* for the =1.D-10= addend.
 :END:
 
 =teprob.f:565-611=. Valve openings to flows, the square-root resistances with
 their =DLP<0= clamps, the compressor curve, and =FCM=.
 
 Done when:
-- [ ] =FTM(1..13)=, =FCM=, =UAC=, =FWR=, =FWS=, =AGSP=, the compressor terms
-- [ ] Every =IF(DLP.LT.0.0)DLP=0.0= clamp reproduced. Three are covered by
-      adversarial states from B-0016; the *purge clamp is unreachable from a
-      physical state* (PTS floors at 811.49 mmHg against a 760 threshold) so it
-      needs a unit test at a chosen composition instead
-- [ ] *Both compressor pressure-ratio clamps*, deferred here from B-0016: they
-      are branches on =PR= against =CPPRMX=, which only exists once the curve
-      does. Add adversarial states for them when they do
-- [ ] The =1.0e-10= addend on stream 4 recorded as a Class B delta
+- [X] =FTM(1..13)=, =FCM=, =UAC=, =FWR=, =FWS=, =AGSP=, the compressor terms
+- [X] Every =IF(DLP.LT.0.0)DLP=0.0= clamp reproduced. The purge clamp is
+      unreachable, re-measured over the whole pool, and covered by a unit test
+- [X] Both compressor pressure-ratio clamps, plus a third state *inside* the
+      clamped region: the boundary state sits exactly on =CPPRMX= and
+      =teprob.f:591= is =.GT.=, so it does not clamp
+- [X] The =1.0e-10= addend on stream 4 recorded as Class B delta D-004
 
 ** TODO B-0022 The stripper
 :PROPERTIES:

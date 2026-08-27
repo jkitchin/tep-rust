@@ -2441,3 +2441,127 @@ Append =tier2_flows= to =LIBM_SYSTEM_TESTS= in =xtask/src/main.rs=.
 Sizing: if the compressor and the clamps together will not fit with tests and
 validation, split at =teprob.f:588=, taking the valve-lagged and
 pressure-driven flows first and the compressor second.
+
+* 2026-08-27 B-0021 Flows and the compressor, and a clamp that cannot be reached
+:PROPERTIES:
+:ITEM:     B-0021
+:PHASE:    2
+:TIER:     2
+:COMMIT:   11860f1
+:GFORTRAN: 15.2.0
+:STATUS:   DONE
+:END:
+** Preflight
+Clean and green, identical to B-0020's closing numbers. gfortran 15.2.0,
+unchanged. Provenance *576/1589 (36.2%)* on exit, from 516.
+
+** What changed
+=tepsim_core::flows= ports =teprob.f:565-613=, with =VRNG= from =1109-1117= and
+the compressor limits from =1170-1171=. Six valve-lagged flows, three
+pressure-driven ones with their square-root resistances, the compressor curve
+and its bleed, the component flows =FCM=, and the =HST(9)= compressor bump.
+=math= gained =sqrt=. The adversarial catalogue grew from 17 boundaries to 20.
+
+** Validation numbers
+*Tier 2, five fields, all three pools.* 2,419 states, zero convergence
+failures.
+
+| field | cases   | max rel err | max ulp | p99 ulp |
+|-------+---------+-------------+---------+---------|
+| FTM   |  24,200 | 1.222e-13   |     743 |       3 |
+| FCM   | 193,520 | 2.268e-14   |     178 |       4 |
+| FWR/FWS/AGSP | 7,257 | 0.000e0 |       0 |       0 |
+| CPDH  |   2,419 | 2.034e-15   |      18 |       2 |
+| HST(9) post-bump | 2,419 | 6.522e-15 | 42 |     2 |
+
+Worst overall *1.222e-13 on =FTM(6)=* at =perturbed#609=; worst ULP *743 on
+=FTM(7)=* at =perturbed#1112=. Gate is 1e-12, so one order of headroom, down
+from four.
+
+*Under =--features oracle,libm-system=: 0 ULP on all five fields.*
+
+*=UAC= via =QUC=: 300 of 300 nominal states below 100 C, max rel err 0.000e0,
+0 ULP.*
+
+*=FWR=, =FWS= and =AGSP= are 0 ULP under the default build*, being pure
+valve arithmetic with no transcendental upstream.
+
+** Surprises and decisions
+*The ULP tail exploded and the relative error did not.* Every earlier item ran
+at 4 to 7 ULP. This one reaches 743. That is =sqrt=, and it is not a defect:
+near a flow clamp =DLP= approaches zero, and \\(\\sqrt{}\\) of a number whose
+last bits differ has a *relative* error in its own last bits amplified by the
+derivative \\(1/(2\\sqrt{x})\\), which diverges as \\(x \\to 0\\). The absolute
+error stays tiny, which is why max relative error is 1.2e-13 while max ULP is
+743.
+
+The =libm-system= run settles it: those same states are *bit-identical* there.
+So the amplification is entirely of the one-ULP =exp= difference, and none of
+it is the algebra. Without that second run this would have been a genuinely
+hard afternoon, because 743 ULP looks exactly like a real bug.
+
+*The =CPPRMX= boundary state does not clamp, and that is correct.* The first
+version of the coverage test asserted it would. =teprob.f:591= is
+=IF(PR.GT.CPPRMX)=, strictly greater, so a state sitting exactly on the
+threshold takes the *unclamped* path. That is now asserted deliberately, since
+misreading =.GT.= as =.GE.= is invisible everywhere except at that one point,
+and a third catalogue state was added inside the clamped region so the taken
+branch is exercised too.
+
+Both targets aim at the *single-precision* =CPPRMX= = 1.2999999523162842. A
+state placed at the double literal 1.3 sits on the wrong side of the
+comparison, which would have produced a boundary that verified cleanly and
+covered nothing.
+
+*=UAC= is a =TEFUNC= local, not a =COMMON= field.* =teprob.f:326= declares it
+among the locals, so there is no symbol to read it back from. Rather than
+hoisting it the way =ISD= was hoisted, it is checked through
+=QUC=UAC*(100.0-TCC)= at =teprob.f:678=: the identical expression, so the check
+is exact rather than a division that would introduce rounding of its own.
+States at or above 100 C are counted and excluded, because there =QUC= is zero
+whatever =UAC= is.
+
+*=sqrt= went into =math= for a mundane reason and the docs say so.* IEEE-754
+specifies it exactly, it is one hardware instruction, and it takes no
+=libm-system= variant. It is in the module only because =f64::sqrt= is a =std=
+method and the core is =no_std=. Spelled out because the obvious reading, that
+=sqrt= is a third portability hazard, is wrong.
+
+*=cargo test -p tepsim-core --lib= does not enforce =no_std=.* The test harness
+links =std=, and inherent impls on primitives resolve from any linked crate, so
+=f64::sqrt= compiled cleanly under =--lib= and failed only when =tepsim-oracle=
+built the library normally. The gate catches it either way, through =clippy
+--all-targets= and through =cargo test --workspace=. Worth knowing before
+trusting a green =--lib= run during iteration.
+
+*The purge clamp is still unreachable, re-measured.* A test now sweeps the
+whole pool, 400 nominal, 1,000 perturbed and all 20 boundaries, and asserts the
+minimum =PTS= stays above 760. It does. The branch is covered by a unit test at
+a chosen composition, which is the only way to reach it.
+
+** Next
+B-0022, the stripper, =teprob.f:614-662=.
+
+*For the first time in Phase 2 the coverage exists before the code does.*
+B-0016 built all three =TMPFAC= branch boundaries (=TCC= at 5.292, at 170, and
+approaching the 177 pole) and both sides of the =FTM(11) > 0.1= threshold. Do
+not build new adversarial states for them; check =adversarial::build='s
+=missed= list stays empty and use what is there.
+
+The range sets =SFR(4..8)=, =FIN=, =FCM(I,5)=, =FCM(I,12)=, =FTM(5)=,
+=FTM(12)=, =XST(I,5)=, =XST(I,12)=, =HST(5)= and =HST(12)=. Those are exactly
+the three streams B-0020 and B-0021 left at zero, so after this item the stream
+table and the flow network are complete except for =FTM(7)=, the reactor inlet
+alias at =teprob.f:657-661=.
+
+Two things to read carefully rather than infer. =teprob.f:620= has
+=363.744/(177.-TCC)= with a *pole at 177 C*, and B-0016 built a state at 176 to
+sit near it; the constant =2.22579488= is subtracted from it. And the
+=FTM(11).GT.0.1= branch at =614= switches the *whole block* to fixed stripping
+factors, so both sides need to appear in the differential.
+
+Audit the range for the =40000.0/1.987= single-precision folding trap before
+writing code. =363.744/(177.-TCC)= is *not* an instance, since =TCC= is double,
+but a quotient of two bare literals would be.
+
+Append =tier2_stripper= to =LIBM_SYSTEM_TESTS= in =xtask/src/main.rs=.
