@@ -1404,7 +1404,7 @@ something in the decomposition that reshaped the phase.
       B-0036. =xtask provenance= scans =teprob.f= alone and the =@port= syntax
       names no file, so 1,408 lines would otherwise land uncounted
 
-** TODO B-0036 Provenance and the oracle over two files
+** NEXT B-0036 Provenance and the oracle over two files
 :PROPERTIES:
 :ID:    B-0036
 :PHASE: 4
