@@ -1097,7 +1097,7 @@ Done when:
       after the fact, which is why B-0029 builds the trace before B-0031 ports
       the advance
 
-** TODO B-0028 Port TESUB5 and TESUB6, and finish Tier 1
+** NEXT B-0028 Port TESUB5 and TESUB6, and finish Tier 1
 :PROPERTIES:
 :ID:    B-0028
 :PHASE: 3
