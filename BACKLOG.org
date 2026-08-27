@@ -1208,7 +1208,7 @@ the Fortran and derive each value independently.
 - [X] The precision of every literal checked: *all 101 are double*, confirmed
       one by one
 
-** TODO B-0031 The walk advance, including the spike rule
+** NEXT B-0031 The walk advance, including the spike rule
 :PROPERTIES:
 :ID:    B-0031
 :PHASE: 3
