@@ -117,6 +117,22 @@ fn workspace_root() -> PathBuf {
 /// vendored libm differs from gfortran's on about a tenth of `exp` and `pow`
 /// calls, so the default run can only assert 1e-12, and this run is what still
 /// holds the algebra to bit equality. Append the new file when an item lands.
+/// The Tier 2 differentials, in the order the model computes them.
+///
+/// A failure in an early one explains failures in the later ones, so running
+/// them in this order means the first red line is the informative one.
+const TIER2_TESTS: &[&str] = &[
+    "tier2_unpack",
+    "tier2_equilibrium",
+    "tier2_kinetics",
+    "tier2_streams",
+    "tier2_flows",
+    "tier2_stripper",
+    "tier2_heat",
+    "tier2_measurements",
+    "tier2_balances",
+];
+
 const LIBM_SYSTEM_TESTS: &[&str] = &[
     "tier2_equilibrium",
     "tier2_kinetics",
@@ -325,8 +341,57 @@ fn cmd_validate(root: &Path, flags: &[String]) -> Result<(), String> {
                     )?;
                 }
             }
+            2 => {
+                if which("gfortran").is_none() {
+                    return Err(
+                        "tier 2 needs gfortran, which is not on PATH. Per CLAUDE.md, \
+                         a session without it must not do model work."
+                            .to_string(),
+                    );
+                }
+                println!("\n=== tier 2: the plant model vs the Fortran ===");
+                // One file per invocation, so a failure names which part of
+                // the model broke rather than which binary did.
+                for target in TIER2_TESTS {
+                    step(
+                        root,
+                        "cargo",
+                        &[
+                            "test",
+                            "-p",
+                            "tepsim-oracle",
+                            "--features",
+                            "oracle",
+                            "--release",
+                            "--test",
+                            target,
+                            "--",
+                            "--nocapture",
+                            "--test-threads",
+                            "1",
+                        ],
+                    )?;
+                }
+                // And again with the transcendentals taken out, where the
+                // claim is bit equality rather than a tolerance. See
+                // `tepsim_core::math`.
+                println!("\n--- tier 2 again, on the platform libm ---");
+                let mut exact = vec![
+                    "test",
+                    "-p",
+                    "tepsim-oracle",
+                    "--features",
+                    "oracle,libm-system",
+                    "--release",
+                ];
+                for name in LIBM_SYSTEM_TESTS {
+                    exact.push("--test");
+                    exact.push(name);
+                }
+                step(root, "cargo", &exact)?;
+            }
             other => println!(
-                "\n[skip] tier {other}: not implemented yet. Tiers 2-10 land \
+                "\n[skip] tier {other}: not implemented yet. Tiers 3-10 land \
                  with their phases; see BACKLOG.org."
             ),
         }
@@ -630,14 +695,127 @@ fn cmd_fidelity(root: &Path) -> Result<(), String> {
     }
 
     // The other half of the preflight lives in tepsim-oracle, where the Fortran
-    // can actually be re-run. This half will diff the Rust port against the
-    // trace once there is a port; today it validates the anchor itself.
+    // can actually be re-run. This half runs the *port* against the trace, so
+    // it needs no gfortran and takes about a second.
+    diff_port_against(&trace)
+}
+
+/// Run the port forward and compare it against the recorded trace.
+///
+/// The port reproduces states, derivatives, measurements and the generator
+/// word, so all four are compared. The tolerance is Tier 2's, applied the way
+/// Tier 2 applies it: the derivatives are a cancelling quantity and are
+/// measured against the scale of their own terms, everything else against its
+/// own value. See the decision of 2026-08-27 in `BACKLOG.org`.
+fn diff_port_against(trace: &Trace) -> Result<(), String> {
+    use tepsim_core::{Inputs, Plant, SimTime, State, constants};
+
+    /// `PLAN.org`, "Tier 2".
+    const TOLERANCE: f64 = 1e-12;
+
+    let mut plant = Plant::new();
+    plant.set_rng(trace.seed);
+    let mut state = State::from_flat(&constants::NOMINAL_STATE);
+    // `TEINIT` sets `XMV(I) = YY(I+38)` at `teprob.f:1104`, so the manipulated
+    // variables are the nominal valve positions. Taken from the state rather
+    // than retyped: the first attempt here wrote them out by hand and
+    // transposed two digits of `XMV(1)`, which this preflight caught at step
+    // 79 as a 1.6e-5 divergence in `XMEAS(2)`.
+    let inputs = Inputs {
+        manipulated: core::array::from_fn(|i| constants::NOMINAL_STATE[38 + i]),
+        disturbances: [0.0; 20],
+    };
+
+    // The first recorded state must be the one the port starts from, or the
+    // whole comparison is against a different plant.
+    for (slot, (ours, theirs)) in state
+        .to_flat()
+        .iter()
+        .zip(trace.steps[0].states)
+        .enumerate()
+    {
+        if ours.to_bits() != theirs.to_bits() {
+            return Err(format!(
+                "the port's nominal state disagrees with the trace at YY({}): \
+                 {ours} against {theirs}.\n  \
+                 constants::NOMINAL_STATE and the trace must come from the \
+                 same TEINIT.",
+                slot + 1
+            ));
+        }
+    }
+
+    let mut worst = (0.0_f64, String::new());
+    let mut time = 0.0;
+    for (index, step) in trace.steps.iter().enumerate() {
+        let t = SimTime(time);
+        plant.advance_discrete(t, &inputs);
+        let (derivative, scale, signals) = plant
+            .derivatives_with_scale(t, &state, &inputs)
+            .map_err(|e| format!("step {index}: {e}"))?;
+        let measurements = plant.sample_measurements(t, &signals);
+
+        let mut check = |what: &str, slot: usize, ours: f64, theirs: f64, against: f64| {
+            let error = if against == 0.0 {
+                if ours.to_bits() == theirs.to_bits() {
+                    0.0
+                } else {
+                    f64::INFINITY
+                }
+            } else {
+                (ours - theirs).abs() / against.abs()
+            };
+            if error > worst.0 {
+                worst = (error, format!("{what}({}) at step {index}", slot + 1));
+            }
+        };
+
+        for (slot, (ours, theirs)) in state.to_flat().iter().zip(step.states).enumerate() {
+            check("YY", slot, *ours, theirs, theirs);
+        }
+        for (slot, ((ours, theirs), budget)) in derivative
+            .to_flat()
+            .iter()
+            .zip(step.derivatives)
+            .zip(scale.to_flat())
+            .enumerate()
+        {
+            check("YP", slot, *ours, theirs, budget);
+        }
+        for (slot, (ours, theirs)) in measurements
+            .as_array()
+            .iter()
+            .zip(step.measurements)
+            .enumerate()
+        {
+            check("XMEAS", slot, *ours, theirs, theirs);
+        }
+        check("G", 0, plant.rng(), step.rng, step.rng);
+
+        plant
+            .step_seeds(&state)
+            .map_err(|e| format!("step {index}: {e}"))?;
+        state = state.step(trace.dt_hours, &derivative);
+        time += trace.dt_hours;
+    }
+
     println!(
-        "\n  no Rust model to compare yet: 0 of {} recorded steps diffed.\n  \
-         This becomes a real comparison in phase 2. Toolchain drift is covered \
-         now by\n  the oracle test, which reruns the Fortran against this file.",
+        "\n  port vs trace  : {} of {} steps diffed",
+        trace.steps.len(),
         trace.steps.len()
     );
+    println!("  worst          : {:e} at {}", worst.0, worst.1);
+    println!("  gate           : {TOLERANCE:e}");
+    if worst.0 > TOLERANCE {
+        return Err(format!(
+            "the port diverges from the golden trace: {:e} at {}, past the \
+             {TOLERANCE:e} gate.\n  \
+             This is the whole point of the preflight. Do not regenerate the \
+             trace to make it pass.",
+            worst.0, worst.1
+        ));
+    }
+    println!("  fidelity: green");
     Ok(())
 }
 

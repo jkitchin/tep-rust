@@ -126,8 +126,38 @@ impl<C: Copy> Comparison<C> {
         }
     }
 
+    /// Record one comparison against a supplied scale.
+    ///
+    /// The error is divided by `scale` rather than by `reference`. That is the
+    /// right question for a quantity produced by cancellation: a balance is
+    /// inflow minus outflow, and near steady state its own magnitude says
+    /// nothing about how accurately it can be computed. See the decision of
+    /// 2026-08-27 in `BACKLOG.org`, and `tepsim_core::balances::Balances::scale`
+    /// for where the scale comes from.
+    ///
+    /// A zero scale means the quantity has no terms at all, so the only
+    /// acceptable answer is bit equality, and that is what is required.
+    pub fn observe_against(&mut self, case: C, actual: f64, reference: f64, scale: f64) {
+        if scale == 0.0 {
+            // Nothing to be relative to. Both sides must agree exactly, which
+            // `observe` already requires of two zeros.
+            self.observe(case, actual, reference);
+            return;
+        }
+        self.observe_scaled(case, actual, reference, scale.abs());
+    }
+
     /// Record one evaluation: what the port produced, and what the Fortran did.
+    ///
+    /// The error is relative to `reference`. For a quantity produced by
+    /// cancellation, use [`Comparison::observe_against`] instead.
     pub fn observe(&mut self, case: C, actual: f64, reference: f64) {
+        let scale = reference.abs();
+        self.observe_scaled(case, actual, reference, scale);
+    }
+
+    /// The common path. `scale` is what the error is divided by.
+    fn observe_scaled(&mut self, case: C, actual: f64, reference: f64, scale: f64) {
         self.cases += 1;
 
         if !actual.is_finite() || !reference.is_finite() {
@@ -162,7 +192,17 @@ impl<C: Copy> Comparison<C> {
             };
         }
 
-        let relative = relative_error(actual, reference);
+        // `relative_error` divides by the reference; here the denominator is
+        // supplied, so the two agree when `scale` is `|reference|`.
+        let relative = if scale == 0.0 {
+            if actual.to_bits() == reference.to_bits() {
+                0.0
+            } else {
+                f64::INFINITY
+            }
+        } else {
+            (actual - reference).abs() / scale
+        };
         if self.worst_relative.case.is_none() || relative > self.worst_relative.value {
             self.worst_relative = Worst {
                 value: relative,

@@ -178,6 +178,26 @@ pub struct QuirkFixes {
 pub struct Balances {
     /// `YP(1..50)`.
     pub derivative: Derivative,
+    /// The magnitude of the largest term entering each balance.
+    ///
+    /// # Why a derivative carries its own scale
+    ///
+    /// A balance is inflow minus outflow. Near steady state those nearly
+    /// agree, so the result is a small difference of large numbers and its own
+    /// magnitude says nothing about how accurately it can be computed.
+    /// `YP(2)`, the inert's reactor balance, is a difference of two flows
+    /// around 660 whose value is a few parts in ten thousand of either: an
+    /// error of 1e-16 *of the flows* is 1e-12 *of the answer*.
+    ///
+    /// So the error budget of a balance is set by its terms, not by its value,
+    /// and this is that budget. Tier 2's gate is the difference from the
+    /// Fortran divided by this, which is the decision of 2026-08-27 in
+    /// `BACKLOG.org`.
+    ///
+    /// It is computed here rather than in the harness because only this
+    /// function knows what the terms are. Recovering them from the outside
+    /// would mean a second implementation of every balance.
+    pub scale: Derivative,
     /// The trip, carried alongside rather than inferred from a zero vector.
     pub shutdown: Shutdown,
     /// Whether the derivative was frozen by the trip.
@@ -252,6 +272,19 @@ pub fn balances(
     };
 
     let mut yp = State::default();
+    // The largest term entering each balance; see `Balances::scale`.
+    let mut scale = State::default();
+    /// The magnitude of the largest of a set of terms.
+    fn largest(terms: &[f64]) -> f64 {
+        let mut worst = 0.0_f64;
+        for term in terms {
+            let magnitude = term.abs();
+            if magnitude > worst {
+                worst = magnitude;
+            }
+        }
+        worst
+    }
 
     // teprob.f:762-770. Four component balances per species, in the original's
     // order: reassociating a five-term sum would change the last bits.
@@ -274,6 +307,27 @@ pub fn balances(
             + n(Stream::StripperOverhead, c)
             + n(Stream::Recycle, c)
             - n(Stream::MixingZoneOutlet, c);
+
+        scale.reactor.moles[c] = largest(&[
+            n(Stream::ReactorInlet, c),
+            n(Stream::ReactorOutlet, c),
+            kinetics.production[c],
+        ]);
+        scale.separator.moles[c] = largest(&[
+            n(Stream::ReactorOutlet, c),
+            n(Stream::Recycle, c),
+            n(Stream::Purge, c),
+            n(Stream::SeparatorUnderflow, c),
+        ]);
+        scale.stripper.moles[c] = largest(&[n(Stream::StripperDownflow, c), n(Stream::Product, c)]);
+        scale.mixing.moles[c] = largest(&[
+            n(Stream::DFeed, c),
+            n(Stream::EFeed, c),
+            n(Stream::AFeed, c),
+            n(Stream::StripperOverhead, c),
+            n(Stream::Recycle, c),
+            n(Stream::MixingZoneOutlet, c),
+        ]);
     }
 
     // teprob.f:771-772. The reactor is the only vessel with a reaction
@@ -316,10 +370,58 @@ pub fn balances(
         - heat.condenser_duty * ENERGY_SCALE / RANKINE_PER_CELSIUS)
         / CONDENSER_WALL_CAPACITY;
 
+    scale.reactor.energy = largest(&[
+        h(Stream::ReactorInlet),
+        h(Stream::ReactorOutlet),
+        kinetics.heat,
+        heat.reactor_duty,
+    ]);
+    scale.separator.energy = largest(&[
+        h(Stream::ReactorOutlet),
+        h(Stream::Recycle),
+        h(Stream::Purge),
+        h(Stream::SeparatorUnderflow),
+        heat.condenser_duty,
+    ]);
+    scale.stripper.energy = largest(&[
+        h(Stream::AcFeed),
+        h(Stream::SeparatorUnderflow),
+        h(Stream::StripperOverhead),
+        h(Stream::Product),
+        heat.stripper_duty,
+    ]);
+    scale.mixing.energy = largest(&[
+        h(Stream::DFeed),
+        h(Stream::EFeed),
+        h(Stream::AFeed),
+        h(Stream::StripperOverhead),
+        h(Stream::Recycle),
+        h(Stream::MixingZoneOutlet),
+    ]);
+
+    // The wall balances divide by their heat capacity, so the terms are taken
+    // after that division: the scale has to be in the same units as the answer.
+    scale.reactor_cw_out_c = largest(&[
+        flow.reactor_coolant * COOLANT_HEAT_CAPACITY * coolant.reactor / REACTOR_WALL_CAPACITY,
+        flow.reactor_coolant * COOLANT_HEAT_CAPACITY * y.reactor_cw_out_c / REACTOR_WALL_CAPACITY,
+        heat.reactor_duty * ENERGY_SCALE / RANKINE_PER_CELSIUS / REACTOR_WALL_CAPACITY,
+    ]);
+    scale.condenser_cw_out_c = largest(&[
+        flow.condenser_coolant * COOLANT_HEAT_CAPACITY * coolant.condenser
+            / CONDENSER_WALL_CAPACITY,
+        flow.condenser_coolant * COOLANT_HEAT_CAPACITY * y.condenser_cw_out_c
+            / CONDENSER_WALL_CAPACITY,
+        heat.condenser_duty * ENERGY_SCALE / RANKINE_PER_CELSIUS / CONDENSER_WALL_CAPACITY,
+    ]);
+
     // teprob.f:805. The latch at 799-804 is hoisted into the pre-phase; only
     // the derivative stays here.
     for i in 0..12 {
         yp.valve_pos[i] = (valve_command[i] - y.valve_pos[i]) / VALVE_TIME_CONSTANT[i];
+        scale.valve_pos[i] = largest(&[
+            valve_command[i] / VALVE_TIME_CONSTANT[i],
+            y.valve_pos[i] / VALVE_TIME_CONSTANT[i],
+        ]);
     }
 
     // teprob.f:807-811. Class C; see the module documentation for why this is
@@ -327,10 +429,14 @@ pub fn balances(
     let frozen = shutdown.is_tripped() && !fixes.trip_ends_the_run;
     if frozen {
         yp = State::default();
+        // A frozen derivative is exactly zero on both sides, so its budget is
+        // zero too: there is nothing to be accurate about.
+        scale = State::default();
     }
 
     Balances {
         derivative: Derivative::new(yp),
+        scale: Derivative::new(scale),
         shutdown,
         frozen,
     }

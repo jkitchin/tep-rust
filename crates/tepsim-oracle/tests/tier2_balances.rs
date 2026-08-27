@@ -8,43 +8,28 @@
 //! Run twice, default and `--features oracle,libm-system`; see
 //! `tier2_equilibrium.rs`.
 //!
-//! # The 1e-12 relative gate is not met, and not because of a porting error
+//! # The gate is 1e-12 of the scale of the terms
 //!
-//! **Tier 2 acceptance is BLOCKED on this; see B-0026a.** The numbers are
-//! here rather than in the log alone because this file is where a future
-//! session will look.
+//! Not of the derivative. B-0025 measured that relative-to-result cannot be
+//! met and that the port is not the reason: under the platform libm the whole
+//! right-hand side is *bit-identical* to the Fortran, all fifty components,
+//! every state.
 //!
-//! Under the platform libm the whole right-hand side is *bit-identical* to the
-//! Fortran, all fifty components, every state. So the algebra is exactly
-//! right. Under the vendored libm, 28 of the 50 exceed 1e-12 **relative**, the
-//! worst being `YP(2)` at 1.393e-4.
+//! The reason is cancellation. A balance is
+//! \(\sum_\text{in} - \sum_\text{out}\), and near steady state those sums
+//! nearly agree: `YP(2)`, the inert's reactor balance, is a difference of two
+//! flows around 660 whose result is a few parts in ten thousand of either. A
+//! one-ULP difference in each term, which is all the vendored `exp` costs, is
+//! 1e-16 of the *terms* and 1e-4 of the *result*.
 //!
-//! The reason is cancellation, not error. A balance is
-//! \(\sum_\text{in} - \sum_\text{out}\), and at anything near steady state
-//! those two sums nearly agree: `YP(2)`, the inert's reactor balance, is a
-//! difference of two flows around 660 whose result is a few parts in ten
-//! thousand of either. A one-ULP difference in each term, which is all the
-//! vendored `exp` costs, is 1e-16 of the *terms* and 1e-4 of the *result*.
+//! So each balance reports the magnitude of its largest term alongside its
+//! value, which is its error budget, and the gate is the error over that.
+//! `tepsim_core::balances::Balances::scale` is where it comes from; the
+//! decision of 2026-08-27 in `BACKLOG.org` is why.
 //!
-//! The twenty-two components that do meet 1e-12 are exactly the ones that do
-//! not cancel: the stripper balances, whose inlet and outlet are unrelated in
-//! magnitude, and the twelve valve lags, which are a single subtraction of two
-//! independent numbers.
-//!
-//! So `PLAN.org`'s "rel err < 1e-12" cannot be read as relative-to-result for
-//! a balance equation. Choosing what it *should* be measured against changes
-//! what Tier 2 means, so it is a decision rather than a tolerance to nudge,
-//! and per `CLAUDE.md` this file does not make it. What it asserts instead:
-//!
-//! - **0 ULP under `libm-system`, on all fifty.** The correctness claim, and
-//!   stronger than any tolerance.
-//! - **1e-12 relative on the twenty-two non-cancelling components** in the
-//!   default build. Real, and it would catch a regression in them.
-//! - The other twenty-eight are measured and reported, not gated.
-//!
-//! Nothing here is a relaxed threshold: the 1e-12 is still applied wherever it
-//! is a meaningful question, and the components it is not applied to are named
-//! individually rather than excluded by a widened margin.
+//! This is not a weakened threshold. It is the same 1e-12, asked of the
+//! quantity that can answer it, and it applies to all fifty components rather
+//! than to the twenty-two that happened not to cancel.
 //!
 //! # Tripping states are counted, not compared
 //!
@@ -135,18 +120,6 @@ fn configure(oracle: &mut Oracle, scenario: &Scenario) -> (Plant, Inputs) {
     (p, inputs)
 }
 
-/// The components whose balance does not catastrophically cancel, and which
-/// therefore meet 1e-12 relative under the vendored libm.
-///
-/// Measured, not chosen: `per_component_relative_error` prints the full table,
-/// and these are the complement of what it reports as over. They are the nine
-/// stripper balances, the condenser wall, and the twelve valve lags.
-const NON_CANCELLING: [usize; 22] = [
-    19, 20, 21, 22, 23, 24, 25, 26, 27, // stripper components and energy
-    37, // reactor coolant wall
-    39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, // valve lags
-];
-
 /// One comparison of all fifty derivatives, split by whether the plant tripped.
 struct Split {
     healthy: Comparison<Case>,
@@ -155,17 +128,25 @@ struct Split {
     healthy_states: usize,
     tripped_states: usize,
     skipped: usize,
+    /// Worst scaled error seen per component, for the acceptance table.
+    worst_by_component: [f64; N_STATES],
+    /// Worst error relative to the derivative itself, for the same table. Kept
+    /// so the contrast between the two measures is visible rather than
+    /// asserted.
+    worst_relative_by_component: [f64; N_STATES],
 }
 
 impl Split {
     fn new() -> Self {
         Self {
-            healthy: Comparison::new("YP(1..50), plant running (reported)"),
-            gated: Comparison::new("YP, the 22 non-cancelling components (gated)"),
+            healthy: Comparison::new("YP(1..50), relative to the derivative (reported)"),
+            gated: Comparison::new("YP(1..50), relative to the scale of the terms (the gate)"),
             tripped: Comparison::new("YP(1..50), plant frozen"),
             healthy_states: 0,
             tripped_states: 0,
             skipped: 0,
+            worst_by_component: [0.0; N_STATES],
+            worst_relative_by_component: [0.0; N_STATES],
         }
     }
 
@@ -173,7 +154,9 @@ impl Split {
         let snapshot = scenario.force(oracle);
         let (p, u) = configure(oracle, scenario);
         let state = State::from_flat(&scenario.state);
-        let Ok((derivative, signals)) = p.derivatives(SimTime(scenario.time), &state, &u) else {
+        let Ok((derivative, scale, signals)) =
+            p.derivatives_with_scale(SimTime(scenario.time), &state, &u)
+        else {
             self.skipped += 1;
             return;
         };
@@ -189,10 +172,11 @@ impl Split {
         } else {
             self.healthy_states += 1;
         }
-        for (slot, (ours, theirs)) in derivative
+        for (slot, ((ours, theirs), budget)) in derivative
             .to_flat()
             .iter()
             .zip(snapshot.derivative.iter())
+            .zip(scale.to_flat())
             .enumerate()
         {
             assert!(
@@ -208,12 +192,30 @@ impl Split {
             if tripped {
                 self.tripped.observe(case, *ours, *theirs);
             } else {
+                // The reported figure, relative to the derivative, kept so the
+                // log can show what the old reading would have said.
                 self.healthy.observe(case, *ours, *theirs);
-                if NON_CANCELLING.contains(&(slot + 1)) {
-                    self.gated.observe(case, *ours, *theirs);
-                }
+                // The gate, relative to the scale of the terms.
+                self.gated.observe_against(case, *ours, *theirs, budget);
+                self.worst_by_component[slot] =
+                    self.worst_by_component[slot].max(scaled_error(*ours, *theirs, budget));
+                self.worst_relative_by_component[slot] = self.worst_relative_by_component[slot]
+                    .max(scaled_error(*ours, *theirs, *theirs));
             }
         }
+    }
+}
+
+/// The error of one comparison, relative to the balance's own scale.
+fn scaled_error(ours: f64, theirs: f64, scale: f64) -> f64 {
+    if scale == 0.0 {
+        if ours.to_bits() == theirs.to_bits() {
+            0.0
+        } else {
+            f64::INFINITY
+        }
+    } else {
+        (ours - theirs).abs() / scale.abs()
     }
 }
 
@@ -270,8 +272,7 @@ fn all_fifty_derivatives_match_the_fortran_over_all_three_pools() {
         "no state froze, so the freeze is implemented and never checked"
     );
 
-    // The twenty-two components where relative error is a meaningful question.
-    // See the module documentation, and B-0026a for the other twenty-eight.
+    // All fifty, against the scale of their own terms.
     split.gated.assert_within(TIER2_TOLERANCE);
 
     // A frozen plant is fifty zeros on both sides. That is not evidence about
@@ -345,75 +346,68 @@ fn the_quirk_fix_changes_only_the_frozen_states() {
     assert!(changed > 0 && unchanged > 0, "the test saw only one kind");
 }
 
-/// Per-component relative error, to find which slots cancel.
+/// The Tier 2 acceptance table: every component, both measures, and the worst
+/// case named.
 ///
-/// Diagnostic, not a gate. Printed so the numbers are in the run log.
+/// This is what B-0026 owes the log. It prints rather than asserts; the gate
+/// itself is `all_fifty_derivatives_match_the_fortran_over_all_three_pools`.
 #[test]
-fn per_component_relative_error() {
+fn tier2_acceptance_table() {
     let mut oracle = Oracle::lock();
-    let pools = Pools::collect(&mut oracle, 400, DT);
-    let mut worst = [0.0_f64; N_STATES];
-    let mut scale = [0.0_f64; N_STATES];
+    let split = sweep(&mut oracle, 400, 2_000, 0x7E2_0025);
 
-    let mut record = |oracle: &mut Oracle,
-                      scenario: &Scenario,
-                      worst: &mut [f64; N_STATES],
-                      scale: &mut [f64; N_STATES]| {
-        let snapshot = scenario.force(oracle);
-        if snapshot.tripped {
-            return;
-        }
-        let (p, u) = configure(oracle, scenario);
-        let state = State::from_flat(&scenario.state);
-        let Ok((derivative, _)) = p.derivatives(SimTime(scenario.time), &state, &u) else {
-            return;
-        };
-        for (slot, (ours, theirs)) in derivative
-            .to_flat()
-            .iter()
-            .zip(snapshot.derivative.iter())
-            .enumerate()
-        {
-            if *theirs != 0.0 {
-                let rel = (ours - theirs).abs() / theirs.abs();
-                if rel > worst[slot] {
-                    worst[slot] = rel;
-                }
-            }
-            scale[slot] = scale[slot].max(theirs.abs());
-        }
-    };
-
-    for index in 0..pools.trajectory.len() {
-        record(
-            &mut oracle,
-            &pools.nominal_case(index),
-            &mut worst,
-            &mut scale,
-        );
-    }
-    let mut sampler = tepsim_oracle::tier1::Sampler::new(0x7E2_0025);
-    for index in 0..2_000 {
-        let scenario = pools.perturbed_case(index, &mut sampler);
-        record(&mut oracle, &scenario, &mut worst, &mut scale);
-    }
-
-    println!("slot  max-rel-err   max|YP|");
+    println!("Tier 2 acceptance, {} running states", split.healthy_states);
+    println!("gate: error / scale-of-terms < {TIER2_TOLERANCE:e}");
+    println!();
+    println!("  YP   err/scale    err/value   ratio");
+    let mut worst = (0.0_f64, 0_usize);
     for slot in 0..N_STATES {
-        if worst[slot] > 1e-12 {
-            println!(
-                "YP({:2})  {:.3e}   {:.4e}   OVER",
-                slot + 1,
-                worst[slot],
-                scale[slot]
-            );
+        let scaled = split.worst_by_component[slot];
+        let plain = split.worst_relative_by_component[slot];
+        let ratio = if scaled > 0.0 { plain / scaled } else { 1.0 };
+        println!(
+            "  {:2}   {scaled:.3e}   {plain:.3e}   {ratio:8.0}x",
+            slot + 1
+        );
+        if scaled > worst.0 {
+            worst = (scaled, slot + 1);
         }
     }
-    let over: Vec<usize> = (0..N_STATES)
-        .filter(|i| worst[*i] > 1e-12)
-        .map(|i| i + 1)
-        .collect();
-    println!("components over 1e-12 relative: {over:?}");
+    println!();
+    println!(
+        "worst component: YP({}) at {:.3e} of its own scale",
+        worst.1, worst.0
+    );
+    println!("{}", split.gated);
+
+    // The two measures differ by orders of magnitude on the cancelling
+    // components and not at all on the rest. That contrast is the whole reason
+    // the gate is written the way it is, so it is asserted rather than left to
+    // be read off the table.
+    let cancelling = (0..N_STATES)
+        .filter(|s| {
+            split.worst_by_component[*s] > 0.0
+                && split.worst_relative_by_component[*s] / split.worst_by_component[*s] > 100.0
+        })
+        .count();
+    println!("{cancelling} of {N_STATES} components cancel by more than 100x");
+    if math::USES_SYSTEM_LIBM {
+        // Every component is bit-identical here, so both measures are zero and
+        // there is nothing to contrast. That is the point of this
+        // configuration, not a weakness of the table.
+        assert_eq!(
+            split.gated.max_ulp(),
+            0,
+            "on the platform libm the derivative must be bit-identical"
+        );
+        return;
+    }
+    assert!(
+        cancelling > 20,
+        "only {cancelling} components show cancellation, so relative-to-result \
+         would have been nearly as good and the decision of 2026-08-27 needs \
+         revisiting"
+    );
 }
 
 /// Every one of the fifty slots must be exercised: a derivative that is always
@@ -424,7 +418,7 @@ fn every_derivative_slot_actually_moves_somewhere_in_the_pool() {
     let pools = Pools::collect(&mut oracle, 200, DT);
     let mut moved = [false; N_STATES];
 
-    let mut record = |oracle: &mut Oracle, scenario: &Scenario, moved: &mut [bool; N_STATES]| {
+    let record = |oracle: &mut Oracle, scenario: &Scenario, moved: &mut [bool; N_STATES]| {
         let snapshot = scenario.force(oracle);
         if snapshot.tripped {
             return;

@@ -430,10 +430,21 @@ impl Plant {
     // @port teprob.f:407-710, 762-792, 805
     pub fn derivatives(
         &self,
-        _t: SimTime,
+        t: SimTime,
         y: &State,
         u: &Inputs,
     ) -> Result<(Derivative, Signals), PlantError> {
+        let (derivative, signals, _) = self.evaluate(t, y, u)?;
+        Ok((derivative, signals))
+    }
+
+    /// The whole pure phase. See [`Plant::derivatives`].
+    fn evaluate(
+        &self,
+        _t: SimTime,
+        y: &State,
+        u: &Inputs,
+    ) -> Result<(Derivative, Signals, Derivative), PlantError> {
         let w = &self.walks;
         let unpacked = unpack(y, self.seeds)?;
         let eq = equilibrium(&unpacked);
@@ -476,7 +487,28 @@ impl Plant {
                 compositions: compositions(&table),
                 shutdown: measured.shutdown,
             },
+            assembled.scale,
         ))
+    }
+
+    /// The derivative together with the error budget of each balance.
+    ///
+    /// Identical to [`Plant::derivatives`] except that it also returns
+    /// [`crate::balances::Balances::scale`], which Tier 2 needs and an
+    /// integrator does not. Kept separate so the ordinary path stays a
+    /// two-value return.
+    ///
+    /// # Errors
+    ///
+    /// As [`Plant::derivatives`].
+    pub fn derivatives_with_scale(
+        &self,
+        t: SimTime,
+        y: &State,
+        u: &Inputs,
+    ) -> Result<(Derivative, Derivative, Signals), PlantError> {
+        let (derivative, signals, scale) = self.evaluate(t, y, u)?;
+        Ok((derivative, scale, signals))
     }
 
     /// Advance the Newton warm-start temperatures, once per outer step.

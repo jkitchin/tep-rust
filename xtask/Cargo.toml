@@ -14,6 +14,9 @@ publish = false
 # trace format, taken with default features so no Fortran toolchain is involved.
 [dependencies]
 tepsim-oracle.workspace = true
+# `xtask fidelity` runs the port against the committed trace, so it needs the
+# model. Dev-only, like the rest of xtask; nothing shipped depends on xtask.
+tepsim-core.workspace = true
 
 [lints]
 workspace = true
