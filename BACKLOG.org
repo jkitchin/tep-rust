@@ -2352,18 +2352,33 @@ belongs in its own item.
 (Landed incrementally across B-0052, B-0053 and B-0055 rather than as its own
 iteration.)
 
-** TODO B-0057 Quirk fixes with measured deltas
+** DONE B-0057 Quirk fixes with measured deltas
 :PROPERTIES:
 :ID:    B-0057
 :PHASE: 6
 :TIER:  10
-:DEPS:  B-0052 B-0047c
+:DEPS:  B-0052
 :PLAN:  Quirk and delta register
+:COMMIT: pending
+:RESULT: Both Class C fixes measured, and both off by default, which is
+         asserted. D-007 over 10 h: the open-loop plant trips at step 11,017
+         and the fix discards 69.5% of the run; =IDV(6)= trips at 21,037 and
+         loses 42.0%; five closed-loop faults do not trip and the fix is
+         exactly a no-op on them. Up to the trip the two settings are
+         bit-identical, which is what makes D-007 a truncation rather than a
+         different simulation. D-011: worst paired mean shift 0.32 margins on
+         XMEAS(7), diluted by a factor of about five because IDV(12) is active
+         for under two of the ten hours.
+:FINDING: *The Tier 5 battery cannot measure D-007*, and this is not a
+          limitation of the battery. Every statistic in it compares two
+          ensembles of the same shape, and the fix makes a tripped run stop, so
+          a Kolmogorov-Smirnov statistic between a 200-sample run and a
+          61-sample one measures the truncation rather than the physics. The
+          delta is therefore measured in the terms the fix actually changes:
+          which scenarios trip, at which step, and how much of the run is lost.
+          The backlog's assumption that both deltas could be measured the same
+          way was wrong.
 :END:
-
-Every Class C fix behind its flag, with the Tier 5 battery run on and off and
-the delta measured. Needs B-0047c, since the battery is how a delta is
-measured.
 
 * Phase 7: Python bindings and wheels
 
