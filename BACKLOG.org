@@ -2359,7 +2359,7 @@ iteration.)
 :TIER:  10
 :DEPS:  B-0052
 :PLAN:  Quirk and delta register
-:COMMIT: pending
+:COMMIT: f3e49ec
 :RESULT: Both Class C fixes measured, and both off by default, which is
          asserted. D-007 over 10 h: the open-loop plant trips at step 11,017
          and the fix discards 69.5% of the run; =IDV(6)= trips at 21,037 and
