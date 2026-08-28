@@ -33,6 +33,7 @@
 //! | [`energy`] | the energy distance between two samples |
 //! | [`fft`] | a deterministic radix-2 transform, for Welch spectra |
 //! | [`serial`] | autocorrelation and Welch power spectra |
+//! | [`correlation`] | the cross-correlation matrix, which PCA consumes |
 //!
 //! # Reporting
 //!
@@ -48,6 +49,7 @@
 
 extern crate alloc;
 
+pub mod correlation;
 pub mod distribution;
 pub mod energy;
 pub mod equivalence;
@@ -57,6 +59,7 @@ pub mod serial;
 pub mod special;
 pub mod summary;
 
+pub use correlation::{CorrelationMatrix, frobenius_distance, worst_correlation_difference};
 pub use distribution::{student_t_cdf, student_t_quantile};
 pub use energy::{energy_distance, energy_distance_naive};
 pub use equivalence::{Tost, WelchT, tost, welch_t};

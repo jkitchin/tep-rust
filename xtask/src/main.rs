@@ -152,6 +152,7 @@ const TIER3_TESTS: &[&str] = &[
 
 const LIBM_SYSTEM_TESTS: &[&str] = &[
     "tier4_closed_loop",
+    "tier5_invariants",
     "tier2_equilibrium",
     "tier2_kinetics",
     "tier2_streams",
