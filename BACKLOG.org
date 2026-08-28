@@ -14,20 +14,19 @@ earlier phases will change what the right decomposition is.
 
 Rewrite this block at the end of every iteration. Keep it to five lines.
 
-- Phase: 6 is three of six; Phase 7 has its bindings, Phase 9 has its book.
-  Phases 1-4 closed; Phase 5 is 7 of 12 and parked by direction
-- Last completed: B-0053, B-0055, B-0058, B-0059, the last two built by
-  parallel agents in worktrees and merged here
-- In flight: Tier 6 detectors (B-0049) and the wasm bindings (B-0060)
-- Baseline: =cargo xtask ci= green; 420 tests default, 610 with =oracle=,
-  plus 47 Python tests that =ci= does not yet run (B-0058a);
-  =validate --tiers 1,2,3,4= green; provenance *1123/1589* on =teprob.f=,
-  *183/1408* on =temain_mod.f=, 43.6% combined
-- Toolchain: rustup, pinned to rustc 1.97.1, wasm32 installed, libm 0.2.16
-- Remote: private jkitchin/tep-rust, CI green on all 7 jobs
-- Blocked on: B-0025b and B-0040a await sign-off; neither blocks progress.
-  Next is B-0054, the scenario engine, the last Phase 6 item that is not
-  blocked on a sign-off.
+- Phase: *all nine phases have landed their main items.* 1-4 closed; 5 is
+  10 of 13; 6 is 5 of 7; 7, 8 and 9 have their bindings, app and book
+- Last completed: B-0050 (Tier 6 holds), B-0051 (Tier 7's finding about the
+  published data), B-0054, B-0058a, B-0061
+- In flight: (none)
+- Baseline: =cargo xtask ci= green, and it now runs the Python wheel; 505
+  tests default, 713 with =oracle=, 47 Python, 31 Node; provenance
+  *1123/1589* on =teprob.f=, *183/1408* on =temain_mod.f=
+- Toolchain: rustup pinned to rustc 1.97.1, wasm32 installed, gfortran 15.2,
+  maturin 1.12.4, mdbook 0.5.4, trunk 0.21.14 (installed, deliberately unused)
+- Remote: private jkitchin/tep-rust
+- Blocked on the user: B-0025b, B-0040a and B-0051a, all sign-offs. None
+  blocks other work.
 
 * Phase 0: foundations
 

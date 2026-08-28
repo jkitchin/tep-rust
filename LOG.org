@@ -5818,3 +5818,147 @@ app, which needs =trunk=, still not installed. Phase 9: B-0059a.
 
 Two items remain blocked on the user: B-0025b (should a shutdown end the run)
 and B-0040a (should the driver's IDV(12) stay the default).
+
+* 2026-08-28 B-0050, B-0051, B-0054, B-0058a, B-0061 The second parallel round
+:PROPERTIES:
+:ITEM:     B-0050 B-0051 B-0054 B-0058a B-0061
+:PHASE:    5 6 7 8
+:TIER:     6 7
+:COMMIT:   1c5570d
+:GFORTRAN: 15.2.0
+:STATUS:   DONE
+:END:
+** Preflight
+Green throughout. Fidelity 100 of 100, worst 3.521e-14 at =YP(12)= step 77,
+unchanged for a thirteenth consecutive iteration.
+
+** What landed
+Four agents in worktrees (Tier 7, Tier 6 cross-source, the wheel matrix and CI,
+the browser app) and the scenario engine here. Every worktree was again created
+48 commits stale; this time every agent was told to check and fast-forward
+first, and every one of them did. That instruction is now the cheapest possible
+insurance and belongs in any future agent brief.
+
+** Validation numbers
+505 tests default (up from 411), 713 with =oracle= (up from 601), 47 Python, 31
+Node.
+
+*Tier 6, the equivalence claim itself.* 20 faults by 20 test seeds by 48 hours,
+860 runs, 47 minutes. All 328 comparisons passed while gating. Worst
+permutation p-value *0.619* against a gate of 0.05 and a floor of 1/21.
+Training source made no difference to any metric: both sources fit 14
+components at 90% variance with identical limits.
+
+| detector | fault   | metric        | Fortran-eval | Rust-eval | within-source | p     |
+|----------+---------+---------------+--------------+-----------+---------------+-------|
+| PCA      | IDV(14) | T2 rate       |       0.4342 |    0.4278 | +-0.097       | 0.952 |
+| PCA      | IDV(14) | T2 delay      |        34.65 |     32.05 | +-24.1        | 0.762 |
+| PCA      | IDV(19) | T2 delay      |       486.75 |    514.15 | +-220         | 0.619 |
+| DPCA(2)  | IDV(19) | T2 rate       |       0.3102 |    0.3118 | +-0.111       | 1.000 |
+
+The number that makes this more than a table: over 168 rate comparisons the
+median half-split spread was 0.340 separation units, so two halves of the
+Fortran's *own* twenty seeds typically differ by fifteen percentage points of
+detection rate. The largest cross-source difference anywhere was 0.64 points.
+
+*Tier 7.* 44 files inventoried from the bytes. Trajectory reproduction fails;
+the operating point matches (=d00= median mean gap 0.037 published sd, median
+sd ratio 1.082). Under the evidence-supported reading, 38 of 42 representable
+files land at KS median 0.044 to 0.14.
+
+*Browser app.* 74,010 bytes gzipped, 4.8% of the budget. 40,662x to 85,529x
+real time against a 100x target.
+
+*Scenario engine.* Half of =IDV(1)= puts mean =XMEAS(1)= at 0.503 of the way
+from none to full. Magnitude exactly 1.0 is bit-identical to the faithful path.
+
+** Surprises and decisions
+*The published datasets were not made with the driver as shipped.* This is the
+round's real finding and it is about the original, not the port.
+=temain_mod.f:367= forces =IDV(12)= on at eight hours, and the published files
+carry it only in =d12= and =d12_te=. Two independent predictions agree:
+=d12_te='s spread jumps at row 160 by at least 5.3x what =d00_te='s does on
+every channel =IDV(12)= drives, and keeping the line inflates the port's spread
+against =d00= by up to 9.9x against 1.55x for replacing it. Removing it roughly
+triples agreement across the whole table.
+
+The agent did not change the port's default, and was right not to. The shipped
+source *does* force it, and reproducing the source is a separate goal from
+reproducing the files. But the only argument anyone had for the current default
+was that every long published dataset carries it, and that argument is now
+known to be false. B-0040a and the new B-0051a should be answered together.
+
+*The recorded seeds carry no information.* Ranked first on 10 of 42 files
+against a four-decoy null where chance gives 8.4. Whatever generated those
+files, it was not this source at those seeds, and no protocol choice recovers
+it. Seven other unknowns are enumerated in the test rather than hidden,
+including that the training protocol is documented nowhere and that the output
+format's five significant figures destroy bit-exactness at the source.
+
+*Tier 7 cost 35 minutes of CPU in the debug gate.* Its full sweep is 42 files by
+five seeds by 172,800 steps: 321 seconds in release, far worse unoptimised. It
+now takes a =TEP_TIER7= selector, and the smoke set is chosen to span the
+outcomes rather than to be the first few: =d00= the fault-free point, =d01= an
+ordinary step, =d06= a shutdown freeze, and the =d12= pair that genuinely
+carries =IDV(12)=. 6.9 s.
+
+The general lesson, now learned three times: an expensive tier needs its size
+selector *in the same commit that adds it*, not after it has been merged into
+the gate.
+
+*A third timing assertion had to go.* The energy distance's scaling check is now
+release-only, because an unoptimised build's constants dominate to the point
+where the O(n log n) form grows *faster* than the quadratic one over a fourfold
+range: x24.5 against x19.1 in debug, x3.7 against x15.1 in release.
+
+*Two agents corrected their own designs mid-flight, and said so.* The Tier 6
+agent found that its half-split null was on the wrong scale (a 10-vs-10 split
+against a 20-vs-20 comparison makes the null about sqrt(2) too wide, drifting
+every verdict toward passing) and that six seeds admit only ten distinct splits,
+so twenty repeats of ten is not a p-value. It also reported that its first
+control test failed correctly and it re-specified rather than weakened it: a
+0.5 sd shift in one variable does not move T-squared at all, because it lands in
+the residual subspace, and 2 sd is the smallest single-variable shift this
+detector notices.
+
+*Tier 6 cannot see variance collapse, and says so.* =PLAN.org= names the Python
+port's real failure as reactor pressure sd 8.10 against 61.48. Shrinking a
+spread can only *lower* an alarm rate, and there is little room below a few
+percent, so a false alarm rate is blind to it. That is a measured limitation
+rather than a defect: Tier 5's TOST on log variances is the gate for
+second-moment defects, and the test says so rather than putting a gate where it
+cannot bite.
+
+*trunk was installed and deliberately not used.* Its bundled binaryen 123
+rejects the module outright, because rustc 1.97 emits =memory.copy= and that
+build needs =--enable-bulk-memory-opt=. With a JavaScript front end everything
+trunk does is =cargo build= plus =wasm-bindgen= plus =wasm-opt=, which
+=build.sh= does in three commands with no build-time toolchain download.
+
+*A green Python gate could have been testing the wrong package.* The CI agent
+added an import-site probe asserting =tepsim.__file__= is inside the throwaway
+venv, and reported that it caught a real bug in its own first draft.
+
+** Next
+Everything that remains is either a sign-off, a long run, or work that depends
+on one of those.
+
+Three questions are the user's: B-0025b (should a shutdown end the run rather
+than freeze the plant), B-0040a (should the driver's forced =IDV(12)= stay the
+default) and the new B-0051a (does Tier 7's evidence change the answer to
+B-0040a). They are related and are best answered together.
+
+B-0047c is the full Tier 5 battery, about ninety minutes, plus the seed-count
+decision its power finding forces: =PLAN.org='s margin of a tenth of a standard
+deviation on the mean needs about 255 seeds at the nominal plant, not 100.
+
+B-0048 generates the validation chapter from =xtask= rather than hand-writing
+it from =LOG.org=, and B-0059a does the same for the delta register and adds
+the tutorial track. B-0049a is canonical variate analysis and detection rates
+against the literature. B-0054a is scenario serialisation, which three places
+in the browser app currently work around by enumerating fields by hand.
+
+And nothing has yet run =.github/workflows/wheels.yml=. The free-threaded and
+Pyodide rows are the weakest part of this round: nothing has compiled pyo3 0.29
+against a free-threaded interpreter, and the Emscripten job has the most moving
+parts and none exercised.
