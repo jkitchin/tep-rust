@@ -2049,13 +2049,22 @@ eigenproblem, which the Jacobi solver does not do directly. Checking detection
 rates against the literature needs runs of =d00= and =d01= length, which is
 B-0050's plumbing.
 
-** TODO B-0050 Tier 6: the cross-source experiment
+** DONE B-0050 Tier 6: the cross-source experiment
 :PROPERTIES:
 :ID:    B-0050
 :PHASE: 5
 :TIER:  6
 :DEPS:  B-0049
 :PLAN:  Validation > Tier 6
+:COMMIT: d948138
+:RESULT: *The claim holds.* 20 faults by 20 test seeds by 48 h, 860 runs,
+         47 minutes. Every one of 328 comparisons passed while gating; worst
+         permutation p 0.619 against a gate of 0.05 and a floor of 0.048.
+         Training source made no difference to any metric. 300 of the 328
+         cross-source statistics were exactly zero, and the 28 that were not
+         are where the test did work: the largest cross-source detection-rate
+         difference anywhere was 0.64 percentage points, while two halves of
+         the Fortran's own seeds typically differ by 15 points.
 :END:
 
 Train on Fortran, test on both. Train on Rust, test on both. The claim is that
@@ -2378,6 +2387,34 @@ Two things found in B-0058 that this item must handle:
   this before the Windows job lands.
 
 * Phase 8: TEP Studio (browser app)
+
+** DONE B-0061 TEP Studio
+:PROPERTIES:
+:ID:    B-0061
+:PHASE: 8
+:TIER:  9
+:DEPS:  B-0060
+:PLAN:  The browser application
+:COMMIT: 740539b
+:RESULT: Simulation on a Web Worker, UI on the main thread, transferable
+         =Float64Array= chunks, no =SharedArrayBuffer=. Live canvas charts, a
+         fault panel, an SVG flowsheet, URL-fragment sharing. *74,010 bytes
+         gzipped*, 4.8% of =PLAN.org='s 1.5 MB budget. Throughput 40,662x to
+         85,529x real time against a budget of 100x. 31 Node tests. The page
+         leads with the determinism self-check and refuses to vouch for
+         anything below it if the digest disagrees with the native build.
+:DECISION: =trunk= installs and works, and was *not* adopted. Its bundled
+           binaryen 123 rejects the module outright (rustc 1.97 emits
+           =memory.copy=, which needs =--enable-bulk-memory-opt=), and with a
+           JavaScript front end everything it does is =cargo build= plus
+           =wasm-bindgen= plus =wasm-opt=, which =build.sh= does in three
+           commands with no build-time toolchain download.
+:RESIDUE: No browser has rendered the page. Layout, canvas rendering,
+          =ResizeObserver=, the clipboard fallback and the dark-mode palette
+          are unexercised. Charts are hand-written canvas rather than uPlot:
+          150 lines against a vendored dependency and its licence in the
+          bundle, and =TrendGrid= is three methods so uPlot can replace it.
+:END:
 
 ** DONE B-0060 WebAssembly bindings
 :PROPERTIES:

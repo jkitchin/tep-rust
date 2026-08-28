@@ -1043,7 +1043,6 @@ fn the_files_that_shut_down_disagree_on_when() {
 
 #[test]
 fn neither_training_duration_hypothesis_beats_the_other() {
-
     // The conclusion is a count across the training files: neither hypothesis
     // wins on enough of them to separate. The smoke sweep has four files, and
     // "9 against 11" is not a statement two files can make.
@@ -1084,10 +1083,7 @@ fn neither_training_duration_hypothesis_beats_the_other() {
     let mut twenty_four_wins = 0;
     let mut worst_gap = 0.0_f64;
     for file in tier7::files().into_iter().filter(|f| {
-        f.split == Split::Training
-            && f.fault != 0
-            && f.is_representable()
-            && included(f.name())
+        f.split == Split::Training && f.fault != 0 && f.is_representable() && included(f.name())
     }) {
         let published = file.run();
         let a = agreement(
