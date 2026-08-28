@@ -512,3 +512,76 @@ what Tier 2 means, so it is recorded here and left open. **B-0026a.**
 `crates/tepsim-oracle/tests/tier2_balances.rs`, and
 `the_fix_is_off_by_default_and_changes_the_answer_when_on` in
 `crates/tepsim-core/src/balances.rs`.
+
+---
+
+## D-008 — `CONTRL22` is defined, tuned, and never called
+
+**Class A.** `temain_mod.f:1295-1332`, with its constants at `246-317`.
+
+### What the original does
+
+Twenty controller subroutines are defined. The main loop calls nineteen of
+them. `CONTRL22` is not among the calls.
+
+It is not a stub. The main program initialises its full tuning alongside every
+other loop's:
+
+```fortran
+      SETPT(12)=2633.7
+      GAIN22=-1.0	  * 5.
+      TAUI22=1000./3600.
+      ERROLD22=0.0
+```
+
+and the subroutine is a complete PI controller reading `XMEAS(13)`, the
+separator pressure, and writing `XMV(6)`, the purge valve.
+
+### What it looks like it was
+
+`XMV(6)` is the valve `CONTRL6` already owns, and `CONTRL6` carries a latching
+pressure override (`temain_mod.f:710-731`) that does the same job by a
+different mechanism. The override's release threshold is **2633.7**, which is
+exactly `CONTRL22`'s setpoint.
+
+`CONTRL22` is also the only one of the twenty whose error is not normalised by
+a span: every other loop computes `(SETPT - XMEAS) * 100 / span`, and this one
+computes the raw difference.
+
+Two loops on one valve, one of them differently shaped from all the others, and
+one of them disconnected. The straightforward reading is that `CONTRL22` was
+the separator-pressure controller, that the override in `CONTRL6` replaced it,
+and that it was left in place with its tuning intact rather than deleted.
+
+### Why it matters
+
+Because "nineteen control loops" and "twenty control subroutines" are both true
+and a port has to pick. Counting the subroutines gives a plant with two
+controllers fighting over the purge valve. Counting the calls gives the
+published behaviour.
+
+It also shifts the reading of the control structure. Separator pressure is
+*not* under continuous control in this scheme; it is under an on-off override
+with a 650 kPa deadband. Anyone reasoning about why the plant behaves as it
+does around the pressure limits needs that.
+
+### What this port does
+
+Ports it, and does not schedule it. It is in
+[`tepsim_control`]'s tuning table and in the Tier 1 differential, because
+covering it costs nothing and it is the only check that will ever exercise it,
+but the scheduler does not call it.
+
+### Measured effect
+
+None: it is not called, so it computes nothing.
+
+The differential covers it anyway, at 0 ULP over 500 tunings, which is the only
+evidence anywhere that the subroutine is correct.
+
+### Measured by
+
+`every_controller_matches_the_fortran_over_a_sweep` in
+`crates/tepsim-oracle/tests/tier1_control.rs` includes `CONTRL22`.
+`crates/tepsim-oracle/tests/driver_binding.rs` shows it is callable and that
+the driver's setpoint array has a slot for it.

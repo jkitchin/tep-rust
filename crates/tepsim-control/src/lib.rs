@@ -315,3 +315,215 @@ mod tests {
         }
     }
 }
+
+/// The purge valve's pressure override, `CONTRL6`.
+///
+/// Ported from `temain_mod.f:710-753`. Alone among the twenty, `CONTRL6` is
+/// not a PI loop with a wrapper: it is a latching state machine that *replaces*
+/// the loop while it is engaged.
+///
+/// # What it does
+///
+/// | Separator pressure | Action |
+/// |---|---|
+/// | above 2950 | purge wide open, latch [`Override::Open`] |
+/// | latched open, still above 2633.7 | hold open |
+/// | latched open, back below 2633.7 | reset and release |
+/// | below 2300 | purge shut, latch [`Override::Shut`] |
+/// | latched shut, still below 2633.7 | hold shut |
+/// | latched shut, back above 2633.7 | reset and release |
+/// | otherwise | run the PI loop |
+///
+/// The PI is inside the final `ELSE`, so **while an override is latched the
+/// controller does not run and its error history does not advance**. That is
+/// checked against the Fortran in `tests/driver_binding.rs`, not inferred from
+/// the indentation.
+///
+/// # Why this exists, and what it replaced
+///
+/// `CONTRL22` is a separator-pressure controller writing the same valve, with
+/// its setpoint initialised to 2633.7 -- exactly this override's release
+/// threshold. It is defined, initialised, and never called. The override
+/// appears to be what replaced it; see delta D-008.
+///
+/// # Precision
+///
+/// `40.060` and `0.33712` at `temain_mod.f:716-717` are **single precision**,
+/// and the thresholds are mixed: 2950 and 2300 are exactly representable and
+/// 2633.7 is not. Read off each line, not inferred from its neighbour.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Override {
+    /// The PI loop is running. `FLAG = 0`.
+    #[default]
+    Released,
+    /// Latched wide open on high pressure. `FLAG = 1`.
+    Open,
+    /// Latched shut on low pressure. `FLAG = 2`.
+    Shut,
+}
+
+/// Pressure above which the purge is thrown open (`temain_mod.f:710`).
+const OVERRIDE_HIGH: f64 = single(2950.0);
+/// Pressure below which it is shut (`temain_mod.f:720`).
+const OVERRIDE_LOW: f64 = single(2300.);
+/// The pressure both latches release through (`temain_mod.f:713`).
+///
+/// Not exactly representable, unlike the two limits above.
+const OVERRIDE_RELEASE: f64 = single(2633.7);
+/// The valve position the loop is reset to (`temain_mod.f:716`).
+const OVERRIDE_RESET_VALVE: f64 = single(40.060);
+/// The setpoint it is reset to (`temain_mod.f:717`).
+const OVERRIDE_RESET_SETPOINT: f64 = single(0.33712);
+
+/// What the override decided this call.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Purge {
+    /// Drive the valve to this position, and do not run the loop.
+    Hold(f64),
+    /// Reset the valve, the setpoint and the error history, and do not run
+    /// the loop.
+    Release {
+        /// Where the valve goes.
+        valve: f64,
+        /// Where `SETPT(6)` goes.
+        setpoint: f64,
+    },
+    /// Run the PI loop as usual.
+    Run,
+}
+
+impl Override {
+    /// Step the state machine on the current separator pressure.
+    ///
+    /// `pressure` is `XMEAS(13)`, in kPa gauge.
+    // @port temain_mod.f:710-731
+    #[must_use]
+    pub fn step(&mut self, pressure: f64) -> Purge {
+        // The branch order is the original's, and it matters: the `>= 2950`
+        // test comes first, so a pressure above 2950 re-latches open even if
+        // the machine was latched shut.
+        if pressure >= OVERRIDE_HIGH {
+            *self = Override::Open;
+            Purge::Hold(100.0)
+        } else if *self == Override::Open && pressure >= OVERRIDE_RELEASE {
+            Purge::Hold(100.0)
+        } else if *self == Override::Open {
+            // `<= 2633.7`, which the two branches above have already narrowed
+            // this to.
+            *self = Override::Released;
+            Purge::Release {
+                valve: OVERRIDE_RESET_VALVE,
+                setpoint: OVERRIDE_RESET_SETPOINT,
+            }
+        } else if pressure <= OVERRIDE_LOW {
+            *self = Override::Shut;
+            Purge::Hold(0.0)
+        } else if *self == Override::Shut && pressure <= OVERRIDE_RELEASE {
+            Purge::Hold(0.0)
+        } else if *self == Override::Shut {
+            *self = Override::Released;
+            Purge::Release {
+                valve: OVERRIDE_RESET_VALVE,
+                setpoint: OVERRIDE_RESET_SETPOINT,
+            }
+        } else {
+            *self = Override::Released;
+            Purge::Run
+        }
+    }
+}
+
+#[cfg(test)]
+mod override_tests {
+    use super::*;
+
+    /// The high branch latches, holds, and releases through 2633.7.
+    #[test]
+    fn the_high_override_latches_holds_and_releases() {
+        let mut state = Override::default();
+        assert_eq!(state.step(3000.0), Purge::Hold(100.0));
+        assert_eq!(state, Override::Open);
+        // Still above the release threshold: hold.
+        assert_eq!(state.step(2800.0), Purge::Hold(100.0));
+        assert_eq!(state, Override::Open);
+        // Through it: reset and release.
+        assert_eq!(
+            state.step(2600.0),
+            Purge::Release {
+                valve: OVERRIDE_RESET_VALVE,
+                setpoint: OVERRIDE_RESET_SETPOINT
+            }
+        );
+        assert_eq!(state, Override::Released);
+        // And now the loop runs again.
+        assert_eq!(state.step(2600.0), Purge::Run);
+    }
+
+    /// The low branch does the same in the other direction.
+    #[test]
+    fn the_low_override_latches_holds_and_releases() {
+        let mut state = Override::default();
+        assert_eq!(state.step(2000.0), Purge::Hold(0.0));
+        assert_eq!(state, Override::Shut);
+        assert_eq!(state.step(2500.0), Purge::Hold(0.0));
+        assert_eq!(
+            state.step(2700.0),
+            Purge::Release {
+                valve: OVERRIDE_RESET_VALVE,
+                setpoint: OVERRIDE_RESET_SETPOINT
+            }
+        );
+        assert_eq!(state, Override::Released);
+    }
+
+    /// The hysteresis is real: between 2300 and 2950 with nothing latched, the
+    /// loop simply runs.
+    #[test]
+    fn the_band_between_the_limits_runs_the_loop() {
+        let mut state = Override::default();
+        for pressure in [2301.0, 2500.0, 2633.7, 2800.0, 2949.0] {
+            assert_eq!(state.step(pressure), Purge::Run, "at {pressure}");
+            assert_eq!(state, Override::Released);
+        }
+    }
+
+    /// The branch order matters: the high test comes first, so a pressure
+    /// above 2950 re-latches open even from the shut state.
+    #[test]
+    fn a_high_pressure_relatches_open_from_the_shut_state() {
+        let mut state = Override::Shut;
+        assert_eq!(state.step(3000.0), Purge::Hold(100.0));
+        assert_eq!(
+            state,
+            Override::Open,
+            "the high branch must be tested before the latch branches"
+        );
+    }
+
+    /// The two limits are exactly representable and the release threshold is
+    /// not, which is the kind of inconsistency that has to be read off each
+    /// line.
+    #[test]
+    fn the_thresholds_have_mixed_precision() {
+        assert_eq!(OVERRIDE_HIGH.to_bits(), 2950.0_f64.to_bits());
+        assert_eq!(OVERRIDE_LOW.to_bits(), 2300.0_f64.to_bits());
+        assert_ne!(
+            OVERRIDE_RELEASE.to_bits(),
+            2633.7_f64.to_bits(),
+            "2633.7 is not exactly representable in binary32, so the single \
+             and double forms must differ"
+        );
+        assert_ne!(OVERRIDE_RESET_VALVE.to_bits(), 40.060_f64.to_bits());
+        assert_ne!(OVERRIDE_RESET_SETPOINT.to_bits(), 0.33712_f64.to_bits());
+    }
+
+    /// Exactly on a threshold, the comparisons are `>=` and `<=`, so the
+    /// override engages rather than the loop running.
+    #[test]
+    fn the_limits_are_inclusive() {
+        let mut state = Override::default();
+        assert_eq!(state.step(OVERRIDE_HIGH), Purge::Hold(100.0));
+        let mut state = Override::default();
+        assert_eq!(state.step(OVERRIDE_LOW), Purge::Hold(0.0));
+    }
+}

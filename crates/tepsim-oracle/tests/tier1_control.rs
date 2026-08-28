@@ -520,3 +520,112 @@ fn a_cascade_rescales_by_the_inner_loops_span() {
         }
     }
 }
+
+/// The purge override against `CONTRL6`, over a pressure walk that enters and
+/// leaves both latches many times.
+///
+/// A single-step comparison would miss the whole point: the machine's answer
+/// depends on where it has been, so the sequence is what has to agree. This
+/// walks a pressure trajectory that crosses every threshold in both directions
+/// and compares the valve, the setpoint, the latch and the error history at
+/// every step.
+#[test]
+fn the_purge_override_matches_the_fortran_over_a_pressure_walk() {
+    use tepsim_control::{Override, Purge};
+
+    let mut oracle = Oracle::lock();
+    let _ = oracle.init();
+
+    let gain = 1.22;
+    let mut all = oracle.ctrlall();
+    all.deltat = 1.0 / 3600.0;
+    all.setpt[5] = 0.33712;
+    oracle.set_ctrlall(&all);
+    oracle.set_ctrl6(&tepsim_oracle::Ctrl6 { gain, errold: 0.0 });
+    oracle.set_flag6(0);
+    let mut xmv = oracle.manipulated();
+    xmv[5] = 40.0;
+    oracle.set_manipulated(&xmv);
+
+    // The port's mirror of the same condition.
+    let mut state = Override::Released;
+    let mut valve = 40.0_f64;
+    let mut setpoint = 0.33712_f64;
+    let mut pi = tepsim_control::Loop::default();
+    let tuning = tepsim_control::Tuning {
+        number: 6,
+        measurement: 10,
+        output: tepsim_control::Output::Valve(6),
+        gain,
+        reset: None,
+        span: Some(single(1.)),
+        period: tepsim_control::Period::Fast,
+    };
+
+    // A walk that crosses 2950, 2633.7 and 2300 repeatedly, in both
+    // directions, including landing exactly on each.
+    let mut pressures = Vec::new();
+    for cycle in 0..6 {
+        let base = 2600.0 + f64::from(cycle) * 7.0;
+        pressures.extend([
+            base, 2960.0, 2900.0, 2700.0, 2633.7, 2600.0, 2400.0, 2250.0, 2280.0, 2500.0, 2633.7,
+            2700.0, 2950.0, 3100.0, 2634.0, 2300.0, 2900.0, base,
+        ]);
+    }
+
+    let purge_reading = 0.25_f64;
+    for (step, pressure) in pressures.iter().copied().enumerate() {
+        // Both sides see the same measurements.
+        let mut xmeas = oracle.measurements();
+        xmeas[12] = pressure;
+        xmeas[9] = purge_reading;
+        oracle.set_measurements(&xmeas);
+        oracle.contrl6();
+
+        // The port.
+        match state.step(pressure) {
+            Purge::Hold(position) => valve = position,
+            Purge::Release {
+                valve: v,
+                setpoint: s,
+            } => {
+                valve = v;
+                setpoint = s;
+                pi.previous_error = 0.0;
+            }
+            Purge::Run => {
+                valve += pi.increment(&tuning, setpoint, purge_reading, 1.0 / 3600.0);
+            }
+        }
+
+        let expected_flag = match state {
+            Override::Released => 0,
+            Override::Open => 1,
+            Override::Shut => 2,
+        };
+        assert_eq!(
+            oracle.flag6(),
+            expected_flag,
+            "step {step} at {pressure} kPa: the latch disagrees"
+        );
+        assert_eq!(
+            oracle.manipulated()[5].to_bits(),
+            valve.to_bits(),
+            "step {step} at {pressure} kPa: XMV(6) is {}, the port has {valve}",
+            oracle.manipulated()[5]
+        );
+        assert_eq!(
+            oracle.ctrlall().setpt[5].to_bits(),
+            setpoint.to_bits(),
+            "step {step} at {pressure} kPa: SETPT(6) disagrees"
+        );
+        assert_eq!(
+            oracle.ctrl6().errold.to_bits(),
+            pi.previous_error.to_bits(),
+            "step {step} at {pressure} kPa: ERROLD6 disagrees. While an \
+             override is latched the PI does not run, so this catches a port \
+             that advanced the error history anyway."
+        );
+    }
+    println!("{} steps of pressure walk, all exact", pressures.len());
+}
