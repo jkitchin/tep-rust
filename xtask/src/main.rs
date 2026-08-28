@@ -151,6 +151,7 @@ const TIER3_TESTS: &[&str] = &[
 ];
 
 const LIBM_SYSTEM_TESTS: &[&str] = &[
+    "tier4_closed_loop",
     "tier2_equilibrium",
     "tier2_kinetics",
     "tier2_streams",
@@ -458,25 +459,27 @@ fn cmd_validate(root: &Path, flags: &[String]) -> Result<(), String> {
                             "vendored"
                         }
                     );
-                    step(
-                        root,
-                        "cargo",
-                        &[
-                            "test",
-                            "-p",
-                            "tepsim-oracle",
-                            "--features",
-                            features,
-                            "--release",
-                            "--test",
-                            "tier4_trajectory",
-                            "--",
-                            "--nocapture",
-                            "--include-ignored",
-                            "--test-threads",
-                            "1",
-                        ],
-                    )?;
+                    for target in TIER4_TESTS {
+                        step(
+                            root,
+                            "cargo",
+                            &[
+                                "test",
+                                "-p",
+                                "tepsim-oracle",
+                                "--features",
+                                features,
+                                "--release",
+                                "--test",
+                                target,
+                                "--",
+                                "--nocapture",
+                                "--include-ignored",
+                                "--test-threads",
+                                "1",
+                            ],
+                        )?;
+                    }
                 }
             }
             other => println!(
@@ -492,6 +495,11 @@ fn cmd_validate(root: &Path, flags: &[String]) -> Result<(), String> {
 
 /// The integration tests that make up Tier 1, run at full sweep volume.
 const TIER1_TESTS: [&str; 2] = ["tier1_enthalpy", "tier1_temperature"];
+
+/// Tier 4. The open-loop trajectory is diagnostic; the closed-loop one is not
+/// quite, because the controllers hold the plant at a setpoint and so remove
+/// the amplification the open-loop run exists to characterise.
+const TIER4_TESTS: [&str; 2] = ["tier4_trajectory", "tier4_closed_loop"];
 
 /// `--tiers 1,2,3`, defaulting to every tier.
 fn parse_tiers(flags: &[String]) -> Result<Vec<u8>, String> {

@@ -397,11 +397,12 @@ impl Plant {
             if t.hours() == 0.0 || (*command - wanted).abs() > threshold {
                 *command = wanted;
             }
-            // teprob.f:803-804, written as the two guards the listing writes
-            // rather than as a `clamp`, so it can be checked a line at a time.
-            // Identical for every finite input; `VCV` is never NaN here
-            // because it is either a manipulated variable or a previous
-            // clamped value.
+            // teprob.f:803-804. The listing writes two guards; `clamp` is
+            // exactly equivalent to them because both comparisons there are
+            // strict, so negative zero is left alone on both sides. Note that
+            // `CONSHAND` is *not* the same shape: it tests `.LE.`/`.GE.`, and
+            // `tepsim_control::Scheme::clamp` keeps the branches for that
+            // reason.
             *command = command.clamp(0.0, 100.0);
         }
     }

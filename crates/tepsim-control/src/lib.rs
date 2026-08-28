@@ -882,3 +882,509 @@ mod override_tests {
         assert_eq!(state.step(OVERRIDE_LOW), Purge::Hold(0.0));
     }
 }
+
+/// The closed-loop scheme: nineteen loops on three schedules, plus the purge
+/// override.
+///
+/// Ported from `temain_mod.f:365-412`, the driver's main loop.
+///
+/// # Order is load-bearing
+///
+/// The loops run in *source order* within a period and communicate through
+/// shared setpoints, so a cascade's outer loop and its inner loop can both run
+/// on the same tick and the outer one's effect is felt immediately. Reordering
+/// them changes the plant.
+///
+/// # The phase of each period is off by one from the obvious
+///
+/// `temain_mod.f:369` is `MOD(I,3)` with `I` starting at **1**, so the fast
+/// loops first fire on step 3, not step 1. Starting a Rust loop at zero and
+/// testing `step % 3 == 0` fires on step 0 and shifts every controller action
+/// by two seconds for the entire run. [`Scheme::step`] takes the one-based
+/// step number for that reason.
+///
+/// # `CONSHAND` clamps eleven valves, not twelve
+///
+/// `temain_mod.f:1401` loops `I = 1, 11`. Valve 12 is the agitator, and it is
+/// never written by a controller, so clamping it would change nothing today
+/// and would be wrong.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Scheme {
+    /// The twenty loops' error histories, in [`PRESET`] order.
+    loops: [Loop; 20],
+    /// The twenty setpoints, one-based in the Fortran and zero-based here.
+    setpoints: [f64; 20],
+    /// The purge override's latch.
+    purge: Override,
+}
+
+impl Default for Scheme {
+    /// The Braatz preset's starting condition.
+    fn default() -> Self {
+        let mut setpoints = [0.0; 20];
+        for entry in &PRESET {
+            setpoints[entry.setpoint_index - 1] = entry.setpoint;
+        }
+        Self {
+            loops: [Loop::default(); 20],
+            setpoints,
+            purge: Override::Released,
+        }
+    }
+}
+
+/// Which loops run on a given step. `temain_mod.f:369-394`.
+///
+/// The fast group in source order, then the composition group, then the
+/// quality loop. `CONTRL22` is absent: it is defined and never called, which
+/// is delta D-008.
+const FAST: [usize; 14] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 16, 17, 18];
+const COMPOSITION: [usize; 4] = [13, 14, 15, 19];
+const QUALITY: [usize; 1] = [20];
+
+impl Scheme {
+    /// A fresh scheme at the preset's setpoints.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// The current setpoints, one-based indexing as `SETPT(n)`.
+    #[must_use]
+    pub fn setpoint(&self, index: usize) -> f64 {
+        self.setpoints[index - 1]
+    }
+
+    /// Set one, for a scenario that moves a setpoint.
+    pub fn set_setpoint(&mut self, index: usize, value: f64) {
+        self.setpoints[index - 1] = value;
+    }
+
+    /// The purge override's latch.
+    #[must_use]
+    pub const fn purge_override(&self) -> Override {
+        self.purge
+    }
+
+    /// Run whichever loops are due on this step.
+    ///
+    /// `step` is one-based, as the driver's `I` is. `dt` is the plant step in
+    /// hours. `measurements` must be the ones the *previous* step produced;
+    /// see [`Driver`] for why, and use it rather than calling this directly.
+    ///
+    /// Does **not** clamp. `CONSHAND` runs after the integration, not after
+    /// the controllers, and [`Driver::step`] is what puts it there.
+    // @port temain_mod.f:369-394
+    pub fn step(&mut self, step: usize, measurements: &[f64], valves: &mut [f64; 12], dt: f64) {
+        if step % Period::Fast.steps() == 0 {
+            for number in FAST {
+                self.run(number, measurements, valves, dt);
+            }
+        }
+        if step % Period::Composition.steps() == 0 {
+            for number in COMPOSITION {
+                self.run(number, measurements, valves, dt);
+            }
+        }
+        if step % Period::Quality.steps() == 0 {
+            for number in QUALITY {
+                self.run(number, measurements, valves, dt);
+            }
+        }
+    }
+
+    /// `CONSHAND`, `temain_mod.f:1401-1404`. Eleven valves, not twelve.
+    ///
+    /// Written as the listing's two guards rather than as [`f64::clamp`],
+    /// which is *not* equivalent here. `CONSHAND` tests `.LE. 0.0`, so it
+    /// replaces a negative zero with a positive one; `f64::clamp` tests
+    /// `<`, so it leaves negative zero alone. `teprob.f:803-804` does the
+    /// same job with strict comparisons and there `clamp` is exact, which is
+    /// why [`tepsim_core::Plant`] uses it and this does not.
+    // @port temain_mod.f:1391-1407
+    #[allow(clippy::manual_clamp, reason = "CONSHAND normalises negative zero")]
+    pub fn clamp(&self, valves: &mut [f64; 12]) {
+        for valve in valves.iter_mut().take(11) {
+            if *valve <= 0.0 {
+                *valve = 0.0;
+            }
+            if *valve >= 100.0 {
+                *valve = 100.0;
+            }
+        }
+    }
+
+    /// One loop.
+    fn run(&mut self, number: usize, measurements: &[f64], valves: &mut [f64; 12], dt: f64) {
+        let slot = PRESET
+            .iter()
+            .position(|p| p.tuning.number == number)
+            .expect("a scheduled loop is in the preset");
+        let entry = &PRESET[slot];
+        let measurement = measurements[entry.tuning.measurement - 1];
+
+        // CONTRL6 is the override, and the loop runs only when it releases.
+        if number == 6 {
+            match self.purge.step(measurements[12]) {
+                Purge::Hold(position) => {
+                    valves[5] = position;
+                    return;
+                }
+                Purge::Release { valve, setpoint } => {
+                    valves[5] = valve;
+                    self.setpoints[5] = setpoint;
+                    self.loops[slot].previous_error = 0.0;
+                    return;
+                }
+                Purge::Run => {}
+            }
+        }
+
+        let setpoint = self.setpoints[entry.setpoint_index - 1];
+        let increment = self.loops[slot].increment(&entry.tuning, setpoint, measurement, dt);
+        match entry.tuning.output {
+            Output::Valve(v) => valves[v - 1] += increment,
+            Output::Setpoint { index, span } => {
+                self.setpoints[index - 1] += increment * span / single(100.);
+            }
+        }
+    }
+}
+
+/// The valve commands the driver starts a closed-loop run from.
+///
+/// `temain_mod.f:322-332`. **These are not `TEINIT`'s.** The driver overwrites
+/// eleven of the twelve with values rounded to five significant figures:
+/// `63.053` where `TEINIT` left `63.05263039`. Valve 12 is not overwritten and
+/// keeps `TEINIT`'s 50.
+///
+/// So a closed-loop run does not start where an open-loop one does, and the
+/// difference is in the fourth decimal place of ten valves. That is delta
+/// D-009.
+///
+/// Ten, not eleven: `XMV(5)` is written `22.210` and `TEINIT` leaves
+/// `YY(43) = 22.21000000`, which is already five significant figures, so the
+/// two agree exactly. That coincidence is the clearest evidence that these
+/// numbers *are* `TEINIT`'s rounded rather than an independent set.
+///
+/// Every literal is single precision, and each is written `value + 0.` in the
+/// original, which appears to be a placeholder for a perturbation.
+//
+// @port  temain_mod.f:322-332
+// @delta D-009 class=A temain_mod.f:322-332
+pub const DRIVER_INITIAL_VALVES: [f64; 12] = [
+    single(63.053 + 0.),
+    single(53.980 + 0.),
+    single(24.644 + 0.),
+    single(61.302 + 0.),
+    single(22.210 + 0.),
+    single(40.064 + 0.),
+    single(38.100 + 0.),
+    single(46.534 + 0.),
+    single(47.446 + 0.),
+    single(41.106 + 0.),
+    single(18.114 + 0.),
+    // XMV(12) is not among the eleven the driver writes; it keeps TEINIT's
+    // value, which is YY(50) = 50 exactly.
+    50.0,
+];
+
+/// The closed-loop driver: one simulated second of `temain_mod.f`'s main loop.
+///
+/// [`Scheme`] knows *which* loops fire; the driver knows *when* things happen
+/// relative to the plant, and that ordering is as load-bearing as the loop
+/// order is.
+///
+/// # The controllers read stale measurements
+///
+/// `temain_mod.f:369-394` calls the controllers, and only then, at line 409,
+/// calls `INTGTR` (and through it `TEFUNC`, which is what writes `XMEAS`). So
+/// on iteration `I` every controller sees the measurements iteration `I - 1`
+/// produced. There is one plant step of dead time in every loop, built into
+/// the driver rather than into any controller.
+///
+/// Getting this backwards is not a small error. Feeding a controller the
+/// measurements of the step it is about to cause makes the loop tighter than
+/// the original by one sample, and B-0039 measured the result: `XMV(7)` parts
+/// from the Fortran by 1.5% of range on the very first controller fire, and
+/// `XMEAS(14)` is 23% out four hours later.
+///
+/// # `CONSHAND` runs after the integration, not after the controllers
+///
+/// Line 411, after line 409. `TEFUNC` clamps its own copy of the valve
+/// positions (`teprob.f:803-804`), so with no sticking fault active the
+/// placement is unobservable. It stops being unobservable under `IDV(14)`,
+/// `IDV(15)` or `IDV(19)`: `teprob.f:801` only moves `VCV` toward `XMV` when
+/// they differ by more than the stick threshold, and an unclamped `XMV` of 105
+/// crosses that threshold at a different moment than a clamped 100 does.
+///
+/// # Example
+///
+/// ```
+/// # use tepsim_control::{Driver, DRIVER_INITIAL_VALVES};
+/// let mut driver = Driver::new();
+/// assert_eq!(driver.valves(), &DRIVER_INITIAL_VALVES);
+/// // Nothing fires until step 3.
+/// driver.step(&[0.0; 41], 1.0 / 3600.0);
+/// assert_eq!(driver.valves(), &DRIVER_INITIAL_VALVES);
+/// ```
+//
+// @port temain_mod.f:365-412
+// @delta D-010 class=A temain_mod.f:366-411
+#[derive(Clone, Debug, PartialEq)]
+pub struct Driver {
+    scheme: Scheme,
+    valves: [f64; 12],
+    /// One-based, as `I` is. Incremented by [`Driver::step`].
+    step: usize,
+}
+
+impl Default for Driver {
+    fn default() -> Self {
+        Self {
+            scheme: Scheme::new(),
+            valves: DRIVER_INITIAL_VALVES,
+            step: 0,
+        }
+    }
+}
+
+impl Driver {
+    /// A driver at the preset's setpoints and the driver's initial valves.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// The valve commands to hand the plant on the next step.
+    #[must_use]
+    pub const fn valves(&self) -> &[f64; 12] {
+        &self.valves
+    }
+
+    /// The scheme, for reading and moving setpoints.
+    #[must_use]
+    pub const fn scheme(&self) -> &Scheme {
+        &self.scheme
+    }
+
+    /// The scheme, mutably.
+    pub const fn scheme_mut(&mut self) -> &mut Scheme {
+        &mut self.scheme
+    }
+
+    /// How many steps have run.
+    #[must_use]
+    pub const fn steps(&self) -> usize {
+        self.step
+    }
+
+    /// Run the controllers due on the next step, given the measurements the
+    /// *previous* step produced.
+    ///
+    /// Returns the valve commands to integrate the plant with. Call
+    /// [`Driver::settle`] afterwards, with the plant already advanced.
+    ///
+    /// `dt` is the plant step in hours.
+    // @port temain_mod.f:366-394
+    pub fn control(&mut self, previous: &[f64], dt: f64) -> &[f64; 12] {
+        self.step += 1;
+        self.scheme.step(self.step, previous, &mut self.valves, dt);
+        &self.valves
+    }
+
+    /// `CONSHAND`, run after the plant has been advanced.
+    // @port temain_mod.f:411
+    pub fn settle(&mut self) {
+        self.scheme.clamp(&mut self.valves);
+    }
+
+    /// [`Driver::control`] then [`Driver::settle`], for a caller that
+    /// integrates in between and does not need the two separated.
+    ///
+    /// Advancing the plant between them is the *point*; this convenience form
+    /// exists for tests that only exercise the control side, and for the
+    /// doctest above.
+    pub fn step(&mut self, previous: &[f64], dt: f64) -> [f64; 12] {
+        let valves = *self.control(previous, dt);
+        self.settle();
+        valves
+    }
+}
+
+#[cfg(test)]
+mod scheme_tests {
+    extern crate std;
+
+    use super::*;
+    use std::println;
+
+    /// The fast loops first fire on step 3, not step 1.
+    ///
+    /// `MOD(I,3)` with `I` from 1. A zero-based loop testing `step % 3 == 0`
+    /// fires on step 0 and shifts every controller action by two seconds for
+    /// the whole run.
+    #[test]
+    fn the_fast_loops_first_fire_on_step_three() {
+        let mut scheme = Scheme::new();
+        let measurements = [1.0; 41];
+        let mut valves = [50.0; 12];
+
+        let bits = |v: &[f64; 12]| v.map(f64::to_bits);
+        for step in 1..3 {
+            let before = bits(&valves);
+            scheme.step(step, &measurements, &mut valves, 1.0 / 3600.0);
+            assert_eq!(bits(&valves), before, "step {step} should run nothing");
+        }
+        let before = bits(&valves);
+        scheme.step(3, &measurements, &mut valves, 1.0 / 3600.0);
+        assert_ne!(bits(&valves), before, "step 3 should run the fast loops");
+    }
+
+    /// The composition loops fire on step 360 and the quality loop on 900.
+    #[test]
+    fn the_slow_loops_fire_on_their_own_multiples() {
+        let scheme = Scheme::new();
+        let _ = scheme;
+        for (period, first) in [
+            (Period::Fast, 3),
+            (Period::Composition, 360),
+            (Period::Quality, 900),
+        ] {
+            assert_eq!(first % period.steps(), 0);
+            assert_ne!((first - 1) % period.steps(), 0);
+        }
+        // 900 is a multiple of 3 but not of 360, so the quality loop and the
+        // composition loops do not always coincide.
+        assert_eq!(900 % 3, 0);
+        assert_ne!(900 % 360, 0);
+        // And 1080 is the first step where the fast and composition groups
+        // both fire along with nothing else.
+        assert_eq!(1080 % 360, 0);
+    }
+
+    /// `CONSHAND` clamps eleven valves and leaves the twelfth alone.
+    #[test]
+    fn the_clamp_leaves_the_agitator_valve_alone() {
+        let scheme = Scheme::new();
+        let mut valves = [-5.0; 12];
+        valves[11] = -5.0;
+        scheme.clamp(&mut valves);
+        for (index, valve) in valves.iter().enumerate().take(11) {
+            assert_eq!(valve.to_bits(), 0.0_f64.to_bits(), "valve {}", index + 1);
+        }
+        assert_eq!(
+            valves[11].to_bits(),
+            (-5.0_f64).to_bits(),
+            "valve 12 was clamped; temain_mod.f:1401 loops I = 1, 11"
+        );
+
+        let mut valves = [150.0; 12];
+        scheme.clamp(&mut valves);
+        for valve in valves.iter().take(11) {
+            assert_eq!(valve.to_bits(), 100.0_f64.to_bits());
+        }
+        assert_eq!(valves[11].to_bits(), 150.0_f64.to_bits());
+
+        // The negative-zero normalisation the branch form exists for.
+        let mut valves = [-0.0; 12];
+        scheme.clamp(&mut valves);
+        assert_eq!(
+            valves[0].to_bits(),
+            0.0_f64.to_bits(),
+            "CONSHAND tests .LE. 0.0, so -0.0 becomes +0.0"
+        );
+        assert_eq!(
+            valves[11].to_bits(),
+            (-0.0_f64).to_bits(),
+            "and valve 12 is not touched at all"
+        );
+    }
+
+    /// The driver's initial valves are *not* `TEINIT`'s: they are rounded.
+    /// The measured gaps, so D-009 quotes numbers rather than an impression.
+    #[test]
+    fn the_rounding_gaps_are_recorded() {
+        let mut largest = (0.0_f64, 0);
+        let mut smallest = (f64::INFINITY, 0);
+        for (index, driver) in DRIVER_INITIAL_VALVES.iter().enumerate() {
+            let teinit = tepsim_core::constants::NOMINAL_STATE[38 + index];
+            let gap = (driver - teinit).abs();
+            println!("XMV({:2}) gap {gap:.3e}", index + 1);
+            if gap > largest.0 {
+                largest = (gap, index + 1);
+            }
+            if gap > 0.0 && gap < smallest.0 {
+                smallest = (gap, index + 1);
+            }
+        }
+        println!(
+            "largest {:.3e} at XMV({}), smallest non-zero {:.3e} at XMV({})",
+            largest.0, largest.1, smallest.0, smallest.1
+        );
+        assert!(
+            largest.0 < 1e-2,
+            "XMV({}) is {:.3e} from TEINIT, which is too far to be a rounding \
+             to five significant figures",
+            largest.1,
+            largest.0
+        );
+    }
+
+    #[test]
+    fn the_driver_starts_from_rounded_valve_positions() {
+        use tepsim_core::constants::NOMINAL_STATE;
+        let mut differing = 0;
+        for (index, driver) in DRIVER_INITIAL_VALVES.iter().enumerate().take(11) {
+            let teinit = NOMINAL_STATE[38 + index];
+            assert!(
+                (driver - teinit).abs() < 0.01,
+                "valve {} differs by more than rounding: {driver} against {teinit}",
+                index + 1
+            );
+            if driver.to_bits() != teinit.to_bits() {
+                differing += 1;
+            }
+        }
+        // Ten of the eleven, not all eleven. `XMV(5)` is the exception:
+        // `TEINIT` leaves `YY(43) = 22.21000000`, which is already five
+        // significant figures, so the driver's `22.210` rounds to the same
+        // `f32`. That is what makes it clear the driver's values *are* the
+        // `TEINIT` ones rounded, rather than an independent set of numbers.
+        assert_eq!(
+            differing, 10,
+            "ten of the eleven should differ from TEINIT's values, with XMV(5) \
+             the exception because TEINIT already had it at five significant \
+             figures. If this changes, delta D-009 needs rereading."
+        );
+        assert_eq!(
+            DRIVER_INITIAL_VALVES[4].to_bits(),
+            NOMINAL_STATE[42].to_bits(),
+            "XMV(5) is the one that rounds to itself"
+        );
+        // The twelfth is not overwritten and matches exactly.
+        assert_eq!(
+            DRIVER_INITIAL_VALVES[11].to_bits(),
+            NOMINAL_STATE[49].to_bits(),
+            "valve 12 should keep TEINIT's value"
+        );
+    }
+
+    /// A cascade's outer and inner loop can fire on the same tick, and the
+    /// outer one's effect is felt immediately because it runs first.
+    #[test]
+    fn a_cascade_takes_effect_within_the_same_tick() {
+        // CONTRL17 (fast, writes SETPT(4)) runs before CONTRL4 would... except
+        // it does not: FAST is [1,2,3,4,...,16,17,18], so CONTRL4 runs *before*
+        // CONTRL17. The order is the source's and this pins it.
+        let position = |n: usize| FAST.iter().position(|x| *x == n).expect("scheduled");
+        assert!(
+            position(4) < position(17),
+            "CONTRL4 runs before CONTRL17, so a setpoint move by 17 is felt on \
+             the *next* tick, not this one. That is the source order and \
+             changing it changes the plant."
+        );
+        assert!(position(9) < position(16));
+        assert!(position(10) < position(18));
+    }
+}

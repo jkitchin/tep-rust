@@ -585,3 +585,141 @@ evidence anywhere that the subroutine is correct.
 `crates/tepsim-oracle/tests/tier1_control.rs` includes `CONTRL22`.
 `crates/tepsim-oracle/tests/driver_binding.rs` shows it is callable and that
 the driver's setpoint array has a slot for it.
+
+## D-009 — the driver starts from rounded valve positions, not `TEINIT`'s
+
+**Class A.** `temain_mod.f:322-332`.
+
+### What the original does
+
+`TEINIT` leaves the twelve valve commands at the values `YY(39..50)` carries,
+which are written to eight significant figures:
+
+```fortran
+      DATA YY /
+     .  ...
+     .  6.3053638D+01, 5.3980356D+01, 2.4644630D+01, ...
+```
+
+The driver then overwrites eleven of the twelve, by hand, at five:
+
+```fortran
+ 	XMV(1) = 63.053 + 0.
+	XMV(2) = 53.980 + 0.
+	XMV(3) = 24.644 + 0.
+	...
+	XMV(11)= 18.114 + 0.
+```
+
+`XMV(12)`, the agitator, is not in the list and keeps `TEINIT`'s exact 50.
+
+Every literal is fixed-form Fortran with no exponent letter, so each is a
+`REAL(4)` widened to double. `63.053` reaches the plant as
+`63.053001403808594`, not as `63.053`.
+
+### Why it matters
+
+A closed-loop run and an open-loop run do not start from the same plant. The
+difference is in the fourth decimal place of ten valve commands, which is far
+too small to see in any plot and far too large to ignore in a differential: a
+port that starts a closed-loop run from `TEINIT`'s values disagrees with the
+Fortran from step 1, and the disagreement then grows through the controllers.
+
+Ten of the eleven, not all eleven: `TEINIT` leaves `YY(43) = 22.21000000`,
+which is *already* five significant figures, so `22.210` rounds to the same
+`f32`. That coincidence is the clearest available evidence that these numbers
+are `TEINIT`'s rounded rather than an independently chosen operating point.
+
+The `+ 0.` on every line appears to be a placeholder for a perturbation. It
+changes nothing, and it is transcribed rather than simplified away, because
+`single(63.053 + 0.)` and `single(63.053) + single(0.)` are the same value only
+because the addend is zero.
+
+### What this port does
+
+Reproduces it, as [`tepsim_control::DRIVER_INITIAL_VALVES`], with each literal
+passed through `single()`. `Driver::new` starts there.
+
+### Measured effect
+
+Ten of the twelve valve commands differ from `TEINIT`'s, all by less than
+one part in a thousand of range:
+
+| | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| gap | 3.70e-4 | 2.94e-4 | 4.41e-4 | 7.63e-5 | 0 | 2.52e-4 | 3.43e-4 | 1.56e-4 | 2.63e-4 | 1.87e-4 | 5.09e-4 | 0 |
+
+The largest is `XMV(11)` at 5.09e-4; the smallest non-zero is `XMV(4)` at
+7.63e-5. `XMV(5)` and `XMV(12)` are bit-identical, for the two different
+reasons above.
+
+### Measured by
+
+`the_driver_starts_from_rounded_valve_positions` in
+`crates/tepsim-control/src/lib.rs`, which asserts the count of differing valves
+and the two exceptions individually, and
+`the_rounding_gaps_are_recorded` beside it, which prints the table above.
+
+## D-010 — the controllers read the previous step's measurements
+
+**Class A, and load-bearing.** `temain_mod.f:366-411`.
+
+### What the original does
+
+The main loop, in order:
+
+```fortran
+        DO 1000 I = 1, NPTS
+	  TEST=MOD(I,3)
+	  IF (TEST.EQ.0) THEN
+		CALL CONTRL1
+	  	...
+	  ENDIF
+          ...
+	  CALL INTGTR(NN,TIME,DELTAT,YY,YP)
+ 	  CALL CONSHAND
+ 1000 CONTINUE
+```
+
+`XMEAS` is written by `TEFUNC`, which `INTGTR` calls. So on iteration `I` the
+controllers read the measurements iteration `I - 1` produced. Every loop in the
+scheme carries one plant step of dead time that is nowhere in any controller.
+
+`CONSHAND`, the valve clamp, likewise runs *after* the integration rather than
+after the controllers.
+
+### Why it matters
+
+This is not a subtlety that costs a few ULP. Feeding the controllers the
+measurements of the step they are about to cause makes every loop one sample
+tighter than the original. B-0039 measured it: `XMV(7)` lands on 35.62 instead
+of 34.15 on the very first controller fire, a 1.5% of range error before the
+plant has run three seconds, and `XMEAS(14)` is 23% out four hours later. That
+is a different plant, not a rounding of the same one.
+
+The clamp's placement is subtler. `TEFUNC` clamps its own copy of the valve
+positions at `teprob.f:803-804`, so with no sticking fault active it makes no
+observable difference where `CONSHAND` runs. It stops being unobservable under
+`IDV(14)`, `IDV(15)` or `IDV(19)`: `teprob.f:801` only moves `VCV` toward `XMV`
+when the two differ by more than the stick threshold, and an unclamped `XMV` of
+105 crosses that threshold at a different moment than a clamped 100 does.
+
+### What this port does
+
+Reproduces both, in [`tepsim_control::Driver`] rather than in `Scheme`.
+`Driver::control` takes the previous step's measurements and does not clamp;
+`Driver::settle` is `CONSHAND` and is called with the plant already advanced.
+The split exists so that the ordering is a thing the type makes explicit rather
+than a convention a caller has to remember.
+
+### Measured effect
+
+With the two orderings otherwise identical, the first `CONTRL7` fire gives
+34.147823842 (previous-step, matching the Fortran bit for bit) against
+35.623679189 (current-step).
+
+### Measured by
+
+`the_controllers_read_the_previous_steps_measurements` in
+`crates/tepsim-oracle/tests/tier4_closed_loop.rs`, which requires the two
+orderings to give *different* answers before checking which one is right.
