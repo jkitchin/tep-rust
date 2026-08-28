@@ -1915,7 +1915,7 @@ Done when:
 - [X] The scenario count is settled against the vendored Fortran rather than
       against =PLAN.org='s prose: twenty-one, not twenty-two
 
-** TODO B-0047b The Tier 5 battery: every statistic, with calibrated margins
+** NEXT B-0047b The Tier 5 battery: every statistic, with calibrated margins
 :PROPERTIES:
 :ID:    B-0047b
 :PHASE: 5
