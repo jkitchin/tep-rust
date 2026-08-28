@@ -94,6 +94,10 @@ pub fn run_fortran_controllers(oracle: &mut Oracle, step: usize) {
 /// `CONSHAND`, `temain_mod.f:1401-1404`.
 pub fn conshand(oracle: &mut Oracle) {
     let mut xmv = oracle.manipulated();
+    // Not `f64::clamp`: `CONSHAND` tests `.LE. 0.0`, so it normalises negative
+    // zero where `clamp`'s strict `<` leaves it alone. See
+    // `tepsim_control::Scheme::clamp`.
+    #[allow(clippy::manual_clamp, reason = "CONSHAND normalises negative zero")]
     for valve in xmv.iter_mut().take(11) {
         if *valve <= 0.0 {
             *valve = 0.0;
@@ -240,7 +244,6 @@ impl Scenario {
     }
 
     /// Every scenario, nominal first.
-    #[must_use]
     pub fn all() -> impl Iterator<Item = Self> {
         (0..=FAULTS).map(|fault| Self { fault })
     }
@@ -441,7 +444,11 @@ pub fn run_fortran(
         conshand(oracle);
 
         for (slot, rate) in yy.iter_mut().zip(yp) {
-            *slot += DT * rate;
+            // Two roundings, not a fused multiply-add; see `tier2`.
+            #[allow(clippy::suboptimal_flops, reason = "matches INTGTR's rounding")]
+            {
+                *slot += DT * rate;
+            }
         }
         t += DT;
 

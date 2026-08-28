@@ -297,7 +297,12 @@ impl Pools {
             trajectory.push((t, y));
             let yp = oracle.derivatives(t, &y);
             for (state, rate) in y.iter_mut().zip(yp) {
-                *state += dt * rate;
+                // Two roundings, not a fused multiply-add. This reproduces
+                // `INTGTR`, and gfortran at the pinned `-O0` does not fuse.
+                #[allow(clippy::suboptimal_flops, reason = "matches INTGTR's rounding")]
+                {
+                    *state += dt * rate;
+                }
             }
             t += dt;
         }

@@ -10,6 +10,17 @@
 //!
 //! Run with `--nocapture` to see the reports; they are what goes in `LOG.org`.
 
+// Differential tests: exact comparisons are the property under test, and
+// arithmetic is transcribed from `teprob.f` so a reader can check it against
+// the listing line by line. Rearranging either would defeat the point.
+#![allow(
+    clippy::float_cmp,
+    reason = "bit equality against the Fortran is the property under test"
+)]
+#![allow(
+    clippy::suboptimal_flops,
+    reason = "expressions are transcribed to be checkable against teprob.f"
+)]
 #![cfg(feature = "oracle")]
 
 use std::time::Instant;
@@ -166,6 +177,10 @@ fn both_routines_are_bit_identical_to_the_fortran() {
 /// which is what justifies [`tepsim_core::thermo::ABSOLUTE_ZERO_OFFSET`] being
 /// written the way it is.
 #[test]
+#[allow(
+    clippy::assertions_on_constants,
+    reason = "that the comparison is constant is itself the claim; see below"
+)]
 fn reading_the_offset_as_double_precision_would_fail_the_gate_by_orders() {
     use tepsim_core::thermo::{ABSOLUTE_ZERO_OFFSET, GAS_CONSTANT};
 
@@ -197,6 +212,11 @@ fn reading_the_offset_as_double_precision_would_fail_the_gate_by_orders() {
          either the sweep no longer reaches the cancelling region or the \
          correction is no longer being applied\n{sabotaged}"
     );
+    // Constant by construction, which is exactly the assertion: the widened
+    // `f32` must compare below the `f64` literal. clippy sees a constant
+    // comparison; a reader sees the check that the constant was not silently
+    // corrected to the mathematically right value. The allow is on the
+    // function because the lint fires at the item level, not the statement.
     assert!(
         ABSOLUTE_ZERO_OFFSET < 273.15_f64,
         "the widened f32 rounds down, so this ordering is a cheap check that \

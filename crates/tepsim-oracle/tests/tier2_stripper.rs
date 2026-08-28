@@ -13,6 +13,17 @@
 //! branch-coverage test below asserts that the pool really does reach every
 //! branch rather than assuming the catalogue still does what it claims.
 
+// Differential tests: exact comparisons are the property under test, and
+// arithmetic is transcribed from `teprob.f` so a reader can check it against
+// the listing line by line. Rearranging either would defeat the point.
+#![allow(
+    clippy::float_cmp,
+    reason = "bit equality against the Fortran is the property under test"
+)]
+#![allow(
+    clippy::suboptimal_flops,
+    reason = "expressions are transcribed to be checkable against teprob.f"
+)]
 #![cfg(feature = "oracle")]
 
 use std::collections::BTreeSet;
@@ -388,7 +399,7 @@ fn every_stripper_branch_is_exercised_by_the_pool() {
     let mut oracle = Oracle::lock();
     let pools = Pools::collect(&mut oracle, 400, DT);
     let mut seen: BTreeSet<&'static str> = BTreeSet::new();
-    let mut record = |branch: stripper::StripperBranch, seen: &mut BTreeSet<&'static str>| {
+    let record = |branch: stripper::StripperBranch, seen: &mut BTreeSet<&'static str>| {
         seen.insert(match branch {
             stripper::StripperBranch::Idle => "idle",
             stripper::StripperBranch::Linear => "linear",

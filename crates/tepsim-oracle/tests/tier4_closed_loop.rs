@@ -17,6 +17,17 @@
 //! loop. If the transcription were wrong the two would disagree, because the
 //! port's schedule is written independently in `Scheme::step`.
 
+// Differential tests: exact comparisons are the property under test, and
+// arithmetic is transcribed from `teprob.f` so that a reader can check it
+// against the listing line by line. Rearranging either would defeat the point.
+#![allow(
+    clippy::float_cmp,
+    reason = "bit equality against the Fortran is the property under test"
+)]
+#![allow(
+    clippy::suboptimal_flops,
+    reason = "expressions are transcribed to be checkable against teprob.f"
+)]
 #![cfg(feature = "oracle")]
 
 extern crate alloc;

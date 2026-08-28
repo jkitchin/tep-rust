@@ -19,6 +19,17 @@
 //! transposed digit -- because the probe evaluates the Fortran text and the
 //! port evaluates the Rust text and the two must agree bit for bit.
 
+// Differential tests: exact comparisons are the property under test, and
+// arithmetic is transcribed from `teprob.f` so a reader can check it against
+// the listing line by line. Rearranging either would defeat the point.
+#![allow(
+    clippy::float_cmp,
+    reason = "bit equality against the Fortran is the property under test"
+)]
+#![allow(
+    clippy::suboptimal_flops,
+    reason = "expressions are transcribed to be checkable against teprob.f"
+)]
 #![cfg(feature = "oracle")]
 
 use tepsim_control::{Output, PRESET, Period, preset};
@@ -81,7 +92,7 @@ fn fortran_values() -> Vec<(usize, &'static str, f64)> {
         (20, "gain", s(-16.3 / 5.0)),
         (20, "reset", s(12408.0 / 3600.0)),
         (22, "setpoint", s(2633.7)),
-        (22, "gain", s(-1.0 * 5.0)),
+        (22, "gain", s(-(1.0 * 5.0))),
         (22, "reset", s(1000.0 / 3600.0)),
     ]
 }
@@ -120,7 +131,7 @@ fn the_arithmetic_gains_are_folded_in_single_precision() {
         (10, f64::from(-0.156_f32 * 10.0_f32), -0.156_f64 * 10.0),
         (19, f64::from(-83.2_f32 / 5.0 / 3.0), -83.2_f64 / 5.0 / 3.0),
         (20, f64::from(-16.3_f32 / 5.0), -16.3_f64 / 5.0),
-        (22, f64::from(-1.0_f32 * 5.0), -1.0_f64 * 5.0),
+        (22, f64::from(-(1.0_f32 * 5.0)), -(1.0_f64 * 5.0)),
     ];
     let mut differing = 0;
     for (number, single, double) in cases {

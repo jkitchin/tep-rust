@@ -17,6 +17,17 @@
 //! from fault-free data at all, and that no metric is `NaN`. `TEP_TIER6=full`
 //! runs the same code at a size that gates.
 
+// Differential tests: exact comparisons are the property under test, and
+// arithmetic is transcribed from `teprob.f` so a reader can check it against
+// the listing line by line. Rearranging either would defeat the point.
+#![allow(
+    clippy::float_cmp,
+    reason = "bit equality against the Fortran is the property under test"
+)]
+#![allow(
+    clippy::suboptimal_flops,
+    reason = "expressions are transcribed to be checkable against teprob.f"
+)]
 #![cfg(feature = "oracle")]
 
 use tepsim_core::math;

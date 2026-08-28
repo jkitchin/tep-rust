@@ -43,6 +43,17 @@
 //! the pool happens to contain. What they do check is the freeze itself, and
 //! B-0024a already checks the detector that drives it on every state.
 
+// Differential tests: exact comparisons are the property under test, and
+// arithmetic is transcribed from `teprob.f` so a reader can check it against
+// the listing line by line. Rearranging either would defeat the point.
+#![allow(
+    clippy::float_cmp,
+    reason = "bit equality against the Fortran is the property under test"
+)]
+#![allow(
+    clippy::suboptimal_flops,
+    reason = "expressions are transcribed to be checkable against teprob.f"
+)]
 #![cfg(feature = "oracle")]
 
 use tepsim_core::state::N_STATES;

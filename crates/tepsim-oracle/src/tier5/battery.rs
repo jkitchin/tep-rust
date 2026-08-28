@@ -306,10 +306,7 @@ impl VariableReport {
         }
         let mut all = self.paired.equivalent && self.variance.equivalent;
         for statistic in self.calibrated() {
-            match statistic.passes() {
-                Some(ok) => all &= ok,
-                None => return None,
-            }
+            all &= statistic.passes()?;
         }
         Some(all)
     }
@@ -504,8 +501,12 @@ pub fn compare_variable(
 
     // Moments, one observation per run.
     let reference_spread = Summary::of(&a.pooled()).sd();
-    let constant = !(reference_spread > 0.0);
-    let candidate_constant = !(Summary::of(&b.pooled()).sd() > 0.0);
+    // Written so a NaN spread counts as constant rather than falling past the
+    // guard: a variable whose spread cannot be computed has not moved in any
+    // sense the moment tests can use.
+    let constant = reference_spread.is_nan() || reference_spread <= 0.0;
+    let candidate_spread = Summary::of(&b.pooled()).sd();
+    let candidate_constant = candidate_spread.is_nan() || candidate_spread <= 0.0;
     let margin = MEAN_MARGIN_FRACTION * reference_spread;
     let mean = tost(&b.run_means(), &a.run_means(), margin, ALPHA);
 
@@ -740,7 +741,7 @@ impl Report {
     #[must_use]
     pub fn seeds_for_power(&self) -> usize {
         let worst = self.worst_paired_power();
-        if !(worst > 1.0) {
+        if worst.is_nan() || worst <= 1.0 {
             return self.seeds;
         }
         (self.seeds as f64 * worst * worst).ceil() as usize

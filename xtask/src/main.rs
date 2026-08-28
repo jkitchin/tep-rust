@@ -224,6 +224,34 @@ fn cmd_ci(root: &Path, fast: bool) -> Result<(), String> {
             "warnings",
         ],
     )?;
+
+    // Again with the oracle feature on. Without this pass, everything behind
+    // `#[cfg(feature = "oracle")]` is never linted at all: the tier 2, 5, 6
+    // and 7 machinery, the differentials, and the harness. That gap went
+    // unnoticed until B-0049a reported ten errors nobody had ever seen, and
+    // the fix was ten real lints in the library plus the observation that the
+    // differential tests need `float_cmp` and `suboptimal_flops` allowed,
+    // because exact comparison against the Fortran is what they are for.
+    //
+    // Skipped without gfortran, like the rest of the oracle work.
+    if which("gfortran").is_some() {
+        step(
+            root,
+            "cargo",
+            &[
+                "clippy",
+                "--workspace",
+                "--all-targets",
+                "--features",
+                "tepsim-oracle/oracle",
+                "--",
+                "-D",
+                "warnings",
+            ],
+        )?;
+    } else {
+        println!("[skip] clippy with the oracle feature: no gfortran on PATH");
+    }
     step(root, "cargo", &["test", "--workspace"])?;
     step_with_env(
         root,

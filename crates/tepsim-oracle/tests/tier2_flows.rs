@@ -26,6 +26,17 @@
 //! at or above 100 C are counted and excluded rather than silently passed,
 //! since there `QUC` is zero regardless of `UAC` and proves nothing.
 
+// Differential tests: exact comparisons are the property under test, and
+// arithmetic is transcribed from `teprob.f` so that a reader can check it
+// against the listing line by line. Rearranging either would defeat the point.
+#![allow(
+    clippy::float_cmp,
+    reason = "bit equality against the Fortran is the property under test"
+)]
+#![allow(
+    clippy::suboptimal_flops,
+    reason = "expressions are transcribed to be checkable against teprob.f"
+)]
 #![cfg(feature = "oracle")]
 
 use tepsim_core::constants::single;
@@ -399,7 +410,7 @@ fn no_sampled_state_reaches_the_purge_clamp() {
     let mut lowest = f64::INFINITY;
     let mut sampler = tepsim_oracle::tier1::Sampler::new(0x7E2_0021);
 
-    let mut check = |oracle: &mut Oracle, scenario: &Scenario, lowest: &mut f64| {
+    let check = |oracle: &mut Oracle, scenario: &Scenario, lowest: &mut f64| {
         let snapshot = scenario.force(oracle);
         *lowest = lowest.min(snapshot.common.pts);
     };

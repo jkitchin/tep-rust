@@ -8,10 +8,21 @@
 //! walk state and the generator word as a side effect, so a harness that did
 //! not restore them would report differences caused entirely by itself.
 
+// Differential tests: exact comparisons are the property under test, and
+// arithmetic is transcribed from `teprob.f` so a reader can check it against
+// the listing line by line. Rearranging either would defeat the point.
+#![allow(
+    clippy::float_cmp,
+    reason = "bit equality against the Fortran is the property under test"
+)]
+#![allow(
+    clippy::suboptimal_flops,
+    reason = "expressions are transcribed to be checkable against teprob.f"
+)]
 #![cfg(feature = "oracle")]
 
 use tepsim_oracle::tier1::{Comparison, Sampler};
-use tepsim_oracle::tier2::{Case, Pool, Pools, Scenario, compare_field, reproducible};
+use tepsim_oracle::tier2::{Case, Pool, Pools, compare_field, reproducible};
 use tepsim_oracle::{Oracle, tier2};
 
 /// One second in hours, the original's step (`temain_mod.f`'s `INTGTR`).

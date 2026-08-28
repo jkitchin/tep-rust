@@ -24,6 +24,17 @@
 //! The two flat branches would be implemented and unvalidated if nothing said
 //! so, which is exactly the failure B-0022 caught one item too late.
 
+// Differential tests: exact comparisons are the property under test, and
+// arithmetic is transcribed from `teprob.f` so that a reader can check it
+// against the listing line by line. Rearranging either would defeat the point.
+#![allow(
+    clippy::float_cmp,
+    reason = "bit equality against the Fortran is the property under test"
+)]
+#![allow(
+    clippy::suboptimal_flops,
+    reason = "expressions are transcribed to be checkable against teprob.f"
+)]
 #![cfg(feature = "oracle")]
 
 use std::collections::BTreeSet;
@@ -329,7 +340,7 @@ fn both_sides_of_the_steam_cutoff_are_exercised() {
     let (mut on, mut off) = (0, 0);
 
     let (boundaries, _) = adversarial::build(&mut oracle, &pools.nominal_case(0));
-    let mut count = |s: &Solved, on: &mut i32, off: &mut i32| {
+    let count = |s: &Solved, on: &mut i32, off: &mut i32| {
         if s.heat.steam_on {
             *on += 1;
         } else {

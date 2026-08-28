@@ -7,6 +7,17 @@
 //! literal semantics: if both are wrong in the same way, only this one
 //! notices.
 
+// Differential tests: exact comparisons are the property under test, and
+// arithmetic is transcribed from `teprob.f` so a reader can check it against
+// the listing line by line. Rearranging either would defeat the point.
+#![allow(
+    clippy::float_cmp,
+    reason = "bit equality against the Fortran is the property under test"
+)]
+#![allow(
+    clippy::suboptimal_flops,
+    reason = "expressions are transcribed to be checkable against teprob.f"
+)]
 #![cfg(feature = "oracle")]
 
 use tepsim_core::CHANNEL_SPANS;
@@ -42,6 +53,10 @@ fn the_channel_spans_are_what_gfortran_stored() {
     let _ = oracle.init();
     let wlk = oracle.wlk();
 
+    // Indexed rather than iterated: the loop variable is also used to index
+    // the oracle's parallel `COMMON` arrays, so pairing them by position is
+    // the point.
+    #[allow(clippy::needless_range_loop, reason = "indexes parallel arrays")]
     for channel in 0..12 {
         let ours = &CHANNEL_SPANS[channel];
         let cases = [
@@ -78,6 +93,7 @@ fn the_initial_walk_state_is_flat_at_each_channels_centre() {
     let _ = oracle.init();
     let wlk = oracle.wlk();
 
+    #[allow(clippy::needless_range_loop, reason = "indexes parallel arrays")]
     for channel in 0..12 {
         assert_eq!(
             wlk.adist[channel].to_bits(),
