@@ -1,0 +1,12 @@
+{
+  "name": "tep-studio",
+  "private": true,
+  "type": "module",
+  "description": "TEP Studio: the Tennessee Eastman Process simulator in the browser. No dependencies; this file exists only to declare that .js here is ESM.",
+  "scripts": {
+    "build": "./build.sh",
+    "measure": "./measure.sh",
+    "test": "node --test --test-force-exit node/",
+    "serve": "python3 -m http.server 8000 --directory dist"
+  }
+}

@@ -1,0 +1,181 @@
+<!doctype html>
+<!--
+  TEP Studio: the Tennessee Eastman Process, live in a browser.
+
+  The plant runs in a Web Worker; this page is the interface to it. Build with
+  apps/studio/build.sh, which compiles crates/tepsim-wasm, generates the
+  wasm-bindgen glue, and copies this directory into dist/. Then serve dist over
+  HTTP: a module worker cannot be loaded from a file:// URL.
+
+    apps/studio/build.sh
+    python3 -m http.server 8000 --directory apps/studio/dist
+    open http://localhost:8000/
+
+  Every byte of this app is either the wasm module or a file in this directory.
+  There is no bundler, no framework and no third-party JavaScript, which is what
+  keeps the page inside the size budget in PLAN.org and what makes it deployable
+  to any static host that can serve files.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TEP Studio</title>
+    <meta
+      name="description"
+      content="The Tennessee Eastman Process simulator, running in the browser."
+    />
+    <link rel="stylesheet" href="./studio.css" />
+  </head>
+  <body>
+    <header class="masthead">
+      <h1>TEP Studio</h1>
+      <p class="muted">
+        Downs and Vogel's Tennessee Eastman challenge problem, ported from the
+        original Fortran and compiled to WebAssembly. The plant runs on a worker
+        thread; nothing here is precomputed.
+      </p>
+    </header>
+
+    <div id="load-banner" class="banner warn">Loading the module.</div>
+    <div id="integrator-banner" class="banner" hidden></div>
+
+    <div class="layout">
+      <aside class="panel">
+        <section>
+          <h2>Run</h2>
+          <div class="buttons">
+            <button id="start" type="button">Start</button>
+            <button id="stop" type="button" disabled>Stop</button>
+            <button id="reset" type="button">Reset</button>
+          </div>
+          <dl class="stats">
+            <dt>samples</dt><dd id="stat-samples" class="mono">0</dd>
+            <dt>simulated hours</dt><dd id="stat-hours" class="mono">0</dd>
+            <dt>wall clock</dt><dd id="stat-wall" class="mono">0 ms</dd>
+            <dt>throughput</dt><dd id="stat-speed" class="mono">-</dd>
+            <dt>outcome</dt><dd id="stat-outcome" class="mono">-</dd>
+            <dt>ground truth</dt><dd id="stat-truth" class="mono">-</dd>
+            <dt>output checksum</dt><dd id="stat-checksum" class="mono">-</dd>
+            <dt>scenario digest</dt><dd id="stat-digest" class="mono">-</dd>
+            <dt>retained</dt><dd id="stat-retained" class="mono">-</dd>
+          </dl>
+        </section>
+
+        <section>
+          <h2>Scenario</h2>
+          <p id="scenario-error" class="error" hidden></p>
+          <p class="muted mono" id="plan">-</p>
+          <div class="fields">
+            <label>Seed<input id="seed" type="number" step="any" /></label>
+            <label>Hours<input id="hours" type="number" step="any" /></label>
+            <label>Step (h)<input id="stepHours" type="number" step="any" /></label>
+            <label>Sample every<input id="sampleEvery" type="number" step="1" min="1" /></label>
+            <label>Samples per chunk<input id="chunkSamples" type="number" step="1" min="1" /></label>
+            <label>Integrator<select id="integrator"></select></label>
+            <label
+              >Speed
+              <select id="speedMultiple">
+                <option value="0">as fast as possible</option>
+                <option value="3600">3600x (1 h per second)</option>
+                <option value="600">600x</option>
+                <option value="60">60x (1 min per second)</option>
+                <option value="1">real time</option>
+              </select>
+            </label>
+          </div>
+          <label class="check"
+            ><input id="controlled" type="checkbox" /> closed loop</label
+          >
+          <label class="check"
+            ><input id="driverForcesIdv12" type="checkbox" /> driver forces IDV(12)
+            at 8 h</label
+          >
+          <label class="check"
+            ><input id="tripEndsTheRun" type="checkbox" /> a trip ends the run</label
+          >
+          <p class="muted small">
+            Open loop is a diagnostic mode, not an operating one: the plant trips
+            on reactor pressure after about three hours. The IDV(12) forcing is
+            what <code>temain_mod.f</code> does, and it is why every published
+            dataset longer than eight hours carries that disturbance; turning it
+            off departs from every number in the literature. Leaving the trip
+            switch off is what <code>teprob.f</code> does, freezing the plant and
+            continuing to report.
+          </p>
+        </section>
+
+        <section>
+          <h2>Share</h2>
+          <div class="buttons">
+            <input id="share" class="mono share" type="text" readonly />
+            <button id="copy-share" type="button">copy link</button>
+          </div>
+          <p class="muted small">
+            The whole scenario lives in the fragment, so a link reproduces a run
+            exactly rather than describing it. Only fields that differ from the
+            baseline are written, which is why the default link is just
+            <code>#</code>.
+          </p>
+        </section>
+      </aside>
+
+      <main>
+        <section>
+          <h2>Process flow</h2>
+          <div class="pfd-frame">
+            <svg
+              id="pfd"
+              viewBox="0 0 980 420"
+              preserveAspectRatio="xMidYMid meet"
+              role="img"
+              aria-label="Tennessee Eastman process flow diagram with live readings"
+            ></svg>
+          </div>
+        </section>
+
+        <section>
+          <h2>Trends</h2>
+          <div id="trends" class="trend-grid"></div>
+          <details>
+            <summary>Choose channels</summary>
+            <p class="muted small">
+              A packed row is <code>[hours, XMEAS(1..41), XMV(1..12)]</code>. The
+              labels come from <code>tepsim_core::variables</code>, which the
+              core checks against the <code>teprob.f</code> header table.
+              <code>XMEAS(23..41)</code> are analyser readings that hold their
+              value between reports, so they are drawn as steps.
+            </p>
+            <div id="channel-picker" class="picker"></div>
+          </details>
+        </section>
+
+        <section>
+          <h2>Disturbances</h2>
+          <p class="muted small">
+            The twenty <code>IDV</code> flags, read out of
+            <code>tepsim_core::FAULTS</code>. <strong>Toggling one restarts the
+            run from step zero.</strong> A simulation takes its scenario at
+            construction and the bindings decline to invent a side door the
+            native API does not have, because a run reachable only through the
+            browser is a run nobody can reproduce. The three sticking faults
+            widen a valve dead band and touch no equation, so in an open-loop run
+            they do nothing.
+          </p>
+          <div class="scroll"><table id="faults"></table></div>
+        </section>
+      </main>
+    </div>
+
+    <footer class="muted small">
+      New work is MIT licensed. The upstream Fortran is under the University of
+      Illinois/NCSA Open Source License; see <code>NOTICE.md</code> and
+      <code>LICENSE-NCSA</code> in the repository. The process and the original
+      control problem are defined in Downs and Vogel, "A plant-wide industrial
+      process control problem", Computers &amp; Chemical Engineering 17 (1993)
+      245.
+    </footer>
+
+    <script type="module" src="./js/app.js"></script>
+  </body>
+</html>

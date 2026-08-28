@@ -1,0 +1,379 @@
+/*
+  TEP Studio.
+
+  Everything is driven off `color-scheme: light dark` and a handful of custom
+  properties derived from `currentColor`, so the page follows the browser rather
+  than picking a side. There is no theme toggle because there is no theme: this
+  is a laboratory instrument, and it should look like whatever the rest of the
+  machine looks like.
+*/
+
+:root {
+  color-scheme: light dark;
+  --line: color-mix(in srgb, currentColor 20%, transparent);
+  --line-strong: color-mix(in srgb, currentColor 45%, transparent);
+  --surface: color-mix(in srgb, currentColor 4%, transparent);
+  --good: #2e7d32;
+  --warn: #c47f00;
+  --bad: #c0392b;
+  --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font: 14px/1.5 var(--sans);
+  margin: 0;
+  padding: 1.25rem;
+}
+
+h1 {
+  font-size: 1.25rem;
+  margin: 0 0 0.25rem;
+}
+
+h2 {
+  font-size: 0.8rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.7;
+  margin: 0 0 0.6rem;
+}
+
+p {
+  margin: 0 0 0.6rem;
+}
+
+code,
+.mono {
+  font-family: var(--mono);
+}
+
+.muted {
+  opacity: 0.72;
+}
+
+.small {
+  font-size: 0.8rem;
+}
+
+.nowrap {
+  white-space: nowrap;
+}
+
+.masthead {
+  max-width: 62rem;
+}
+
+.error {
+  color: var(--bad);
+  font-family: var(--mono);
+  font-size: 0.85rem;
+}
+
+/* Banners: the determinism check and the integrator warning. Both are things
+   the page must be able to say loudly, because both invalidate everything under
+   them. */
+.banner {
+  border: 1px solid var(--line);
+  border-left-width: 4px;
+  border-radius: 4px;
+  padding: 0.6rem 0.9rem;
+  margin: 0.75rem 0;
+  max-width: 62rem;
+  font-size: 0.88rem;
+}
+.banner.good {
+  border-left-color: var(--good);
+}
+.banner.warn {
+  border-left-color: var(--warn);
+}
+.banner.bad {
+  border-left-color: var(--bad);
+}
+
+/* Two columns: controls that stay put, and a main area that grows. Below
+   64rem the aside stacks on top, which is the only breakpoint the page needs. */
+.layout {
+  display: grid;
+  grid-template-columns: 20rem minmax(0, 1fr);
+  gap: 1.5rem;
+  align-items: start;
+}
+
+@media (max-width: 64rem) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.panel section,
+main section {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.8rem 0.9rem;
+  margin-bottom: 1rem;
+  background: var(--surface);
+}
+
+.buttons {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-bottom: 0.6rem;
+}
+
+button {
+  font: inherit;
+  padding: 0.3rem 0.8rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.4rem 0.6rem;
+  margin-bottom: 0.5rem;
+}
+
+.fields label {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.78rem;
+  opacity: 0.85;
+  gap: 0.15rem;
+}
+
+input[type="number"],
+input[type="text"],
+select {
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0.2rem 0.3rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 3px;
+  background: transparent;
+  color: inherit;
+  min-width: 0;
+  width: 100%;
+}
+
+.check {
+  display: block;
+  font-size: 0.82rem;
+  margin-bottom: 0.2rem;
+}
+
+.share {
+  flex: 1 1 10rem;
+  font-size: 0.72rem;
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 0.1rem 0.8rem;
+  margin: 0;
+  font-size: 0.82rem;
+}
+.stats dt {
+  opacity: 0.65;
+}
+.stats dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+/* The flowsheet. The SVG keeps its aspect ratio and scales to the column, so
+   the readouts stay where the diagram put them at any width. */
+.pfd-frame {
+  width: 100%;
+  overflow-x: auto;
+}
+
+#pfd {
+  display: block;
+  width: 100%;
+  min-width: 40rem;
+  height: auto;
+  color: inherit;
+}
+
+.pfd-vessel {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  opacity: 0.75;
+}
+
+.pfd-pipe {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.2;
+  opacity: 0.45;
+}
+
+.pfd-cooling {
+  fill: none;
+  stroke: #4c78a8;
+  stroke-width: 1.4;
+  stroke-dasharray: 4 3;
+  opacity: 0.8;
+}
+
+.pfd-arrowhead {
+  fill: currentColor;
+  opacity: 0.5;
+}
+
+.pfd-level {
+  stroke: #4c78a8;
+  stroke-width: 1.2;
+  stroke-dasharray: 3 3;
+  opacity: 0.7;
+}
+
+.pfd-unit {
+  fill: currentColor;
+  font: 600 11px var(--sans);
+  opacity: 0.85;
+}
+
+.pfd-stream {
+  fill: currentColor;
+  font: 9px var(--sans);
+  opacity: 0.5;
+}
+
+.pfd-caption {
+  fill: currentColor;
+  font: 9px var(--sans);
+  opacity: 0.6;
+}
+
+.pfd-value {
+  fill: currentColor;
+  font: 10px var(--mono);
+}
+
+.pfd-readout {
+  cursor: help;
+}
+
+/* Trends. Each channel gets its own small chart with its own scale: the 53
+   channels span kilopascals, degrees, percent and mole percent, and one shared
+   axis would be a straight line and a spike. */
+.trend-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr));
+  gap: 0.5rem;
+}
+
+.trend {
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0.3rem 0.4rem 0.15rem;
+}
+
+.trend figcaption {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  font-size: 0.72rem;
+}
+
+.trend-name {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.8;
+}
+
+.trend-value {
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.trend-canvas {
+  display: block;
+  width: 100%;
+  height: 92px;
+}
+
+.swatch {
+  display: inline-block;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 2px;
+  flex: 0 0 auto;
+}
+
+.picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+  gap: 0.1rem 0.6rem;
+  max-height: 18rem;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0.4rem;
+}
+
+.pick {
+  display: flex;
+  gap: 0.3rem;
+  align-items: baseline;
+  font-size: 0.76rem;
+}
+
+.pick span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scroll {
+  max-height: 22rem;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0.4rem;
+}
+
+table {
+  border-collapse: collapse;
+  font-size: 0.8rem;
+  width: 100%;
+}
+
+td {
+  padding: 0.1rem 0.6rem 0.1rem 0;
+  vertical-align: top;
+}
+
+details summary {
+  cursor: pointer;
+  font-size: 0.8rem;
+  opacity: 0.75;
+  margin-top: 0.5rem;
+}
+
+footer {
+  margin-top: 1rem;
+  max-width: 62rem;
+}
