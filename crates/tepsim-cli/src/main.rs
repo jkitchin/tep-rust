@@ -11,7 +11,7 @@
 use std::io::{self, BufWriter, Write};
 use std::process::ExitCode;
 
-use tepsim::{Outcome, Run, Scenario, Simulation, channel_names};
+use tepsim::{Integrator, Outcome, Run, Scenario, Simulation, channel_names};
 
 const USAGE: &str = "\
 tep - Tennessee Eastman Process simulator
@@ -29,11 +29,19 @@ RUN OPTIONS:
     --open-loop              Hold the valves instead of controlling
     --no-forced-idv12        Do not switch IDV(12) on at hour eight
     --labels                 Include ground-truth columns
+    --integrator <name>      euler (default, matches the original), rk4, dopri5
 
 EXAMPLES:
     tep run --hours 8 > normal.csv
     tep run --fault 4 --hours 24 --labels > idv4.csv
     tep run --fault 1 --seed 12345 --every 60 | head
+    tep run --hours 4 --integrator rk4 > accurate.csv
+
+NOTE ON --integrator:
+    Only `euler` reproduces the original. The published data uses fixed-step
+    explicit Euler at one second and carries about 1% of integration error
+    against an accurate solution; rk4 and dopri5 remove that error and so give
+    different numbers. See the book's validation chapter.
 ";
 
 fn main() -> ExitCode {
@@ -134,6 +142,13 @@ fn parse_run(args: &[String]) -> Result<(Scenario, bool), String> {
                 }
                 scenario = scenario.sampling_every(steps);
             }
+            "--integrator" => {
+                let raw = value()?;
+                let method = Integrator::parse(&raw).ok_or_else(|| {
+                    format!("`--integrator {raw}` is not one of euler, rk4, dopri5")
+                })?;
+                scenario = scenario.with_integrator(method);
+            }
             "--open-loop" => scenario = scenario.open_loop(),
             "--no-forced-idv12" => scenario.driver_forces_idv12 = false,
             "--labels" => labels = true,
@@ -157,6 +172,13 @@ fn run(scenario: Scenario, labels: bool) -> ExitCode {
             "open loop"
         }
     );
+    if !scenario.integrator.is_faithful() {
+        eprintln!(
+            "tep: integrator {}, which does NOT reproduce the original; only \
+             euler does",
+            scenario.integrator.name()
+        );
+    }
 
     let finished = Simulation::new(scenario).run();
     if let Err(error) = write_csv(&finished, labels) {
@@ -272,6 +294,11 @@ mod tests {
         assert!(!scenario.controlled);
         assert!(!scenario.driver_forces_idv12);
         assert!(labels);
+        assert_eq!(scenario.integrator, Integrator::Euler);
+
+        let (rk4, _) = parse(&["--integrator", "rk4"]).expect("parses");
+        assert_eq!(rk4.integrator, Integrator::Rk4);
+        assert!(!rk4.integrator.is_faithful());
     }
 
     /// Bad input is refused with a message that says what to do, rather than
@@ -287,6 +314,7 @@ mod tests {
             (vec!["--hours", "-3"], "must be positive"),
             (vec!["--seed", "0"], "must be positive"),
             (vec!["--every", "0"], "would sample nothing"),
+            (vec!["--integrator", "heun"], "not one of"),
             (vec!["--nonsense"], "unknown option"),
         ] {
             let error = parse(&args).expect_err(&format!("{args:?} should be refused"));
@@ -309,6 +337,7 @@ mod tests {
     #[test]
     fn the_usage_text_mentions_every_flag_that_exists() {
         for flag in [
+            "--integrator",
             "--fault",
             "--hours",
             "--seed",

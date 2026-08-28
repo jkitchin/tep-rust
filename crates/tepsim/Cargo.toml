@@ -17,3 +17,6 @@ workspace = true
 tepsim-core.workspace = true
 tepsim-control.workspace = true
 tepsim-scenario.workspace = true
+
+[dev-dependencies]
+tepsim-core.workspace = true

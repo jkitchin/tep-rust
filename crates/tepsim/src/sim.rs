@@ -195,8 +195,17 @@ impl Simulation {
         };
         let time = SimTime(self.hours);
 
+        // The impure pre-phase, exactly once per outer step whatever the
+        // integrator does with the pure one. That is what makes a multi-stage
+        // method correct here; see `crate::integrator`.
         self.plant.advance_discrete(time, &inputs);
-        let Ok((derivative, signals)) = self.plant.derivatives(time, &self.state, &inputs) else {
+
+        // The pure phase, `stages()` times.
+        let Ok(advanced) =
+            self.scenario
+                .integrator
+                .advance(&self.plant, time, &self.state, &inputs, dt)
+        else {
             // A solve failure is not a trip and not a result. The original
             // cannot report it at all: `TESUB2` returns its guess and claims
             // success (delta D-001). Stopping is the only honest answer.
@@ -204,6 +213,10 @@ impl Simulation {
             self.halted = true;
             return None;
         };
+        // The signals belong to the *first* stage, which is the state the
+        // measurements are taken at. `advance` hands them back rather than
+        // making this re-evaluate.
+        let signals = advanced.signals;
 
         if signals.shutdown.is_tripped() && self.event.is_none() {
             self.event = Some(Outcome::Tripped {
@@ -225,7 +238,7 @@ impl Simulation {
             self.halted = true;
             return None;
         }
-        self.state = self.state.step(dt, &derivative);
+        self.state = advanced.state;
         self.driver.settle();
 
         let due = step % self.scenario.sample_every == 0;

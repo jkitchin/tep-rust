@@ -2,6 +2,8 @@
 
 use tepsim_core::{FAULTS, QuirkFixes};
 
+use crate::integrator::Integrator;
+
 /// One second, in hours. The step the original's `INTGTR` uses.
 pub const DEFAULT_STEP_HOURS: f64 = 1.0 / 3600.0;
 
@@ -56,6 +58,13 @@ pub struct Scenario {
     /// `true` by default, because every published dataset longer than eight
     /// hours carries it. Delta D-011.
     pub driver_forces_idv12: bool,
+    /// How to advance the state.
+    ///
+    /// [`Integrator::Euler`] by default, which is what the original does and
+    /// the only choice under which this port reproduces it bit for bit.
+    /// Anything else is a better integration of the same equations and a
+    /// different set of numbers; see [`Integrator::is_faithful`].
+    pub integrator: Integrator,
 }
 
 impl Default for Scenario {
@@ -81,7 +90,18 @@ impl Scenario {
             controlled: true,
             quirks: QuirkFixes::new(),
             driver_forces_idv12: true,
+            integrator: Integrator::Euler,
         }
+    }
+
+    /// Choose the integrator.
+    ///
+    /// Leaving this alone keeps the run faithful to the original. See
+    /// [`Integrator`].
+    #[must_use]
+    pub const fn with_integrator(mut self, integrator: Integrator) -> Self {
+        self.integrator = integrator;
+        self
     }
 
     /// The baseline with one disturbance on.
