@@ -1485,7 +1485,7 @@ all -- and it is dead code, which may be why.
 - [X] The per-loop period taken from the loop and *asserted* equal to the
       schedule
 
-** TODO B-0037b The cascade, and the purge pressure override
+** NEXT B-0037b The cascade, and the purge pressure override
 :PROPERTIES:
 :ID:    B-0037b
 :PHASE: 4
