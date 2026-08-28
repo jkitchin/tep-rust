@@ -5018,3 +5018,92 @@ length to be a power of two, and at dt = 1 s over 48 h there are 172,800
 samples, so segments of 4096 with 50% overlap give 83 averages and a resolution
 of 0.244 mHz. That is the shape to aim at, and it means the FFT never needs
 Bluestein.
+
+* 2026-08-28 B-0044 A deterministic radix-2 FFT
+:PROPERTIES:
+:ITEM:     B-0044
+:PHASE:    5
+:TIER:     5
+:COMMIT:   7fc130e
+:GFORTRAN: 15.2.0
+:STATUS:   DONE
+:END:
+** Preflight
+Clean and green. Fidelity 100 of 100 steps, worst 3.521e-14 at =YP(12)= step 77,
+a sixth iteration unchanged. Provenance 1306/2997. gfortran 15.2.0.
+
+** What changed
+=tepsim_stats::fft=: a =Complex= type, an =Fft= that owns its twiddle table, an
+in-place iterative forward transform, an inverse by conjugation, and
+=dft_naive= as the reference. Powers of two only.
+
+** Validation numbers
+12 tests, 0 failures. 338 tests default (up from 326).
+
+| comparison                           | worst relative |
+|--------------------------------------+----------------|
+| fast against the definition, n <=1024 | 4.469e-16      |
+| plant-shaped n = 4096                | 6.123e-17      |
+| forward-inverse round trip, n <=4096  | 7.459e-16      |
+| Parseval, n = 4, 32, 256, 2048       | under 1e-14    |
+
+At n = 4096 a two-tone plant-shaped signal recovers its DC level to 1e-9 and
+both tone amplitudes to 1e-11.
+
+Mutations, all caught: no bit-reversal (8 tests), twiddle sign flipped (4),
+twiddle table indexed without the stage stride (6), sign error in the complex
+multiply (6).
+
+** Surprises and decisions
+*The reference was wrong, and it was wrong in a way that looked exactly like the
+code being wrong.* =dft_naive= computed =cos(-2 pi j k / n)= directly. At
+n = 4096 with j = k = 4095 that argument is 2.6e4 radians, so the argument
+*itself* carries =eps * 2.6e4 = 5.7e-12= of error before =cos= is even called.
+The FFT, whose twiddles never leave one turn, disagreed with it by 1.7e-13, and
+the obvious move at that point is to widen the tolerance to 1e-12 and move on.
+
+Reducing =j * k= modulo =n= first is exact integer arithmetic, costs nothing,
+and took the disagreement to 6.1e-17. The same bug was in the shifted-impulse
+fixture, where the unreduced argument reaches 389 radians at size 64; it showed
+up only after the tolerance had been tightened, which is the argument for
+tightening.
+
+So the tolerances went *down*, not up: 1e-13 to 1e-14 on the hand-computed
+values and 1e-15 on the plant-shaped case, against 4.5e-16 measured. A tolerance
+two orders above the truth is a place a regression can live.
+
+This is the second iteration running where the reference, not the routine, was
+the least accurate thing in the comparison (B-0043's energy distance needed
+centring for the same reason). Worth stating as a rule: *before believing a
+numerical disagreement, establish which side of it is less accurate.*
+
+*Parseval and the round trip are the two tests everyone writes and both are
+blind to a permuted output.* A permutation is unitary, so Parseval holds; a
+permutation composed with its inverse is the identity, so the round trip holds.
+Bit-reversal is the easiest part of an FFT to get wrong. The tests that actually
+carry the case here are the hand-computed n = 4 transforms and the shifted
+impulse, whose phase winds =delay= times and therefore names every bin
+individually. The mutation run confirms it: removing the bit-reversal fails
+eight tests, and the round trip is among them only because =inverse= is built on
+=forward= rather than being independently wrong.
+
+** Next
+B-0045, the autocorrelation function and Welch spectra.
+
+The ACF has an easy known answer: an AR(1) process with parameter =phi= has
+theoretical ACF =phi^k=, so generating one with a fixed seed and checking the
+sample ACF against =phi^k= to within the sampling error is a real test. The
+sampling error for =n= samples is roughly =1/sqrt(n)=, so use enough samples
+that the tolerance is meaningful, and state it rather than tuning it.
+
+For Welch, decide and *write down* the window and the overlap rather than
+inheriting a default. Hann with 50% overlap is the usual choice and its noise
+bandwidth is 1.5 bins; the normalisation must divide by the window's sum of
+squares or every spectrum is wrong by a constant that no test comparing two
+spectra to each other would ever notice. That last point deserves a test that
+checks an *absolute* level, not a ratio: a unit-amplitude sinusoid should come
+back with the power it actually has.
+
+Note also that Tier 5 compares spectra *band by band* rather than as one
+scalar, per =PLAN.org=. The item's output should be per-band ratios with the
+band edges stated.

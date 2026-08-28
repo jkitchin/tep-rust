@@ -14,17 +14,17 @@ earlier phases will change what the right decomposition is.
 
 Rewrite this block at the end of every iteration. Keep it to five lines.
 
-- Phase: 5, two of ten done. Phases 1-4 are closed
-- Last completed: B-0043. Kolmogorov-Smirnov and the energy distance, the
-  latter O(n log n) rather than the definition's four-thousand-fold slower form
+- Phase: 5, three of ten done. Phases 1-4 are closed
+- Last completed: B-0044. A deterministic radix-2 FFT, agreeing with the
+  definition to under one ULP
 - In flight: (none)
-- Baseline: =cargo xtask ci= green; 326 tests default, 491 with =oracle=;
+- Baseline: =cargo xtask ci= green; 338 tests default, 503 with =oracle=;
   =validate --tiers 1,2,3,4= green; provenance *1123/1589* on =teprob.f=,
   *183/1408* on =temain_mod.f=, 43.6% combined
 - Toolchain: rustup, pinned to rustc 1.97.1, wasm32 installed, libm 0.2.16
 - Remote: private jkitchin/tep-rust, CI green on all 7 jobs
 - Blocked on: B-0025b and B-0040a await sign-off; neither blocks progress.
-  Next is B-0044, an FFT with known-answer tests.
+  Next is B-0045, autocorrelation and Welch spectra.
 
 * Phase 0: foundations
 
@@ -1791,13 +1791,20 @@ Done when:
       per comparison projected at 172,800 samples, against 281 ms for the
       O(n log n) form that replaced it
 
-** NEXT B-0044 A real FFT, with known-answer tests
+** DONE B-0044 A real FFT, with known-answer tests
 :PROPERTIES:
 :ID:    B-0044
 :PHASE: 5
 :TIER:  5
 :DEPS:  B-0042
 :PLAN:  Validation > Tier 5
+:COMMIT: 7fc130e
+:RESULT: Radix-2 Cooley-Tukey, deterministic. 12 tests. Agrees with the
+         definition to 4.5e-16 up to n=1024 and 6.1e-17 on a plant-shaped
+         n=4096 case; round trip 7.5e-16. The reference itself had to be
+         fixed first: unreduced trig arguments reach 2.6e4 radians at n=4096
+         and made the FFT look wrong by 1.7e-13. Four mutations, all caught,
+         the largest failing 8 tests.
 :END:
 
 Welch power spectra need a DFT. Radix-2 Cooley-Tukey for power-of-two lengths
@@ -1805,10 +1812,11 @@ is enough if the segment length is chosen, and it must be deterministic: fixed
 summation order, no threading.
 
 Done when:
-- [ ] Forward transform checked against hand-computed DFTs for n = 2, 4, 8
-- [ ] Checked against a naive O(n^2) DFT over random inputs to 1e-12
-- [ ] Parseval's identity holds to a stated tolerance
-- [ ] Round-trip forward-inverse to a stated tolerance
+- [X] Forward transform checked against hand-computed DFTs for n = 1, 2, 4,
+      plus a shifted impulse, a cosine and a sine at n = 8, 16, 32 and 64
+- [X] Checked against a naive O(n^2) DFT over random inputs, to 4.5e-16
+- [X] Parseval's identity holds to 1e-14
+- [X] Round-trip forward-inverse to 7.5e-16
 
 ** TODO B-0045 Serial structure: autocorrelation and Welch spectra
 :PROPERTIES:
