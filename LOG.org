@@ -4324,3 +4324,64 @@ record =CONTRL22= as a delta.
 =XMV(6)=40.060= and =SETPT(6)=0.33712= are single precision, and the
 thresholds are mixed: 2950 and 2300 exact, 2633.7 not. That is now three
 separate places in this file where the precision has to be read off the line.
+
+* 2026-08-28 B-0037b The cascade and the purge override, as types
+:PROPERTIES:
+:ITEM:     B-0037b
+:PHASE:    4
+:TIER:     1
+:COMMIT:   f468d5d
+:GFORTRAN: 15.2.0
+:STATUS:   DONE
+:END:
+** Preflight
+Clean and green. gfortran 15.2.0. =xtask fidelity= 100 of 100. Provenance
+unchanged.
+
+** Validation numbers
+*A 108-step pressure walk*, crossing 2950, 2633.7 and 2300 repeatedly in both
+directions and landing exactly on each. Compared at every step: =XMV(6)=,
+=SETPT(6)=, =FLAG= and =ERROLD6=. All exact.
+
+Plus =CONTRL22= in the sweep from B-0037: 500 tunings, 0 ULP.
+
+** Surprises and decisions
+*A single-step comparison would have proved nothing.* The override's answer
+depends on where it has been, so the *sequence* is the claim. The walk is built
+to re-enter each latch several times from different directions rather than to
+visit each branch once.
+
+*The error history is what makes it worth a differential.* The PI sits inside
+the final =ELSE=, so while an override is latched =ERROLD6= does not advance. A
+port that ran the loop anyway would produce entirely plausible valve positions
+and a controller whose integral state had drifted. Comparing the valve alone
+would not catch it; comparing =ERROLD6= does.
+
+*The branch order is load-bearing.* The =>= 2950= test comes first, so a
+pressure above 2950 re-latches *open* even from the shut state. Reordering the
+arms to group the two latch cases together reads better and is wrong.
+
+*Separator pressure is not under continuous control in this scheme.* That falls
+out of D-008 rather than from anything in the plan. =CONTRL22= is the
+separator-pressure PI loop, it is never called, and =CONTRL6='s override does
+the job instead with a 650 kPa deadband. Anyone reasoning about the plant's
+behaviour near the pressure limits needs that, and "nineteen near-identical PI
+loops" actively obscures it.
+
+=CONTRL22= is ported anyway and covered by the differential at 0 ULP. It costs
+nothing, and it is the only evidence that will ever exist for that subroutine.
+
+** Next
+B-0038: the nineteen-loop preset, =temain_mod.f:246-317=.
+
+Constants, verified two ways as B-0030's were: reparse the source, and assert
+against =COMMON/CTRLALL/= and the twenty per-loop blocks.
+
+Several gains are written as arithmetic rather than as a number:
+=GAIN10 = -0.156 * 10.=, =GAIN19 = -83.2 / 5. / 3.=, =GAIN20 = -16.3 / 5.=,
+=GAIN22 = -1.0 * 5.=. Transcribe the expression. B-0019 measured what happens
+when a quotient of single-precision literals is folded in double, and
+=-83.2 / 5. / 3.= is exactly that shape.
+
+This is also the first item that will claim lines in =temain_mod.f=, so
+provenance on that file stops being zero.

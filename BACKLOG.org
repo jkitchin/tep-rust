@@ -14,15 +14,16 @@ earlier phases will change what the right decomposition is.
 
 Rewrite this block at the end of every iteration. Keep it to five lines.
 
-- Phase: 4, two of eight done. Phases 2 and 3 are closed
-- Last completed: B-0037. One controller implementation for twenty, 0 ULP
+- Phase: 4, three of eight done. Phases 2 and 3 are closed
+- Last completed: B-0037b. The override state machine, exact over a 108-step
+  pressure walk
 - In flight: (none)
-- Baseline: =cargo xtask ci= green; 264 tests default, 416 with =oracle=;
+- Baseline: =cargo xtask ci= green; 270 tests default, 419 with =oracle=;
   =validate --tiers 1,2,3,4= green; provenance *1123/1589* on =teprob.f=,
-  *0/1408* on =temain_mod.f=, 37.5% combined
+  =temain_mod.f= claims land with B-0038
 - Toolchain: rustup, pinned to rustc 1.97.1, wasm32 installed, libm 0.2.16
 - Remote: private jkitchin/tep-rust, CI green on all 7 jobs
-- Blocked on: nothing. Next is B-0037b, the cascade and the purge override.
+- Blocked on: nothing. Next is B-0038, the nineteen-loop Braatz preset.
 
 * Phase 0: foundations
 
@@ -1485,13 +1486,24 @@ all -- and it is dead code, which may be why.
 - [X] The per-loop period taken from the loop and *asserted* equal to the
       schedule
 
-** NEXT B-0037b The cascade, and the purge pressure override
+** DONE B-0037b The cascade, and the purge pressure override
 :PROPERTIES:
 :ID:    B-0037b
 :PHASE: 4
 :TIER:  1
 :DEPS:  B-0037
 :PLAN:  Anatomy > Control layer
+:COMMIT: f468d5d
+:RESULT: =Override::step= ports =CONTRL6='s state machine with the original's
+         branch order, which matters: the high test comes first, so a pressure
+         above 2950 re-latches open even from shut. Compared over a *108-step
+         pressure walk* crossing all three thresholds in both directions
+         including landing exactly on each: valve, setpoint, latch and error
+         history exact at every step. =Output::Setpoint= carries the inner
+         loop's span, so the cascade is a property of the type. Delta *D-008*
+         records =CONTRL22=, and the reading it implies: separator pressure is
+         *not* under continuous control here, but under an on-off override with
+         a 650 kPa deadband.
 :END:
 
 *The scheme is a cascade, which =PLAN.org='s "19 near-identical loops" hides.*
@@ -1529,11 +1541,12 @@ the pressure job instead. Twenty controllers are defined and nineteen are
 called; =CONTRL22= is initialised in the main program (=SETPT(12)=2633.7=,
 which is exactly the override's reset threshold) and never invoked.
 
-Done when:
-- [ ] The cascade as a type: an outer loop's output is a setpoint, not a valve
-- [ ] The override state machine, with =FLAG= as carried state
-- [ ] Both hysteresis bands entered and left, in both directions
-- [ ] =CONTRL22= recorded as a delta: defined, initialised, never called
+- [X] The cascade as a type: =Output::Setpoint= carries the inner loop's span
+- [X] The override state machine, with the latch as a typed enum
+- [X] Both bands entered and left in both directions, 108 steps, all exact
+- [X] =CONTRL22= recorded as delta D-008, and ported anyway: the differential
+      covers it at 0 ULP, which is the only evidence anywhere that the
+      subroutine is correct
 
 ** TODO B-0038 The nineteen-loop Braatz preset
 :PROPERTIES:
