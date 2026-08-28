@@ -14,18 +14,19 @@ earlier phases will change what the right decomposition is.
 
 Rewrite this block at the end of every iteration. Keep it to five lines.
 
-- Phase: 5, seven of twelve done. Phases 1-4 are closed. *Redirected to Phase 6
-  by the user: stand up the facade so there is something to bind and to ship*
-- Last completed: B-0047b. The Tier 5 battery with calibrated margins
+- Phase: 6, one of six done. Phases 1-4 closed; Phase 5 is 7 of 12 and parked
+  by direction while the user-facing surface is built
+- Last completed: B-0052. The facade. =tepsim::Simulation= is bit-identical to
+  the loop validated against the Fortran, and =tep= runs
 - In flight: (none)
-- Baseline: =cargo xtask ci= green; 366 tests default, 549 with =oracle=;
+- Baseline: =cargo xtask ci= green; 387 tests default, 577 with =oracle=;
   =validate --tiers 1,2,3,4= green; provenance *1123/1589* on =teprob.f=,
   *183/1408* on =temain_mod.f=, 43.6% combined
 - Toolchain: rustup, pinned to rustc 1.97.1, wasm32 installed, libm 0.2.16
 - Remote: private jkitchin/tep-rust, CI green on all 7 jobs
 - Blocked on: B-0025b and B-0040a await sign-off; neither blocks progress.
-  Next is Phase 6's facade, by direction. B-0047c and B-0048 remain in
-  Phase 5 and are not blocking.
+  Next is B-0053 (integrators) or a jump to Phase 7 (PyO3), whichever the
+  user prefers; the facade now unblocks both.
 
 * Phase 0: foundations
 
@@ -2075,13 +2076,21 @@ from Phase 5 because nothing downstream can start until the facade exists.
 of =pub use=, so Phases 7 and 8 are blocked on an API rather than on PyO3 or
 wasm-bindgen.
 
-** NEXT B-0052 The facade: Simulation, Scenario, Run
+** DONE B-0052 The facade: Simulation, Scenario, Run
 :PROPERTIES:
 :ID:    B-0052
 :PHASE: 6
 :TIER:  4
 :DEPS:  B-0041
 :PLAN:  Architecture > Core data model
+:COMMIT: 74d1e71
+:RESULT: =tepsim::Simulation= reproduces =tier5::run_port= bit for bit over
+         five scenarios and all 53 channels; =run_port= now delegates to it,
+         so there is one loop rather than two, and every Tier 4 and Tier 5
+         test passes unchanged. Warm start is
+         =TemperatureSeeds::after_initialisation()=, asserted against the
+         oracle. Ground-truth labels record the driver's unasked-for IDV(12).
+         =tep run/faults/help= works. 387 tests default, 577 with oracle.
 :END:
 
 The smallest thing that makes =tepsim= a library someone can use: a
@@ -2101,13 +2110,13 @@ values have to be constants in =tepsim-core=, asserted against the oracle in
 =tepsim-oracle='s tests.
 
 Done when:
-- [ ] =Simulation= reproduces =tier5::run_port= bit for bit
-- [ ] =tier5::run_port= is rewritten on the facade, and Tier 5's tests still
+- [X] =Simulation= reproduces =tier5::run_port= bit for bit
+- [X] =tier5::run_port= is rewritten on the facade, and Tier 5's tests still
       pass unchanged
-- [ ] The post-=TEINIT= warm start is a constant in =tepsim-core=, asserted
+- [X] The post-=TEINIT= warm start is a constant in =tepsim-core=, asserted
       against the oracle
-- [ ] Ground-truth labels are recorded alongside the measurements
-- [ ] A doc example that runs, and =tep --help= that does something
+- [X] Ground-truth labels are recorded alongside the measurements
+- [X] A doc example that runs, and =tep --help= that does something
 
 ** TODO B-0053 Integrators: RK4 and Dormand-Prince
 :PROPERTIES:

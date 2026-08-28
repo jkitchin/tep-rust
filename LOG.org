@@ -5561,3 +5561,121 @@ PyO3 or wasm-bindgen; they are blocked on there being no API to bind.
 
 B-0047c (the full battery run and the seed-count decision) and B-0048 (the
 report chapter) stay in Phase 5 and block nothing.
+
+* 2026-08-28 B-0052 The facade: Simulation, Scenario, Run
+:PROPERTIES:
+:ITEM:     B-0052
+:PHASE:    6
+:TIER:     4
+:COMMIT:   74d1e71
+:GFORTRAN: 15.2.0
+:STATUS:   DONE
+:END:
+** Preflight
+Clean and green. Fidelity 100 of 100, worst 3.521e-14 at =YP(12)= step 77,
+unchanged for an eleventh iteration. Provenance 1306/2997. gfortran 15.2.0.
+
+** Why this, out of order
+The user asked what the state of the wasm app, the Python bindings and the
+documentation was. The answer was: =tepsim-wasm= is thirteen lines of doc
+comment, =tepsim-py= is eleven, =book/src= holds one file, and =tepsim-cli=
+prints "Nothing does." Meanwhile =tepsim-core= is twelve thousand validated
+lines.
+
+Phases 7 and 8 were never blocked on PyO3 or wasm-bindgen. They were blocked on
+there being no API to bind. So Phase 5 is parked at seven of twelve and this is
+Phase 6's first item.
+
+** What changed
+=tepsim= is a library. =Scenario= describes a run, =Simulation= performs one,
+=Run= holds the output as columns, and =tep= drives it from a terminal.
+
+The design decision worth recording is that the facade owns *no new physics*.
+Every line of the loop already existed in =tier5::run_port=, and that function
+now delegates here and its body is deleted. Two transcriptions of
+=temain_mod.f='s main loop is one more than this project can keep honest.
+
+** Validation numbers
+387 tests default (up from 366), 577 with =oracle= (up from 549).
+
+The acceptance criterion is the one that matters: =Simulation= reproduces
+=tier5::run_port= *bit for bit*, over nominal and =IDV(1)=, =IDV(6)=, =IDV(13)=,
+=IDV(20)=, all 60 samples, all 53 channels, in both libm configurations. Since
+=run_port= is bit-identical to the Fortran over 172,800 closed-loop steps, every
+claim Tiers 4 and 5 established now attaches to the public API.
+
+Regression check after the delegation: =tier5_runs= 9 passed, =tier4_closed_loop=
+5, =tier5_invariants= 9, =tier5_battery= 3, all unchanged.
+
+The warm start, asserted against the oracle bit for bit:
+
+| vessel    | after TEINIT      | nominal literal |
+|-----------+-------------------+-----------------|
+| reactor   | 120.3999996050374 |           120.4 |
+| separator |  80.1094039945582 |          80.109 |
+| stripper  |  65.7310297718018 |          65.731 |
+| mixing    |  86.1201119771066 |          86.120 |
+
+Open loop from the CLI trips at step 11,017 (3.060 h) on =ReactorPressureHigh=,
+which is exactly what B-0041's Tier 4 test measured. That the two agree without
+either being told about the other is the cheapest possible check that the facade
+is driving the same plant.
+
+** Surprises and decisions
+*The priming measurements are never read, and that had to be checked rather
+than reasoned.* =run_port= primes the controllers with =TEINIT='s =XMEAS=; the
+facade cannot, because it has no oracle. The argument that it does not matter is
+that the fastest loop is =MOD(I,3)= and so nothing fires until step 3, by which
+time step 2 has produced real measurements. That is a load-bearing argument, so
+it is now a test: a run primed from zeros is bit-identical to one primed from
+=TEINIT='s 41 non-zero values.
+
+*Two of my own claims were wrong and measurement caught both.*
+
+I wrote that =Scenario::steps()= rounds because =48.0 / (1.0/3600.0)= is
+172799.99999999997 and truncation would lose a step. It is not: that quotient is
+exactly 172800, and truncation is fine for every whole hour up to 200. The
+rounding is still right, but the case that discriminates is *4.1 hours*, where
+the quotient is 14759.99999999999818. The test now uses it, so it has teeth
+rather than a plausible story.
+
+And a guard written =!(hours > 0.0)= to catch NaN reads better, and lints
+cleaner, as an explicit =hours.is_nan() || hours <= 0.0=.
+
+*A trip freezes rather than ends, and that is a deliberate default in the API
+now rather than an implementation detail.* =Outcome::Tripped= is reported the
+moment it happens and the run keeps producing samples, because
+=teprob.f:807-811= zeroes the derivatives rather than stopping and those
+constant rows are in every published dataset of a tripped run. The Class C fix
+is one field away and still off.
+
+*Ground truth is the thing the original cannot give.* A published TEP dataset is
+a matrix and a filename, so every detection-delay number in the literature is
+computed against an onset the author assumed. The facade records which
+disturbances were active and how long each had been, which incidentally makes
+delta D-011 visible in the data itself: a "fault-free" run is fault-free for
+eight hours and then carries =IDV(12)=, and now the labels say so.
+
+** Next
+The facade unblocks both remaining directions, and the user should choose.
+
+*Phase 7, PyO3.* The API sketch in =PLAN.org= maps onto what now exists almost
+one to one: =tep.Simulation(scenario=tep.Scenario.baseline(seed=42, hours=48))=
+is =Simulation::new(Scenario::baseline().with_seed(42.0).with_hours(48.0))=. The
+columnar =Run= is already the right shape for a zero-copy numpy view. What is
+missing is the =Recorder= trait (B-0055), which matters for streaming but not
+for =run()=.
+
+*B-0053, the integrators.* RK4 and Dormand-Prince, and this is where the
+three-phase split finally pays. B-0012 established that =TEFUNC= is not a pure
+function of =(t, y)=; a multi-stage integrator calling it four times per step
+would advance the disturbance walks four times and draw noise four times. The
+split makes RK4 correct, and nothing has yet demonstrated it.
+
+*What is still missing entirely*: the mdBook (=book/src= has one file and no
+=book.toml=), the scenario engine, recorder sinks beyond CSV, and the browser
+app, which additionally needs =trunk= installed.
+
+Phase 5's B-0047c (the full battery, about 90 minutes of compute, plus the
+seed-count decision the power finding forces) and B-0048 (the report chapter)
+are unfinished and block nothing.
