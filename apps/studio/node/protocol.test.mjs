@@ -108,7 +108,7 @@ test("wall-clock pacing changes when chunks are asked for, never what is in them
 test("toggling a disturbance restarts the run and the new run carries it", async () => {
   worker.drain();
   // Long enough that the toggle certainly lands mid-run.
-  worker.send(request({ hours: 24 }));
+  worker.send(await request({ hours: 24 }));
   const started = await worker.next("started");
   assert.deepEqual([...started.faults], []);
 
@@ -141,7 +141,7 @@ test("a restarted run is identical to one started with the fault set", async () 
   // The claim the fault panel rests on: rebuilding is not a browser-only path
   // that produces browser-only numbers.
   worker.drain();
-  worker.send(request({ hours: 2 }));
+  worker.send(await request({ hours: 2 }));
   await worker.next("started");
   await worker.next("chunk");
   worker.send({ type: "setFault", id: 8, active: true });
@@ -181,7 +181,7 @@ test("an open-loop run trips and the plant keeps reporting", async () => {
 
 test("an invalid scenario is reported, not thrown into the void", async () => {
   worker.drain();
-  worker.send(request({ hours: -1 }));
+  worker.send(await request({ hours: -1 }));
   const error = await worker.next("error");
   assert.match(error.message, /duration|positive|finite/i);
 });

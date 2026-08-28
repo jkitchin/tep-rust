@@ -128,23 +128,52 @@ export async function startWorker() {
   };
 }
 
-/** The baseline request, with overrides. Mirrors what `app.js` posts. */
-export function request(overrides = {}) {
+/**
+ * The baseline request, with overrides. Mirrors what `app.js` posts.
+ *
+ * The scenario travels as the one string the bindings serialise it to, so this
+ * builds a real `Scenario`, applies the overrides through its setters, and
+ * sends `scenario.text`. Writing the text out by hand here would put a fifth
+ * copy of the field list in the repository, which is the thing B-0054a removed.
+ *
+ * `chunkSamples` and `speedMultiple` are not part of a scenario: they decide
+ * when the next chunk is asked for and never what is in it.
+ */
+export async function request(overrides = {}) {
+  const { hours, faults, integrator, chunkSamples, speedMultiple, ...fields } = overrides;
+  const { Scenario } = await bindings();
+  const scenario = new Scenario();
+  scenario.hours = hours ?? 1;
+  if (integrator !== undefined) scenario.setIntegrator(integrator);
+  for (const [key, value] of Object.entries(fields)) scenario[key] = value;
+  for (const id of faults ?? []) scenario.setFault(id, true);
+  const text = scenario.text;
+  scenario.free();
+
   return {
     type: "start",
-    seed: 4651207995,
-    hours: 1,
-    stepHours: 1 / 3600,
-    sampleEvery: 180,
-    controlled: true,
-    driverForcesIdv12: true,
-    tripEndsTheRun: false,
-    integrator: "euler",
-    chunkSamples: 20,
-    speedMultiple: 0,
-    faults: [],
-    ...overrides,
+    scenario: text,
+    chunkSamples: chunkSamples ?? 20,
+    speedMultiple: speedMultiple ?? 0,
   };
+}
+
+/**
+ * The wasm bindings, initialised once.
+ *
+ * Imported directly rather than through the worker, because building a request
+ * needs a `Scenario` on this side of the boundary. ES modules are cached per
+ * process, so `init` is the only thing that has to be guarded.
+ */
+let ready = null;
+export function bindings() {
+  ready ??= (async () => {
+    const module = await import("../dist/js/tepsim_wasm.js");
+    globalThis.__tepsimWasmModule ??= await wasmBytes();
+    await module.default({ module_or_path: globalThis.__tepsimWasmModule });
+    return module;
+  })();
+  return ready;
 }
 
 /**
@@ -155,7 +184,7 @@ export function request(overrides = {}) {
  */
 export async function runToCompletion(worker, overrides = {}) {
   worker.drain();
-  worker.send(request(overrides));
+  worker.send(await request(overrides));
   const started = await worker.next("started");
 
   let chunks = 0;

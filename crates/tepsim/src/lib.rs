@@ -47,13 +47,15 @@ pub mod recorder;
 pub mod run;
 pub mod scenario;
 pub mod sim;
+pub mod text;
 
 pub use integrator::{Integrator, Step};
 pub use recorder::{Columnar, Csv, CsvString, Decimating, Recorder, Ring, Selecting};
 pub use run::{CHANNELS, Labels, MANIPULATED, MEASUREMENTS, Outcome, Run, Sample, channel_names};
-pub use scenario::{DISTURBANCES, Scenario};
+pub use scenario::{DISTURBANCES, SCENARIO_VERSION, Scenario};
 pub use sim::{Simulation, forced_disturbance_step};
 pub use tepsim_scenario::{Action, Digest, Event, Invalid, Schedule};
+pub use text::TextError;
 
 pub use tepsim_control;
 pub use tepsim_core;

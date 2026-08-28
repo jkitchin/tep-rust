@@ -43,6 +43,15 @@ a grid of trend charts over a selectable subset of the 53 channels, and a panel
 of the twenty `IDV` disturbances. The scenario lives in the URL fragment, so a
 run travels as a link.
 
+It travels as one token, `#q=tepsim.scenario.v1;seed=...`, which is what
+`Scenario.text` produces and `Scenario.fromText` reads. Neither the page, the
+worker nor `share.js` knows what is inside it. Before B-0054a all three
+enumerated the fields of a scenario by hand, so a field added to `Scenario`
+reached none of them and nothing failed: the link still opened and ran a
+different scenario from the one it named. The format is versioned and its parser
+is strict, so a link this build cannot honour is refused with a message rather
+than quietly opening the baseline. See `crates/tepsim/src/text.rs`.
+
 The first thing the page does is compare its own determinism digest against the
 value a native run of the same commit produces. If they disagree, it says so at
 the top and tells you not to trust anything below, because at that point the

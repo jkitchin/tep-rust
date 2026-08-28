@@ -324,6 +324,61 @@ impl Scenario {
         self.inner.samples()
     }
 
+    /// A content hash over everything that affects the run, as 16 hex
+    /// characters.
+    ///
+    /// Two scenarios describing the same experiment share this and two that
+    /// differ do not. Written beside a dataset it says what produced the file,
+    /// rather than leaving that to a filename and a memory. It survives
+    /// `to_text`/`from_text`, which is what makes a serialised scenario worth
+    /// trusting.
+    #[getter]
+    fn digest(&self) -> String {
+        let hex = self.inner.digest_hex();
+        // ASCII by construction: `digest_hex` writes from a 16-character table.
+        String::from_utf8_lossy(&hex).into_owned()
+    }
+
+    /// This scenario as one line of canonical text.
+    ///
+    /// Every field written out and tagged with the format version, so the text
+    /// says what it runs rather than what it leaves to a default. It is the
+    /// same string the Rust, wasm and browser sides read and write, which is
+    /// what lets a run move between them as a line in a file or a fragment in
+    /// a URL.
+    ///
+    /// ```python
+    /// import tepsim as tep
+    ///
+    /// s = tep.Scenario.fault(4, hours=8)
+    /// assert tep.Scenario.from_text(s.to_text()) == s
+    /// ```
+    #[expect(
+        clippy::wrong_self_convention,
+        reason = "a `#[pymethods]` instance method takes `&self`; the name is \
+                  the Python-facing one and pairs with `from_text`"
+    )]
+    fn to_text(&self) -> String {
+        self.inner.to_text()
+    }
+
+    /// Parse a scenario back from `to_text`.
+    ///
+    /// Strict on purpose. A missing field, an unknown field, a malformed
+    /// number, a value out of range or a version this build does not know is a
+    /// `ValueError` naming what was wrong. Nothing is defaulted quietly,
+    /// because a scenario that silently differs from its description is the
+    /// one failure the digest exists to prevent.
+    ///
+    /// Raises:
+    ///     ValueError: With a message saying what the text got wrong.
+    #[staticmethod]
+    fn from_text(text: &str) -> PyResult<Self> {
+        tepsim::Scenario::from_text(text)
+            .map(Self::wrap)
+            .map_err(|error| PyValueError::new_err(error.to_string()))
+    }
+
     /// This scenario with a different generator word.
     fn with_seed(&self, seed: f64) -> Self {
         Self::wrap(self.inner.with_seed(seed))

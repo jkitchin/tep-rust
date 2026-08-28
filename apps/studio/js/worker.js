@@ -115,23 +115,22 @@ self.onmessage = ({ data }) => {
   }
 };
 
-// Every field a run's output depends on, copied across the thread boundary as
-// plain numbers and booleans. Nothing here is optional: a scenario that left a
-// field to a default on one side and set it on the other would produce a run
-// whose digest did not match its link.
+// The scenario crosses the thread boundary as the one string the bindings
+// serialise it to, and is parsed back here.
+//
+// It used to cross as a dozen named numbers and booleans copied out field by
+// field, which meant this function, `startRequest` in `app.js` and the key
+// table in `share.js` each had to list every field of `Scenario` and stay in
+// step with it. They could not: a field added to `Scenario` reached none of
+// them, and the failure was silent, because a scenario that leaves a field to a
+// default on one side and sets it on the other still runs. It just runs
+// something else.
+//
+// `Scenario.fromText` is strict, so a request this build cannot honour throws
+// here and reaches the page as an "error" message, rather than becoming a run
+// whose digest does not match the link that asked for it.
 function buildScenario(request) {
-  const scenario = new Scenario();
-  scenario.seed = request.seed;
-  scenario.hours = request.hours;
-  scenario.stepHours = request.stepHours;
-  scenario.sampleEvery = request.sampleEvery;
-  scenario.controlled = request.controlled;
-  scenario.driverForcesIdv12 = request.driverForcesIdv12;
-  scenario.tripEndsTheRun = request.tripEndsTheRun;
-  scenario.setIntegrator(request.integrator);
-  scenario.clearFaults();
-  for (const id of request.faults ?? []) scenario.setFault(id, true);
-  return scenario;
+  return Scenario.fromText(request.scenario);
 }
 
 // A disturbance cannot be switched on inside a run. `tepsim::Simulation` takes
