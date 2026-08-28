@@ -4463,3 +4463,116 @@ valve positions.
 Also pin the *phase* of each period: =MOD(I,3)= with =I= starting at 1 fires
 first on step 3, not step 1, and an off-by-one there shifts every controller
 action by two seconds for the whole run.
+
+* 2026-08-28 B-0039 The scheduler, the driver, and the ordering that was wrong
+:PROPERTIES:
+:ITEM:     B-0039
+:PHASE:    4
+:TIER:     4
+:COMMIT:   bdd9813
+:GFORTRAN: 15.2.0
+:STATUS:   DONE
+:END:
+** Preflight
+Baseline clean and green. =xtask fidelity=: 100 of 100 steps diffed, worst
+3.521e-14 at =YP(12)= step 77, against a 1e-12 gate. Unchanged from B-0038,
+to the last digit. Local gfortran 15.2.0 matches the one that recorded the
+golden trace. Provenance found no new unclaimed ranges.
+
+** What changed
+=Scheme::step= dispatches the three periods, =Driver= places them in the
+plant's loop, and =DRIVER_INITIAL_VALVES= starts a closed-loop run where the
+Fortran driver starts one. A closed-loop differential against the oracle now
+exists and runs in both libm configurations.
+
+The iteration's real content is an ordering. =temain_mod.f:369-394= calls the
+controllers and *then*, at line 409, calls =INTGTR=, which is what writes
+=XMEAS=. So on iteration =I= every controller reads the measurements iteration
+=I-1= produced. Every loop in the scheme carries one plant step of dead time
+that appears in no controller. =CONSHAND= likewise runs after the integration,
+so the clamp moved out of =Scheme::step= into =Driver::settle=.
+
+** Validation numbers
+Closed loop against the Fortran driver, nominal, 4 h at dt = 1 s, 14,400 steps:
+
+| libm     | worst XMEAS      | worst XMV (%range) | first valve split |
+|----------+------------------+--------------------+-------------------|
+| platform | 0                | 0                  | never             |
+| vendored | 8.746e-14 @ (1)  | 8.782e-12 @ (10)   | step 39           |
+
+The platform-libm row is the result worth keeping: with identical =exp= and
+=pow=, plant *and* controllers are bit-identical for the whole run. Nothing in
+the control path introduces any error of its own.
+
+The vendored row is amplification, and much smaller than the open-loop Tier 4
+figures, which is what closing the loop should do: the controllers pull the
+plant back toward a setpoint, so a one-ULP =exp= difference no longer
+compounds freely. Compare B-0034's open-loop 8 h run, which left the noise
+band. Here 8.7e-14 after four hours is within a few ULP.
+
+Trip check: 8 simulated hours closed-loop, =ISD= zero at every one of 28,800
+steps. Open loop the same plant trips.
+
+The ordering, measured directly. First =CONTRL7= fire, step 3:
+
+| driven from            | XMV(7)       |
+|------------------------+--------------|
+| previous step's XMEAS  | 34.147823842 |
+| current step's XMEAS   | 35.623679189 |
+| the Fortran            | 34.147823842 |
+
+Before this was found, the closed loop diverged to 2.352e-1 at =XMEAS(14)= in
+four hours. It is now 8.746e-14, a factor of 2.7e12.
+
+D-009's rounding gaps, driver against =TEINIT=, per valve:
+
+| 1       | 2       | 3       | 4       | 5 | 6       |
+| 3.70e-4 | 2.94e-4 | 4.41e-4 | 7.63e-5 | 0 | 2.52e-4 |
+
+| 7       | 8       | 9       | 10      | 11      | 12 |
+| 3.43e-4 | 1.56e-4 | 2.63e-4 | 1.87e-4 | 5.09e-4 |  0 |
+
+Tests: 277 default, 439 with =oracle=. Provenance 1123/1589 on =teprob.f=
+(unchanged), 183/1408 on =temain_mod.f= (up from 107), 43.6% combined.
+
+** Surprises and decisions
+*Two orderings are both well-formed, and only one is right.* Nothing about
+=Scheme= is wrong in the version that diverged. The scheduler fired on the
+right steps, the loops ran in the right order, the clamp clamped eleven
+valves. Every unit test passed. The bug was entirely in *when* the driver
+handed the scheme its measurements, which is a property no test of the scheme
+alone can see. That is why the differential is the acceptance criterion and
+the unit tests are not, and why =Driver= exists as a type rather than as a
+loop written inline in each test.
+
+*=CONSHAND= is not =f64::clamp=.* It tests =.LE. 0.0=, so it replaces a
+negative zero with a positive one. =f64::clamp= tests =<= and leaves negative
+zero alone. =teprob.f:803-804= does the same job with *strict* comparisons, so
+there =clamp= is exact, and =Plant= uses it. A comment there claimed the code
+was written as two guards when it was a =clamp=; it now says which of the two
+Fortran sites it is talking about and why the other one differs.
+
+*The clamp's placement is observable only under a sticking fault.*
+=teprob.f:801= moves =VCV= toward =XMV= only when they differ by more than the
+stick threshold, and with =IDV(14)=, =IDV(15)= or =IDV(19)= active that
+threshold is non-zero. An unclamped =XMV= of 105 crosses it at a different
+moment than a clamped 100 does. So the placement is faithful even though today
+every test would pass with it in either position. That is a case where a later
+item, not this one, is what would have caught the error.
+
+** Next
+B-0040, the driver's hard-coded =IDV(12)=. =temain_mod.f:366-368= turns on
+disturbance 12 unconditionally once =I >= SSPTS=, which is step 28,800, eight
+hours in. It is Class C: it is not a modelling error, it is a scenario baked
+into the driver, and it is the reason published closed-loop runs show a
+disturbance nobody asked for at the eight-hour mark. Per =CLAUDE.md= it goes
+behind a flag, gets its delta measured with the Tier 5 battery, and is marked
+=BLOCKED= on a decision rather than made the default. The Tier 5 battery does
+not exist yet, so the honest form of this item is: implement the flag,
+reproduce the default behaviour exactly, measure what can be measured with
+Tier 4, and record what Tier 5 will have to answer.
+
+Note that the closed-loop differential above runs four hours, which is
+deliberately *short of* step 28,800. Once =IDV(12)= is in, that run can be
+extended past eight hours and the disturbance's arrival becomes the thing it
+checks.

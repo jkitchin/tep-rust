@@ -14,16 +14,16 @@ earlier phases will change what the right decomposition is.
 
 Rewrite this block at the end of every iteration. Keep it to five lines.
 
-- Phase: 4, four of eight done. Phases 2 and 3 are closed
-- Last completed: B-0038. The preset, and twelve reset times that are all
-  inexact in single precision
+- Phase: 4, five of eight done. Phases 2 and 3 are closed
+- Last completed: B-0039. The scheduler and the driver. Closed loop is
+  bit-identical to the Fortran for 14,400 steps under the platform libm
 - In flight: (none)
-- Baseline: =cargo xtask ci= green; 270 tests default, 425 with =oracle=;
+- Baseline: =cargo xtask ci= green; 277 tests default, 439 with =oracle=;
   =validate --tiers 1,2,3,4= green; provenance *1123/1589* on =teprob.f=,
-  *107/1408* on =temain_mod.f=, 41.0% combined
+  *183/1408* on =temain_mod.f=, 43.6% combined
 - Toolchain: rustup, pinned to rustc 1.97.1, wasm32 installed, libm 0.2.16
 - Remote: private jkitchin/tep-rust, CI green on all 7 jobs
-- Blocked on: nothing. Next is B-0039, the scheduler and the closed-loop driver.
+- Blocked on: nothing. Next is B-0040, the driver's hard-coded IDV(12).
 
 * Phase 0: foundations
 
@@ -1586,13 +1586,22 @@ what happens when a quotient of single-precision literals is folded in double.
       in both directions: the folding must be single, and the test requires
       single and double to actually differ or it discriminates nothing
 
-** NEXT B-0039 The multi-rate scheduler and the closed-loop driver
+** DONE B-0039 The multi-rate scheduler and the closed-loop driver
 :PROPERTIES:
 :ID:    B-0039
 :PHASE: 4
 :TIER:  4
 :DEPS:  B-0038
 :PLAN:  Anatomy > Control layer
+:COMMIT: bdd9813
+:RESULT: Closed loop vs the Fortran driver, 4 h / 14,400 steps: platform
+         libm bit-identical throughout (worst XMEAS 0, worst XMV 0, no valve
+         ever splits); vendored libm worst XMEAS 8.746e-14 at XMEAS(1),
+         worst XMV 8.782e-12 %range at XMV(10), first split at step 39.
+         Eight hours closed-loop with no trip. Found D-010: the controllers
+         read the *previous* step's XMEAS, and CONSHAND runs after the
+         integration. D-009 records the rounded initial valves, gaps 0 to
+         5.09e-4.
 :END:
 
 =temain_mod.f:365-412=. The three periods, =CONSHAND='s clamp, and the loop
@@ -1607,12 +1616,12 @@ after =TEINIT= with *rounded* values (=63.053= against =TEINIT='s
 where an open-loop one does.
 
 Done when:
-- [ ] The three periods and the loop order, with the phase of each period
+- [X] The three periods and the loop order, with the phase of each period
       pinned: =MOD(I,3)= fires on step 3, not step 1
-- [ ] =CONSHAND= clamping 11 valves and not 12
-- [ ] The rounded initial =XMV= reproduced, and the difference from =TEINIT=
-      recorded as a delta
-- [ ] Closed-loop Tier 4 against the oracle, both libm configurations
+- [X] =CONSHAND= clamping 11 valves and not 12
+- [X] The rounded initial =XMV= reproduced, and the difference from =TEINIT=
+      recorded as a delta (D-009)
+- [X] Closed-loop Tier 4 against the oracle, both libm configurations
 
 ** TODO B-0040 Class C: the driver's hard-coded IDV(12)
 :PROPERTIES:
