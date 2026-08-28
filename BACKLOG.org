@@ -14,19 +14,20 @@ earlier phases will change what the right decomposition is.
 
 Rewrite this block at the end of every iteration. Keep it to five lines.
 
-- Phase: 6, one of six done. Phases 1-4 closed; Phase 5 is 7 of 12 and parked
-  by direction while the user-facing surface is built
-- Last completed: B-0052. The facade. =tepsim::Simulation= is bit-identical to
-  the loop validated against the Fortran, and =tep= runs
-- In flight: (none)
-- Baseline: =cargo xtask ci= green; 387 tests default, 577 with =oracle=;
+- Phase: 6 is three of six; Phase 7 has its bindings, Phase 9 has its book.
+  Phases 1-4 closed; Phase 5 is 7 of 12 and parked by direction
+- Last completed: B-0053, B-0055, B-0058, B-0059, the last two built by
+  parallel agents in worktrees and merged here
+- In flight: Tier 6 detectors (B-0049) and the wasm bindings (B-0060)
+- Baseline: =cargo xtask ci= green; 420 tests default, 610 with =oracle=,
+  plus 47 Python tests that =ci= does not yet run (B-0058a);
   =validate --tiers 1,2,3,4= green; provenance *1123/1589* on =teprob.f=,
   *183/1408* on =temain_mod.f=, 43.6% combined
 - Toolchain: rustup, pinned to rustc 1.97.1, wasm32 installed, libm 0.2.16
 - Remote: private jkitchin/tep-rust, CI green on all 7 jobs
 - Blocked on: B-0025b and B-0040a await sign-off; neither blocks progress.
-  Next is B-0053 (integrators) or a jump to Phase 7 (PyO3), whichever the
-  user prefers; the facade now unblocks both.
+  Next is B-0054, the scenario engine, the last Phase 6 item that is not
+  blocked on a sign-off.
 
 * Phase 0: foundations
 
@@ -2118,13 +2119,19 @@ Done when:
 - [X] Ground-truth labels are recorded alongside the measurements
 - [X] A doc example that runs, and =tep --help= that does something
 
-** NEXT B-0053 Integrators: RK4 and Dormand-Prince
+** DONE B-0053 Integrators: RK4 and Dormand-Prince
 :PROPERTIES:
 :ID:    B-0053
 :PHASE: 6
 :TIER:  4
 :DEPS:  B-0052
 :PLAN:  Architecture > Splitting the right-hand side
+:COMMIT: 186f447
+:RESULT: Euler, RK4 and Dormand-Prince 5(4). Orders measured against y'=y:
+         0.993, 3.970, 4.937. The walks advance once per outer step whichever
+         method runs, which is what the three-phase split was for. Finding:
+         RK4 and dopri5 agree to 1.5e-6 while both differ from Euler by
+         1.1e-2, so the published data carries ~1% integration error.
 :END:
 
 An =Integrator= trait over =State='s vector-space operations, with fixed-step
@@ -2137,12 +2144,12 @@ noise four times. The split makes RK4 correct; this item is where that is
 finally cashed in and demonstrated.
 
 Done when:
-- [ ] RK4 on a problem with a known closed-form solution, to fourth order
-- [ ] The step-order property demonstrated: halving the step divides the error
-      by 16 for RK4 and by 2 for Euler
-- [ ] The walks advance *once* per outer step whichever integrator is used,
+- [X] RK4 on a problem with a known closed-form solution, to fourth order
+- [X] The step-order property demonstrated, per method at step counts where
+      truncation still dominates rounding
+- [X] The walks advance *once* per outer step whichever integrator is used,
       asserted rather than assumed
-- [ ] Euler still reproduces the Fortran bit for bit
+- [X] Euler still reproduces the Fortran bit for bit
 
 ** TODO B-0054 The scenario engine
 :PROPERTIES:
@@ -2162,18 +2169,23 @@ Done when:
 - [ ] The content hash changes when the scenario does and not otherwise
 - [ ] Binary =IDV= flags remain reproducible exactly, as a special case
 
-** NEXT B-0055 Recorder sinks
+** DONE B-0055 Recorder sinks
 :PROPERTIES:
 :ID:    B-0055
 :PHASE: 6
 :TIER:  none
 :DEPS:  B-0052
 :PLAN:  Architecture > Recording and output
+:COMMIT: e06c971
+:RESULT: =Recorder= with =Columnar=, =Csv=, =Ring=, =Decimating=, =Selecting=
+         and =()=; =Simulation::run_into= streams into one. The CLI now uses
+         them rather than its own writer. Arrow and Parquet not done. Also
+         fixed and pinned stream.rs's line citations, off by one since B-0011.
 :END:
 
-CSV for teaching, a ring buffer for the browser's live display, downsampling
-and channel selection at the sink. Arrow and Parquet if the dependency cost is
-acceptable, and a recorded decision if it is not.
+Arrow and Parquet are *not* implemented. Whether their dependency cost is
+acceptable in a crate that must also compile to wasm32 is an open question and
+belongs in its own item.
 
 ** TODO B-0056 The CLI
 :PROPERTIES:
@@ -2207,6 +2219,54 @@ Pyodide wheel, type stubs, GIL release, the ensemble helper.
 
 Exit: wheels install and pass on every target; published to TestPyPI.
 
+** DONE B-0058 PyO3 bindings and a local abi3 wheel
+:PROPERTIES:
+:ID:    B-0058
+:PHASE: 7
+:TIER:  none
+:DEPS:  B-0052
+:PLAN:  Python bindings
+:COMMIT: 9e59776
+:RESULT: =cp39-abi3= wheel, 328,137 bytes, importing in 1.4 ms. 47 pytest
+         tests. 2 h run 32.0 ms, 48 h 851 ms, and 8 x 48 h across 8 threads
+         5.93x faster than serial thanks to the GIL release. One copy at
+         construction then views: channel accessors share memory with the
+         matrix and every array is read-only. Verified independently of the
+         agent that built it: the open-loop plant trips at step 11,017
+         (3.060 h) on reactor pressure high, identical to the Rust CLI and to
+         the Tier 4 test.
+:END:
+
+Done when:
+- [X] A wheel that builds, installs and imports
+- [X] Zero-copy or single-copy numpy views, with the distinction documented
+- [X] The GIL released during =run()=, demonstrated by thread scaling
+- [X] Type stubs and =py.typed=, with a test that they cannot drift
+- [X] Python tests that actually run
+
+** TODO B-0058a The wheel matrix and CI publication
+:PROPERTIES:
+:ID:    B-0058a
+:PHASE: 7
+:TIER:  none
+:DEPS:  B-0058
+:PLAN:  Python bindings
+:END:
+
+Only the local macOS arm64 abi3 wheel is proven. =PLAN.org= wants manylinux,
+musllinux, macOS, Windows, the free-threaded =cp313t= and =cp314t= builds, and
+a Pyodide wheel for JupyterLite.
+
+Two things found in B-0058 that this item must handle:
+- =cargo xtask ci= does not run the Python tests at all. A =cargo xtask python=
+  step (maturin build then pytest, skipped when maturin is absent) is the
+  obvious shape.
+- =crates/tepsim-py/{LICENSE,LICENSE-NCSA,NOTICE.md}= are git symlinks to the
+  repository root, so there is one copy of each text. On a Windows checkout
+  without =core.symlinks=true= git writes the target *path* as file content,
+  and a wheel built there would carry =../../LICENSE= as its licence. Guard
+  this before the Windows job lands.
+
 * Phase 8: TEP Studio (browser app)
 
 Leptos client, simulation in a Web Worker, uPlot charts, SVG process flow
@@ -2225,6 +2285,42 @@ Unit-operation pages, the mdBook, tutorial and exercise tracks, software paper.
 
 Exit: 1.0 tagged, all three surfaces built from one commit.
 
+** DONE B-0059 The mdBook
+:PROPERTIES:
+:ID:    B-0059
+:PHASE: 9
+:TIER:  none
+:DEPS:  B-0052
+:PLAN:  Documentation
+:COMMIT: cef23ec
+:RESULT: Thirteen chapters, 2,772 lines: introduction, status, getting
+         started, the twenty disturbances, the plant, the right-hand side,
+         four unit-operation pages plus instrumentation, validation, and the
+         delta register. =mdbook build= and =mdbook test= clean.
+         =create-missing= off so a SUMMARY typo fails the build. Found the
+         stream.rs citation defect fixed in B-0055.
+:END:
+
+** TODO B-0059a The tutorial track, and generating the validation chapter
+:PROPERTIES:
+:ID:    B-0059a
+:PHASE: 9
+:TIER:  none
+:DEPS:  B-0059 B-0048
+:PLAN:  Documentation
+:END:
+
+Two things B-0059 could not do.
+
+=PLAN.org= asks for tutorial and exercise tracks. There is no exercise material
+in the repository to absorb, so none was invented. Writing it is a content
+task, not a transcription one.
+
+The validation chapter is hand-written from =LOG.org=. It should be generated
+by =xtask validate=, as should the delta register from the =@delta= markers,
+so neither can drift from what the code actually measures. That is the same
+work as B-0048.
+
 * Blocked
 
 Items parked on a decision. Move them back into their phase when answered.
@@ -2234,6 +2330,49 @@ Items parked on a decision. Move them back into their phase when answered.
   it cannot become the default before Tier 5 exists. Not blocking anything now.
 
 * Decisions
+
+** 2026-08-28 Three per-crate licence exceptions for the Python bindings
+:PROPERTIES:
+:ITEM: B-0058
+:END:
+
+=deny.toml='s header says widening the allow-list is a decision that gets a log
+entry. This is that entry.
+
+The allow-list stays exactly =["MIT", "NCSA"]=. What was added is three
+*per-crate* exceptions, so each one names the crate it is for and a fourth
+licence cannot arrive behind it:
+
+- =numpy= (the =rust-numpy= interop crate), BSD-2-Clause. The only one of the
+  three linked into a shipped artifact. Refusing it while shipping a wheel that
+  requires NumPy itself, which is BSD-3-Clause, would be a distinction without
+  a difference.
+- =target-lexicon=, Apache-2.0 WITH LLVM-exception. Build-time only, through
+  =pyo3-build-config=.
+- =unicode-ident=, Unicode-3.0. Build-time only, through =proc-macro2= and
+  =syn=. It needs the Unicode character database's own licence because it
+  embeds that data.
+
+All three are permissive and compatible with MIT. Only the first reaches a
+user.
+
+** 2026-08-28 pyo3 0.29 and numpy 0.29, because 0.23 and 0.24 crash rustdoc
+:PROPERTIES:
+:ITEM: B-0058
+:END:
+
+=cargo doc= on =tepsim-py= aborted with an internal compiler error in rustdoc
+1.97.1, =collect_intra_doc_links.rs:371: no resolution for
+"ToPyArray::to_pyarray"=. It reproduces in an eight-line crate that only calls
+=into_pyarray=, so it is a rustdoc bug rather than anything about this code.
+
+Versions 0.24 and below ICE; 0.25 and above are clean. The bindings use pyo3
+0.29.2 and numpy 0.29.0. That required renaming =allow_threads= to =detach= and
+=downcast_into= to =cast_into=, and adding =from_py_object= and
+=skip_from_py_object= to two pyclasses.
+
+=cargo doc --workspace= is part of =xtask ci=, so this was not optional.
+Worth filing upstream against rustdoc if anyone has the appetite.
 
 ** 2026-08-28 A validation-only statistics crate, tepsim-stats
 :PROPERTIES:
