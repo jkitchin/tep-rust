@@ -115,6 +115,7 @@ version = "0.0.0"
 dependencies = [
  "libm",
  "sha2",
+ "tepsim",
  "tepsim-control",
  "tepsim-core",
  "tepsim-stats",

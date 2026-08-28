@@ -39,6 +39,8 @@ required-features = ["oracle"]
 tepsim-core.workspace = true
 # The control layer, for the Phase 4 differentials.
 tepsim-control.workspace = true
+# The facade, so that Tier 5 drives the same loop a user does.
+tepsim.workspace = true
 # The statistics, for the Tier 5 battery. Development-only on both sides of
 # this edge, so it does not weaken the isolation rule.
 tepsim-stats.workspace = true

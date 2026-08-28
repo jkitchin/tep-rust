@@ -173,6 +173,19 @@ pub struct QuirkFixes {
     pub trip_ends_the_run: bool,
 }
 
+impl QuirkFixes {
+    /// Every quirk reproduced rather than fixed, which is the default.
+    ///
+    /// A `const` constructor as well as `Default`, so a scenario can be built
+    /// in a `const fn`.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            trip_ends_the_run: false,
+        }
+    }
+}
+
 /// The fifty derivatives, and whether the plant is down.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Balances {

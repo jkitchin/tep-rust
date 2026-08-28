@@ -34,8 +34,8 @@
 
 pub mod battery;
 
-use tepsim_control::{DRIVER_INITIAL_VALVES, Driver, PRESET, STEADY_STATE_STEPS};
-use tepsim_core::{Inputs, Plant, SimTime, State, TemperatureSeeds, constants};
+use tepsim_control::{DRIVER_INITIAL_VALVES, PRESET, STEADY_STATE_STEPS};
+use tepsim_core::TemperatureSeeds;
 
 use crate::Oracle;
 
@@ -358,58 +358,40 @@ pub fn start(oracle: &mut Oracle) -> Start {
 }
 
 /// Run the port, closed loop, and sample it.
+///
+/// Delegates to [`tepsim::Simulation`]. There was a second copy of this loop
+/// here until B-0052, written before the facade existed; two transcriptions of
+/// `temain_mod.f`'s main loop is one more than the project can keep honest, and
+/// `facade_equivalence.rs` is what proved they were the same before this one
+/// was deleted.
+///
+/// `start` is accepted for symmetry with [`run_fortran`] and for the
+/// generator word; the warm start comes from
+/// [`tepsim_core::TemperatureSeeds::after_initialisation`], which
+/// `facade_equivalence.rs` asserts equals `start.seeds` bit for bit.
 #[must_use]
 pub fn run_port(start: &Start, scenario: Scenario, seed: f64, hours: usize) -> Run {
-    let mut plant = Plant::new();
-    plant.set_rng(seed);
-    plant.set_seeds(start.seeds);
-
-    let mut driver = Driver::new();
-    driver.request(&scenario.disturbances());
-
-    let mut state = State::from_flat(&constants::NOMINAL_STATE);
-    let mut previous = start.measurements;
-    let mut samples = Vec::with_capacity(hours * 3_600 / SAMPLE_EVERY);
-    let mut tripped = None;
-    let mut t = 0.0;
-
-    for step in 1..=hours * 3_600 {
-        let valves = *driver.control(&previous, DT);
-        let inputs = Inputs {
-            manipulated: valves,
-            disturbances: *driver.disturbances(),
-        };
-        let time = SimTime(t);
-        plant.advance_discrete(time, &inputs);
-        let Ok((derivative, signals)) = plant.derivatives(time, &state, &inputs) else {
-            // A temperature solve that fails is delta D-001 territory, and it
-            // is not a trip. Stop and say where.
-            tripped = Some(step);
-            break;
-        };
-        if signals.shutdown.is_tripped() && tripped.is_none() {
-            tripped = Some(step);
-        }
-        let measured = plant.sample_measurements(time, &signals);
-        previous = *measured.as_array();
-        if plant.step_seeds(&state).is_err() {
-            tripped = Some(step);
-            break;
-        }
-        state = state.step(DT, &derivative);
-        driver.settle();
-
-        if step % SAMPLE_EVERY == 0 {
-            samples.push(row(&previous, &valves));
-        }
-        t += DT;
+    let _ = start;
+    let mut described = if scenario.fault == 0 {
+        tepsim::Scenario::baseline()
+    } else {
+        tepsim::Scenario::fault(scenario.fault)
     }
+    .with_hours(hours as f64)
+    .with_seed(seed);
+    described.sample_every = SAMPLE_EVERY;
 
+    let finished = tepsim::Simulation::new(described).run();
     Run {
         scenario,
         seed,
-        samples,
-        tripped,
+        samples: finished.samples.iter().map(tepsim::Sample::row).collect(),
+        tripped: match finished.outcome {
+            tepsim::Outcome::Tripped { step, .. } | tepsim::Outcome::SolveFailed { step } => {
+                Some(step)
+            }
+            tepsim::Outcome::Completed => None,
+        },
     }
 }
 

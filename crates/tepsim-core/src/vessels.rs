@@ -78,12 +78,43 @@ pub struct TemperatureSeeds {
 impl Default for TemperatureSeeds {
     /// The nominal operating point, which is what `TEINIT` leaves in `COMMON`
     /// before the first evaluation.
+    ///
+    /// **Not what a run starts from.** `TEINIT` calls `TEFUNC` once before it
+    /// returns (`teprob.f:1369`), and that evaluation converges the four
+    /// Newton solves away from these literals. A simulation that begins here
+    /// is a *different* trajectory, not a rounding of the same one: B-0017
+    /// measured up to 21 of the 50 derivatives moving in their last bits. Use
+    /// [`TemperatureSeeds::after_initialisation`] to start a run.
     fn default() -> Self {
         Self {
             reactor: 120.4,
             separator: 80.109,
             stripper: 65.731,
             mixing: 86.120,
+        }
+    }
+}
+
+impl TemperatureSeeds {
+    /// The four warm starts as `TEINIT` leaves them, after its own `TEFUNC`
+    /// call.
+    ///
+    /// These are the values a run actually begins from. They are transcribed
+    /// from the Fortran's `COMMON/TEPROC/` rather than recomputed, because
+    /// recomputing them would need the very solve they seed.
+    ///
+    /// Reproducible: `TEINIT` does not reset `TCR`, `TCS`, `TCC` or `TCV`, so
+    /// the values depend on what ran before unless the block is zeroed first.
+    /// `Oracle::init_cold` does that, and
+    /// `tepsim-oracle/tests/facade_start.rs` asserts these constants against
+    /// it bit for bit. See the B-0040 log entry.
+    #[must_use]
+    pub const fn after_initialisation() -> Self {
+        Self {
+            reactor: f64::from_bits(0x405e_1999_97f1_831d),
+            separator: f64::from_bits(0x4054_0700_799c_ab78),
+            stripper: f64::from_bits(0x4050_6ec9_3118_92a4),
+            mixing: f64::from_bits(0x4055_87af_ea25_61f6),
         }
     }
 }
