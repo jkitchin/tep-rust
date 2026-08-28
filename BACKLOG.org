@@ -1791,7 +1791,7 @@ Done when:
       per comparison projected at 172,800 samples, against 281 ms for the
       O(n log n) form that replaced it
 
-** TODO B-0044 A real FFT, with known-answer tests
+** NEXT B-0044 A real FFT, with known-answer tests
 :PROPERTIES:
 :ID:    B-0044
 :PHASE: 5
