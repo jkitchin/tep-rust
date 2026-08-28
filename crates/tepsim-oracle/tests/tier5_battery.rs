@@ -42,23 +42,23 @@ fn print_report(report: &Report) {
     );
     println!(
         "  {:<4} {:>11} {:>11} {:>10} {:>10} {:>10} {:>10}",
-        "var", "mean p", "var p", "KS", "energy", "ACF", "spectrum"
+        "var", "paired p", "var p", "KS", "energy", "ACF", "spectrum"
     );
     // The five worst variables by TOST p-value, so the table stays readable
     // while still naming whatever is closest to failing.
     let mut order: Vec<usize> = (0..report.variables.len()).collect();
     order.sort_by(|a, b| {
         report.variables[*b]
-            .mean
+            .paired
             .p
-            .total_cmp(&report.variables[*a].mean.p)
+            .total_cmp(&report.variables[*a].paired.p)
     });
     for index in order.iter().take(5) {
         let v = &report.variables[*index];
         println!(
             "  {:<4} {:>11.4} {:>11.4} {:>10.4} {:>10.4} {:>10.4} {:>10.4}",
             v.variable + 1,
-            v.mean.p,
+            v.paired.p,
             v.variance.p,
             v.ks.p_value(),
             v.energy.p_value(),
@@ -67,9 +67,13 @@ fn print_report(report: &Report) {
         );
     }
     println!(
-        "  worst mean-test power: {:.2} x the margin ({})",
+        "  mean-test power: unpaired {:.2}, paired {:.4} x the margin",
         report.worst_mean_power(),
-        if report.worst_mean_power() < 1.0 {
+        report.worst_paired_power()
+    );
+    println!(
+        "  gate uses the paired test ({})",
+        if report.worst_paired_power() < 1.0 {
             "enough seeds to declare equivalence".to_string()
         } else {
             format!(
@@ -175,11 +179,10 @@ fn the_battery_finds_the_two_sources_equivalent() {
 
     if !gated {
         println!(
-            "\nreporting only. {} seeds give too few half-splits for the \
-             permutation test to reject at {ALPHA}, and too little power for \
-             TOST to declare equivalence at a tenth of a standard deviation \
-             *even against identical data*. Run `cargo xtask validate --tiers \
-             5` for the gate.",
+            "\nreporting only: {} seeds give too few half-splits for the \
+             permutation tests to reject at {ALPHA}. The paired mean test \
+             does decide at this size, and its verdicts above are real. Run \
+             `cargo xtask validate --tiers 5` for the whole gate.",
             battery.seeds
         );
         println!(
@@ -279,6 +282,7 @@ fn the_battery_finds_a_source_equivalent_to_itself() {
         // The moment tests are *centred* on zero, whatever their verdict.
         if !variable.constant {
             assert_eq!(variable.mean.welch.difference, 0.0, "mean on variable {v}");
+            assert_eq!(variable.paired.welch.difference, 0.0, "paired on {v}");
             assert_eq!(variable.variance.welch.difference, 0.0, "variance on {v}");
         }
     }
@@ -371,6 +375,17 @@ fn the_battery_rejects_a_source_that_is_actually_different() {
         (shifted_report.mean.welch.difference - shift).abs() < 1e-9,
         "the mean difference is {}, not the {shift} that was injected",
         shifted_report.mean.welch.difference
+    );
+    // And the paired test sees it exactly, because every seed's difference is
+    // the shift.
+    assert!(
+        (shifted_report.paired.welch.difference - shift).abs() < 1e-9,
+        "the paired difference is {}",
+        shifted_report.paired.welch.difference
+    );
+    assert!(
+        !shifted_report.paired.equivalent,
+        "a shift of twice the margin was declared equivalent by the paired test"
     );
     assert!(
         shifted_report.ks.cross > 0.0,

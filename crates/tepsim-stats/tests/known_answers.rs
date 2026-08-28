@@ -1095,3 +1095,144 @@ fn tost_does_not_mistake_a_real_difference_for_equivalence() {
     let w = welch_t(&small_a, &small_b);
     let _ = w;
 }
+
+// ---------------------------------------------------------------------------
+// The paired test
+// ---------------------------------------------------------------------------
+
+/// A one-sample t against a hand-computed case.
+///
+/// `d = [1, 2, 3, 4, 5]`: mean 3, sample variance 2.5, so `se = sqrt(2.5/5) =
+/// sqrt(0.5)` and `t = 3 / sqrt(0.5) = 4.2426406871192848`, on 4 degrees of
+/// freedom.
+#[test]
+fn the_one_sample_t_matches_a_hand_computed_case() {
+    let sample = Summary::of(&[1.0, 2.0, 3.0, 4.0, 5.0]);
+    let result = tepsim_stats::one_sample_t(&sample);
+
+    close(result.mean, 3.0, TIGHT, "mean");
+    close(
+        result.standard_error,
+        0.5_f64.sqrt(),
+        TIGHT,
+        "standard error",
+    );
+    close(result.t, 3.0 / 0.5_f64.sqrt(), TIGHT, "t");
+    close(result.df, 4.0, TIGHT, "df");
+    close(
+        result.p,
+        2.0 * (1.0 - student_t_cdf(result.t, 4.0)),
+        1e-12,
+        "two-sided p",
+    );
+}
+
+/// The paired test is the unpaired one applied to the differences.
+///
+/// Not a restatement: it is the check that `tost_paired` computes the same
+/// thing a caller would get by differencing by hand and testing the result
+/// against a null of zero. `welch_t` cannot express that, because it needs two
+/// samples.
+#[test]
+fn the_paired_test_is_a_one_sample_test_of_the_differences() {
+    let a = [10.1, 10.4, 9.8, 10.2, 10.0, 9.9, 10.3, 10.1];
+    let b = [10.3, 10.7, 9.9, 10.5, 10.1, 10.2, 10.4, 10.3];
+    let differences: Vec<f64> = a.iter().zip(b).map(|(x, y)| y - x).collect();
+
+    let paired = tepsim_stats::tost_paired(&Summary::of(&differences), 0.5, 0.05);
+    let single = tepsim_stats::one_sample_t(&Summary::of(&differences));
+
+    close(paired.welch.difference, single.mean, TIGHT, "mean");
+    close(
+        paired.welch.standard_error,
+        single.standard_error,
+        TIGHT,
+        "se",
+    );
+    close(paired.welch.df, 7.0, TIGHT, "df");
+    assert!(paired.equivalent, "{paired}");
+}
+
+/// **The reason the paired test exists.**
+///
+/// Two sources measured at the same seeds, where each seed contributes a large
+/// shared offset and the two sources differ by almost nothing. The unpaired
+/// test spends all its variance on the shared offset and cannot resolve the
+/// difference; the paired test sees straight through it.
+///
+/// This is exactly the shape of Tier 5's manipulated variables: an integrating
+/// controller's 48-hour mean wanders from seed to seed by far more than the
+/// two implementations differ, and both implementations see the *same* wander
+/// because they are given the same disturbance realisation.
+#[test]
+fn pairing_sees_through_a_shared_offset_that_defeats_the_unpaired_test() {
+    // Ten seeds. Each contributes a wander of order 1; the two sources differ
+    // by 0.01 on every one of them.
+    let wander: Vec<f64> = (0..10).map(|i| ((i as f64) * 1.7).sin()).collect();
+    let reference: Vec<f64> = wander.iter().map(|w| 100.0 + w).collect();
+    let candidate: Vec<f64> = wander.iter().map(|w| 100.0 + w + 0.01).collect();
+    let differences: Vec<f64> = candidate
+        .iter()
+        .zip(&reference)
+        .map(|(c, r)| c - r)
+        .collect();
+
+    // A margin of a tenth of the pooled spread, as PLAN.org sets for Tier 5.
+    let margin = 0.1 * Summary::of(&reference).sd();
+
+    let unpaired = tost(
+        &Summary::of(&candidate),
+        &Summary::of(&reference),
+        margin,
+        0.05,
+    );
+    let paired = tepsim_stats::tost_paired(&Summary::of(&differences), margin, 0.05);
+
+    let power = |t: &tepsim_stats::Tost| 0.5 * (t.interval.1 - t.interval.0) / t.margin;
+    println!(
+        "margin {margin:.4}; unpaired power {:.2}, paired power {:.4}",
+        power(&unpaired),
+        power(&paired)
+    );
+
+    assert!(
+        !unpaired.equivalent,
+        "the unpaired test resolved a 0.01 difference against a wander of \
+         order 1, so this fixture does not demonstrate anything"
+    );
+    assert!(
+        paired.equivalent,
+        "the paired test failed to see through the shared offset: {paired}"
+    );
+    assert!(
+        power(&paired) < power(&unpaired) / 20.0,
+        "pairing bought only {:.1}x, not the order of magnitude it should",
+        power(&unpaired) / power(&paired)
+    );
+}
+
+#[test]
+fn the_paired_test_still_rejects_a_real_difference() {
+    // The same shape, but the two sources genuinely differ by half the margin
+    // plus a bit, so equivalence must not be declared.
+    let wander: Vec<f64> = (0..20).map(|i| ((i as f64) * 0.9).cos()).collect();
+    let reference: Vec<f64> = wander.iter().map(|w| 50.0 + w).collect();
+    let margin = 0.1 * Summary::of(&reference).sd();
+    let shift = 2.0 * margin;
+    let differences: Vec<f64> = wander.iter().map(|_| shift).collect();
+
+    let paired = tepsim_stats::tost_paired(&Summary::of(&differences), margin, 0.05);
+    println!("a shift of twice the margin: {paired}");
+    assert!(!paired.equivalent);
+    close(paired.welch.difference, shift, 1e-12, "the shift");
+}
+
+#[test]
+fn a_paired_sample_too_small_for_a_variance_gives_nan() {
+    for sample in [Summary::new(), Summary::of(&[1.0])] {
+        let result = tepsim_stats::one_sample_t(&sample);
+        assert!(result.t.is_nan());
+        assert!(result.df.is_nan());
+        assert!(!tepsim_stats::tost_paired(&sample, 1.0, 0.05).equivalent);
+    }
+}

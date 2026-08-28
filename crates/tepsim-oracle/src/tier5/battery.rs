@@ -106,7 +106,7 @@
 
 use tepsim_stats::{
     CorrelationMatrix, Summary, Tost, Window, autocorrelation, band_comparison, energy_distance,
-    frobenius_distance, ks_statistic, ks_two_sample_p, log_band_edges, tost, welch,
+    frobenius_distance, ks_statistic, ks_two_sample_p, log_band_edges, tost, tost_paired, welch,
 };
 
 use super::{Run, Scenario, VARIABLES};
@@ -237,9 +237,26 @@ pub struct VariableReport {
     pub scenario: Scenario,
     /// Which of the 53 variables, zero-based.
     pub variable: usize,
-    /// TOST on the per-run means, against a tenth of the reference standard
-    /// deviation.
+    /// TOST on the per-run means, unpaired, against a tenth of the reference
+    /// standard deviation.
+    ///
+    /// Kept and reported, but **not** the gate. See [`VariableReport::paired`].
     pub mean: Tost,
+    /// The same margin, applied to the *paired* differences.
+    ///
+    /// This is the gate. The two sources are run at the same seeds, so each
+    /// seed's difference is an observation and the seed-to-seed wander, which
+    /// both sources share because they see the same disturbance realisation,
+    /// cancels out of it entirely.
+    ///
+    /// It matters enormously here. B-0047c measured the unpaired test needing
+    /// 237 to 323 seeds at a tenth of a standard deviation, because the
+    /// manipulated variables are driven by integrating controllers whose
+    /// 48-hour mean wanders from seed to seed by far more than the two
+    /// implementations differ. Pairing removes exactly that term.
+    pub paired: Tost,
+    /// The paired interval's half-width as a multiple of the margin.
+    pub paired_power: f64,
     /// TOST on the per-run log variances, against [`VARIANCE_MARGIN_LOG`].
     pub variance: Tost,
     /// Two-sample Kolmogorov-Smirnov on the pooled samples.
@@ -259,7 +276,7 @@ pub struct VariableReport {
     pub constant: bool,
     /// And neither did the candidate.
     pub candidate_constant: bool,
-    /// The TOST interval's half-width as a multiple of the margin.
+    /// The unpaired TOST interval's half-width as a multiple of the margin.
     ///
     /// Under one means the mean test *can* declare equivalence; over one means
     /// there is not enough data to, whatever the difference is. Recorded so
@@ -287,7 +304,7 @@ impl VariableReport {
         if self.constant {
             return Some(self.candidate_constant);
         }
-        let mut all = self.mean.equivalent && self.variance.equivalent;
+        let mut all = self.paired.equivalent && self.variance.equivalent;
         for statistic in self.calibrated() {
             match statistic.passes() {
                 Some(ok) => all &= ok,
@@ -491,6 +508,19 @@ pub fn compare_variable(
     let candidate_constant = !(Summary::of(&b.pooled()).sd() > 0.0);
     let margin = MEAN_MARGIN_FRACTION * reference_spread;
     let mean = tost(&b.run_means(), &a.run_means(), margin, ALPHA);
+
+    // The paired form. `reference[k]` and `candidate[k]` are the same seed by
+    // construction, which is what makes the differences meaningful.
+    let mut differences = Summary::new();
+    for (left, right) in a.series.iter().zip(&b.series) {
+        differences.push(Summary::of(right).mean() - Summary::of(left).mean());
+    }
+    let paired = tost_paired(&differences, margin, ALPHA);
+    let paired_power = if margin > 0.0 {
+        0.5 * (paired.interval.1 - paired.interval.0) / margin
+    } else {
+        f64::NAN
+    };
     let mean_power = if margin > 0.0 {
         0.5 * (mean.interval.1 - mean.interval.0) / margin
     } else {
@@ -549,6 +579,8 @@ pub fn compare_variable(
         constant,
         candidate_constant,
         mean_power,
+        paired,
+        paired_power,
     }
 }
 
@@ -664,6 +696,16 @@ impl Report {
             .fold(0.0_f64, f64::max)
     }
 
+    /// The worst *paired* mean-test power, which is what the gate uses.
+    #[must_use]
+    pub fn worst_paired_power(&self) -> f64 {
+        self.variables
+            .iter()
+            .filter(|v| !v.constant)
+            .map(|v| v.paired_power)
+            .fold(0.0_f64, f64::max)
+    }
+
     /// Variables whose mean test could not decide, with their power.
     ///
     /// Sorted worst first. An entry here is *not* a failure: the confidence
@@ -674,15 +716,15 @@ impl Report {
         let mut out: Vec<(usize, f64, f64)> = self
             .variables
             .iter()
-            .filter(|v| !v.constant && v.mean_power >= 1.0)
+            .filter(|v| !v.constant && v.paired_power >= 1.0)
             .map(|v| {
                 (
                     v.variable + 1,
-                    v.mean_power,
+                    v.paired_power,
                     // How far apart the two means actually are, as a fraction
                     // of the margin. Small here and large power means "not
                     // enough data"; large here means something real.
-                    libm::fabs(v.mean.welch.difference) / v.mean.margin,
+                    libm::fabs(v.paired.welch.difference) / v.paired.margin,
                 )
             })
             .collect();
@@ -697,7 +739,7 @@ impl Report {
     /// changing the battery's size is a decision, not an inference.
     #[must_use]
     pub fn seeds_for_power(&self) -> usize {
-        let worst = self.worst_mean_power();
+        let worst = self.worst_paired_power();
         if !(worst > 1.0) {
             return self.seeds;
         }
@@ -726,8 +768,8 @@ impl Report {
             }
             // An underpowered test has declined to decide, not failed. See
             // `Report::undecided`, which reports those separately.
-            let decidable = report.mean_power < 1.0;
-            if self.gated && decidable && !report.mean.equivalent {
+            let decidable = report.paired_power < 1.0;
+            if self.gated && decidable && !report.paired.equivalent {
                 out.push((report.variable + 1, "mean"));
             }
             if self.gated && decidable && !report.variance.equivalent {

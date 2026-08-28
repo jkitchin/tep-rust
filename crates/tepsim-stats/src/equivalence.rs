@@ -88,6 +88,108 @@ pub fn welch_t(a: &Summary, b: &Summary) -> WelchT {
     }
 }
 
+/// A one-sample t-test of a mean against zero.
+///
+/// The paired counterpart of [`welch_t`]. When two sources can be run at the
+/// *same* seeds, the difference per seed is the natural observation and the
+/// between-seed variation cancels out of it entirely. That is not a
+/// convenience: for a variable whose run-to-run mean wanders, the unpaired
+/// test spends nearly all its variance on wander that both sources share, and
+/// needs several times as many runs to see past it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct OneSampleT {
+    /// The sample mean.
+    pub mean: f64,
+    /// Its standard error, `s / sqrt(n)`.
+    pub standard_error: f64,
+    /// The t statistic against a null of zero.
+    pub t: f64,
+    /// Degrees of freedom, `n - 1`.
+    pub df: f64,
+    /// `P(|T| >= |t|)`.
+    pub p: f64,
+}
+
+/// A one-sample t-test of `sample`'s mean against zero.
+///
+/// Every field is `NaN` for fewer than two observations, for the same reason
+/// [`welch_t`] does that: a test with no degrees of freedom has said nothing,
+/// and a plausible-looking number would be worse than none.
+#[must_use]
+pub fn one_sample_t(sample: &Summary) -> OneSampleT {
+    if sample.n() < 2 {
+        return OneSampleT {
+            mean: f64::NAN,
+            standard_error: f64::NAN,
+            t: f64::NAN,
+            df: f64::NAN,
+            p: f64::NAN,
+        };
+    }
+    let standard_error = sample.standard_error();
+    let mean = sample.mean();
+    let t = mean / standard_error;
+    let df = (sample.n() - 1) as f64;
+    OneSampleT {
+        mean,
+        standard_error,
+        t,
+        df,
+        p: student_t_two_sided_p(t, df),
+    }
+}
+
+/// Two one-sided tests on a paired sample of differences.
+///
+/// Equivalent in every respect to [`tost`] except that the observations are
+/// differences and the null is that their mean lies outside
+/// `[-margin, +margin]`.
+#[must_use]
+pub fn tost_paired(differences: &Summary, margin: f64, alpha: f64) -> Tost {
+    let single = one_sample_t(differences);
+    let se = single.standard_error;
+    let df = single.df;
+
+    let t_lower = (single.mean + margin) / se;
+    let p_lower = 0.5 * student_t_two_sided_p(t_lower, df);
+    let p_lower = if t_lower > 0.0 {
+        p_lower
+    } else {
+        1.0 - p_lower
+    };
+
+    let t_upper = (single.mean - margin) / se;
+    let p_upper = 0.5 * student_t_two_sided_p(t_upper, df);
+    let p_upper = if t_upper < 0.0 {
+        p_upper
+    } else {
+        1.0 - p_upper
+    };
+
+    let p = if p_lower > p_upper { p_lower } else { p_upper };
+    let half_width = student_t_quantile(1.0 - alpha, df) * se;
+    let interval = (single.mean - half_width, single.mean + half_width);
+
+    Tost {
+        // The `Tost` shape carries a `WelchT`, so the one-sample result is
+        // presented in its terms: the "difference" is the mean of the paired
+        // differences and the second sample is implicitly zero.
+        welch: WelchT {
+            difference: single.mean,
+            standard_error: se,
+            t: single.t,
+            df,
+            p: single.p,
+        },
+        margin,
+        p_lower,
+        p_upper,
+        p,
+        interval,
+        equivalent: interval.0 > -margin && interval.1 < margin,
+    }
+}
+
 /// The result of two one-sided tests.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Tost {

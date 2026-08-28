@@ -81,7 +81,7 @@ pub use distribution::{f_cdf, f_quantile, normal_quantile, student_t_cdf, studen
 pub use dpca::{Dpca, augment_with_lags};
 pub use eigen::{SymmetricEigen, symmetric_eigen};
 pub use energy::{energy_distance, energy_distance_naive};
-pub use equivalence::{Tost, WelchT, tost, welch_t};
+pub use equivalence::{OneSampleT, Tost, WelchT, one_sample_t, tost, tost_paired, welch_t};
 pub use fft::{Complex, Fft, dft_naive};
 pub use ks::{kolmogorov_q, ks_statistic, ks_two_sample_p};
 pub use pca::{ControlLimits, Pca, Retention, Statistics, spe_limit, t_squared_limit};
