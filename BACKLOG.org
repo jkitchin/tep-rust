@@ -1818,7 +1818,7 @@ Done when:
 - [X] Parseval's identity holds to 1e-14
 - [X] Round-trip forward-inverse to 7.5e-16
 
-** TODO B-0045 Serial structure: autocorrelation and Welch spectra
+** NEXT B-0045 Serial structure: autocorrelation and Welch spectra
 :PROPERTIES:
 :ID:    B-0045
 :PHASE: 5
