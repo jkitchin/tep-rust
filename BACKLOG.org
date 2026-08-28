@@ -1975,6 +1975,37 @@ Items parked on a decision. Move them back into their phase when answered.
 
 * Decisions
 
+** 2026-08-28 A validation-only statistics crate, tepsim-stats
+:PROPERTIES:
+:ITEM: B-0042
+:END:
+
+=PLAN.org='s workspace layout has no home for the Tier 5, 6 and 7 machinery.
+The plan lists =xtask/= as "build, validation-report, release automation", and
+one reading is that the statistics belong there.
+
+They do not, for one concrete reason: the Tier 5 differentials are *tests*, in
+=tepsim-oracle=, and a test crate cannot sensibly depend on =xtask=. The
+statistics have two consumers, the report generator and the differential
+tests, and the only shape that serves both is a library crate.
+
+*Decision: add =crates/tepsim-stats=, validation-only.* No shipped crate may
+depend on it, and =xtask ci= asserts that, exactly as it already does for
+=tepsim-oracle=. Unlike the oracle it needs no gfortran, so it builds and runs
+everywhere, including wasm.
+
+It is =no_std + alloc= and =forbid(unsafe_code)= like the rest, and
+deterministic under the same rules: no =f32=, no reordered reductions, fixed
+summation order.
+
+The alternative of putting the statistics in =tepsim-oracle= was rejected
+because half of Tier 5 (the physics invariants, and every port-versus-port
+comparison such as the D-011 delta) has nothing to do with the Fortran and
+should not require gfortran to run.
+
+=PLAN.org= updated: the layout gains the crate, and the isolation rule now
+names both.
+
 ** 2026-08-27 Tier 2 measures against the scale of the terms
 :PROPERTIES:
 :ITEM: B-0026a

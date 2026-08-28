@@ -23,6 +23,9 @@ tepsim = { path = "crates/tepsim", version = "0.0.0" }
 # Development-only. Depended on by xtask for the golden trace format, never
 # by a shipped crate; `cargo xtask ci` asserts that.
 tepsim-oracle = { path = "crates/tepsim-oracle", version = "0.0.0" }
+# Development-only, and the same rule applies. Unlike the oracle it needs no
+# gfortran, so it builds and runs everywhere.
+tepsim-stats = { path = "crates/tepsim-stats", version = "0.0.0" }
 
 [workspace.lints.rust]
 missing_docs = "warn"

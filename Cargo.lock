@@ -127,6 +127,13 @@ name = "tepsim-scenario"
 version = "0.0.0"
 
 [[package]]
+name = "tepsim-stats"
+version = "0.0.0"
+dependencies = [
+ "libm",
+]
+
+[[package]]
 name = "tepsim-wasm"
 version = "0.0.0"
 

@@ -199,7 +199,8 @@ tep-rust/
 │   ├── tepsim-cli/             # `tep` binary
 │   ├── tepsim-py/              # PyO3 bindings, maturin project
 │   ├── tepsim-wasm/            # wasm-bindgen bindings for the web app
-│   └── tepsim-oracle/          # DEV ONLY: gfortran FFI to the original teprob.f
+│   ├── tepsim-oracle/          # DEV ONLY: gfortran FFI to the original teprob.f
+│   └── tepsim-stats/           # DEV ONLY: statistics and detectors for tiers 5-7
 ├── apps/
 │   └── studio/                 # Leptos browser app ("TEP Studio")
 ├── xtask/                      # build, validation-report, release automation
@@ -209,8 +210,15 @@ tep-rust/
 
 =tepsim-core= is =no_std= with =alloc=, depends only on =libm= and optionally
 =serde=, and contains no I/O, no threads, and no global state. That constraint is
-what makes the wasm build small and the wheels trivially cross-compilable. The
-oracle crate is never a dependency of anything shipped.
+what makes the wasm build small and the wheels trivially cross-compilable.
+
+Two crates are validation-only and are never a dependency of anything shipped,
+which =cargo xtask ci= asserts: =tepsim-oracle=, which needs gfortran, and
+=tepsim-stats=, which does not. =tepsim-stats= holds every statistic the
+validation ladder uses, implemented in Rust rather than delegated to numpy or
+scipy, so that the equivalence claim rests on code this project tests rather
+than on a dependency's behaviour at a version nobody recorded. See the decision
+entry of 2026-08-28.
 
 Suggested public names: crate family =tepsim-*= on crates.io, PyPI package
 =tepsim= (verified available; =tep= is taken), browser app branded "TEP Studio".

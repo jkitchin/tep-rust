@@ -1,0 +1,20 @@
+[package]
+name = "tepsim-stats"
+description = "DEV ONLY: the statistics behind TEP-Rust's validation ladder, in Rust"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+publish = false
+
+[dependencies]
+# The same vendored libm the model uses, so a statistic computed here rounds
+# the same way on x86-64, aarch64 and wasm32.
+libm = { version = "0.2.16", default-features = false }
+
+[lints]
+workspace = true

@@ -285,21 +285,45 @@ fn parse_rustc_version(output: &str) -> Option<&str> {
     (parts.next()? == "rustc").then(|| parts.next())?
 }
 
-/// The oracle links the original Fortran and must never reach a shipped
-/// artifact. Cheap to check, expensive to discover at publish time.
+/// The development-only crates, which must never reach a shipped artifact.
+///
+/// `tepsim-oracle` links the original Fortran. `tepsim-stats` needs no gfortran
+/// but exists to *judge* the model, and a shipped crate that depended on its
+/// own judge would be a strange object. Both are cheap to check here and
+/// expensive to discover at publish time.
+const DEV_ONLY_CRATES: &[&str] = &["tepsim-oracle", "tepsim-stats"];
+
+/// No shipped crate may name a development-only one.
 fn check_oracle_isolation(root: &Path) -> Result<(), String> {
     for krate in SHIPPED_CRATES {
         let manifest = root.join("crates").join(krate).join("Cargo.toml");
         let text = fs::read_to_string(&manifest)
             .map_err(|e| format!("reading {}: {e}", manifest.display()))?;
-        if text.contains("tepsim-oracle") {
+        for dev in DEV_ONLY_CRATES {
+            if text.contains(dev) {
+                return Err(format!(
+                    "{krate} references {dev}, which is development-only and \
+                     must never be reachable from a shipped crate."
+                ));
+            }
+        }
+    }
+    // The check has teeth only if the crates it names exist. A typo in
+    // SHIPPED_CRATES would otherwise turn this into a loop over nothing.
+    for dev in DEV_ONLY_CRATES {
+        let manifest = root.join("crates").join(dev).join("Cargo.toml");
+        if !manifest.exists() {
             return Err(format!(
-                "{krate} references tepsim-oracle. The oracle is development-only \
-                 and must never be reachable from a shipped crate."
+                "{dev} is listed as development-only but {} does not exist",
+                manifest.display()
             ));
         }
     }
-    println!("[ok] oracle isolation: no shipped crate depends on tepsim-oracle");
+    println!(
+        "[ok] isolation: none of {} shipped crates depends on {:?}",
+        SHIPPED_CRATES.len(),
+        DEV_ONLY_CRATES
+    );
     Ok(())
 }
 
