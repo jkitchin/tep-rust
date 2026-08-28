@@ -1623,7 +1623,7 @@ Done when:
       recorded as a delta (D-009)
 - [X] Closed-loop Tier 4 against the oracle, both libm configurations
 
-** TODO B-0040 Class C: the driver's hard-coded IDV(12)
+** NEXT B-0040 Class C: the driver's hard-coded IDV(12)
 :PROPERTIES:
 :ID:    B-0040
 :PHASE: 4
