@@ -84,7 +84,35 @@ fn decoys() -> usize {
     std::env::var("TEP_TIER7_DECOYS")
         .ok()
         .and_then(|v| v.parse().ok())
-        .unwrap_or(4)
+        .unwrap_or_else(|| if full() { 4 } else { 1 })
+}
+
+/// Whether to run every published file, or a representative few.
+///
+/// The full sweep is 42 files by five seeds by 172,800 steps. That is 321
+/// seconds in release and *thirty-five minutes* in the debug build
+/// `cargo xtask ci` uses, which is not a per-commit cost. `TEP_TIER7=full`
+/// asks for all of it; anything else, including the variable being absent,
+/// runs [`SMOKE_FILES`].
+///
+/// The same idiom as `TEP_TIER1_SWEEP`, `TEP_TIER4_HOURS` and `TEP_TIER5`.
+pub fn full() -> bool {
+    std::env::var("TEP_TIER7").as_deref() == Ok("full")
+}
+
+/// The files the smoke sweep covers, chosen to span the outcomes rather than
+/// to be the first few.
+///
+/// `d00` is the fault-free operating point and the only transposed file.
+/// `d01` is an ordinary step fault. `d06` freezes on the reactor-pressure
+/// shutdown, which is the case no distributional statistic can be small on.
+/// `d12` is the one pair that genuinely carries `IDV(12)`, which is what the
+/// forced-disturbance finding turns on.
+pub const SMOKE_FILES: &[&str] = &["d00", "d01", "d06", "d12", "d12_te"];
+
+/// Whether this file is in the current sweep.
+pub fn included(name: impl AsRef<str>) -> bool {
+    full() || SMOKE_FILES.contains(&name.as_ref())
 }
 
 /// Seeds no published file was made with.
@@ -544,6 +572,9 @@ fn tier7_per_file_agreement() {
     let mut ranks = Vec::new();
     let mut rows = Vec::new();
     for file in &files {
+        if !included(file.name()) {
+            continue;
+        }
         if !file.is_representable() {
             println!(
                 "{:<9} {:>8} {:>8} {:>9} {:>8} {:>8} {:>8} {:>7} {:>6} {:>8} {:>9}   IDV(21) absent from this teprob.f",
@@ -919,7 +950,7 @@ fn the_files_that_shut_down_disagree_on_when() {
     );
     let mut compared = 0;
     for file in tier7::files() {
-        if !file.is_representable() {
+        if !included(file.name()) || !file.is_representable() {
             continue;
         }
         let rows = file.load();
@@ -1012,6 +1043,17 @@ fn the_files_that_shut_down_disagree_on_when() {
 
 #[test]
 fn neither_training_duration_hypothesis_beats_the_other() {
+
+    // The conclusion is a count across the training files: neither hypothesis
+    // wins on enough of them to separate. The smoke sweep has four files, and
+    // "9 against 11" is not a statement two files can make.
+    if !full() {
+        println!(
+            "skipped: comparing two training-duration hypotheses needs the \
+             whole set of training files. Run with TEP_TIER7=full."
+        );
+        return;
+    }
     // `Unknown::TrainingProtocolIsUndocumented`, measured rather than argued.
     // Two readings produce 480 rows with the fault three minutes before the
     // first of them:
@@ -1041,10 +1083,12 @@ fn neither_training_duration_hypothesis_beats_the_other() {
     let mut twenty_five_wins = 0;
     let mut twenty_four_wins = 0;
     let mut worst_gap = 0.0_f64;
-    for file in tier7::files()
-        .into_iter()
-        .filter(|f| f.split == Split::Training && f.fault != 0 && f.is_representable())
-    {
+    for file in tier7::files().into_iter().filter(|f| {
+        f.split == Split::Training
+            && f.fault != 0
+            && f.is_representable()
+            && included(f.name())
+    }) {
         let published = file.run();
         let a = agreement(
             &file,

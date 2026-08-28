@@ -2068,14 +2068,52 @@ Done when:
 - [ ] The claim stated as a number, or the item is =BLOCKED= with the number
       that failed
 
-** TODO B-0051 Tier 7: reproduce d00 through d21
+** DONE B-0051 Tier 7: reproduce d00 through d21
 :PROPERTIES:
 :ID:    B-0051
 :PHASE: 5
 :TIER:  7
 :DEPS:  B-0047b
 :PLAN:  Validation > Tier 7
+:COMMIT: dccbc56
+:RESULT: 44 files inventoried from the bytes. Trajectory reproduction *fails*
+         and the reason is established rather than guessed: the recorded seeds
+         carry no information (ranked first on 10 of 42 files against a
+         4-decoy null where chance gives 8.4). The *operating point* matches:
+         d00 median mean gap 0.037 published sd, median sd ratio 1.082. Under
+         the evidence-supported reading, 38 of 42 land at KS median 0.044 to
+         0.14.
+:FINDING: *The published datasets were not generated with the driver as
+          shipped.* =temain_mod.f:367='s forced IDV(12) was replaced, not kept.
+          Two independent predictions agree: d12_te's spread jumps at row 160
+          by at least 5.3x what d00_te's does on every channel IDV(12) drives,
+          and keeping the line inflates the port's spread against d00 by up to
+          9.9x against 1.55x for replacing it. Removing it roughly triples the
+          agreement across the whole table (d17_te 0.658 to 0.044). The port's
+          default was *not* changed: it still reproduces the driver as shipped.
 :END:
+
+** TODO B-0051a What the Tier 7 evidence implies for the default
+:PROPERTIES:
+:ID:    B-0051a
+:PHASE: 5
+:TIER:  7
+:DEPS:  B-0051 B-0040a
+:PLAN:  Quirk and delta register
+:QUESTION: B-0051 shows the published datasets were made with
+           =temain_mod.f:367= replaced rather than kept. Does that change the
+           answer to B-0040a?
+:END:
+
+B-0040a asks whether =driver_forces_idv12= should stay the default, and the
+argument for keeping it was that every published dataset longer than eight
+hours carries it. B-0051's evidence says that argument is *wrong*: the
+published files carry IDV(12) only in d12 and d12_te.
+
+That does not settle it, because the shipped source does force it and
+reproducing the source is a separate goal from reproducing the files. But it
+removes the only reason anyone had for the current default, and the two items
+should now be answered together.
 
 The Fortran carries four seed values in comments. Attempt direct reproduction
 of the bundled files under the documented protocol, and report per-file
@@ -2179,13 +2217,21 @@ Done when:
       asserted rather than assumed
 - [X] Euler still reproduces the Fortran bit for bit
 
-** NEXT B-0054 The scenario engine
+** DONE B-0054 The scenario engine
 :PROPERTIES:
 :ID:    B-0054
 :PHASE: 6
 :TIER:  4
 :DEPS:  B-0052
 :PLAN:  Architecture > Ground truth and labeling
+:COMMIT: b7d09b2
+:RESULT: =Schedule= of =Event=s (start, stop, set magnitude, move a setpoint),
+         applied before the controllers each step. Continuous magnitudes as a
+         core =Extension= rather than a =QuirkFix=; half of IDV(1) puts mean
+         XMEAS(1) at 0.503 of the way from none to full, and magnitude 1.0 is
+         bit-identical to the faithful path. FNV-1a content digest covering
+         every field; ten single-field variants all differ from the baseline
+         and from each other. 13 tests.
 :END:
 
 Events on a schedule, continuous-magnitude disturbances rather than the
@@ -2193,9 +2239,28 @@ original's binary flags, serialisation, and a content hash so a dataset is
 self-describing.
 
 Done when:
-- [ ] A scenario round-trips through its serialised form
-- [ ] The content hash changes when the scenario does and not otherwise
-- [ ] Binary =IDV= flags remain reproducible exactly, as a special case
+- [ ] A scenario round-trips through its serialised form. *Not done*: there is
+      a content hash but no serialisation. Both binding layers enumerate the
+      field list by hand, which the browser agent flagged as friction. Moved
+      to B-0054a
+- [X] The content hash changes when the scenario does and not otherwise
+- [X] Binary =IDV= flags remain reproducible exactly, as a special case
+
+** TODO B-0054a Scenario serialisation
+:PROPERTIES:
+:ID:    B-0054a
+:PHASE: 6
+:TIER:  none
+:DEPS:  B-0054
+:PLAN:  Architecture > Ground truth and labeling
+:END:
+
+=Scenario= has a content hash but no =to_json=/=from_json=. Three places now
+enumerate its fields by hand: =worker.js='s =buildScenario=, =app.js='s
+=startRequest= and =share.js='s =KEYS=. A field added to =Scenario= silently
+fails to reach a shared browser link.
+
+Needs a decision about serde in a crate that compiles to wasm32.
 
 ** DONE B-0055 Recorder sinks
 :PROPERTIES:
@@ -2272,14 +2337,31 @@ Done when:
 - [X] Type stubs and =py.typed=, with a test that they cannot drift
 - [X] Python tests that actually run
 
-** TODO B-0058a The wheel matrix and CI publication
+** DONE B-0058a The wheel matrix, and Python in the gate
 :PROPERTIES:
 :ID:    B-0058a
 :PHASE: 7
 :TIER:  none
 :DEPS:  B-0058
 :PLAN:  Python bindings
+:COMMIT: 8a3c2a3
+:RESULT: =cargo xtask python= builds the wheel, installs it into a throwaway
+         venv and runs the 47 pytest tests; wired into =xtask ci= and skipped
+         with a message when maturin is absent. It asserts the import site is
+         inside that venv, without which a green Python gate could be testing
+         some other =tepsim=. =cargo xtask licences= catches the Windows
+         symlink hazard, verified by actually writing =../../LICENSE= into the
+         tree and watching it exit 2. Wheel workflow covers 8 abi3 targets,
+         cp313t/cp314t, sdist, a no-index smoke matrix and Pyodide.
+:RESIDUE: The workflow itself is unrun. The free-threaded and Pyodide rows are
+          the weakest: nothing has compiled pyo3 0.29 against a free-threaded
+          interpreter, and the Emscripten job has the most moving parts and
+          none exercised.
 :END:
+
+*Incidental finding.* =which()= in =xtask= never found anything on Windows: it
+did not probe =.exe= or =.cmd=. Every tool check therefore reported absent and
+skipped its job convincingly, including the gfortran one.
 
 Only the local macOS arm64 abi3 wheel is proven. =PLAN.org= wants manylinux,
 musllinux, macOS, Windows, the free-threaded =cp313t= and =cp314t= builds, and
