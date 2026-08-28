@@ -5679,3 +5679,142 @@ app, which additionally needs =trunk= installed.
 Phase 5's B-0047c (the full battery, about 90 minutes of compute, plus the
 seed-count decision the power finding forces) and B-0048 (the report chapter)
 are unfinished and block nothing.
+
+* 2026-08-28 B-0053, B-0055, B-0058, B-0059, B-0049, B-0060 Six items, four in parallel
+:PROPERTIES:
+:ITEM:     B-0053 B-0055 B-0058 B-0059 B-0049 B-0060
+:PHASE:    6 7 8 9 5
+:TIER:     4 6 9
+:COMMIT:   0d6d003
+:GFORTRAN: 15.2.0
+:STATUS:   DONE
+:END:
+** Preflight
+Clean and green throughout. Fidelity 100 of 100, worst 3.521e-14 at =YP(12)=
+step 77, unchanged. gfortran 15.2.0.
+
+** How this round was run
+The user asked for a team of agents on parallel activities. Four ran in git
+worktrees on disjoint crates: PyO3 bindings, the mdBook, the Tier 6 detectors,
+and the wasm bindings. I took the integrators and the recorder sinks in the
+main tree and did every merge and all the bookkeeping centrally, so that
+=BACKLOG.org=, =LOG.org= and =book/src/deltas.md= had exactly one writer.
+
+*The one thing that nearly went badly wrong.* Three of the four worktrees were
+created at =8fd135c=, one hundred and thirty-three commits behind. At that
+commit =crates/tepsim= is fourteen lines of =pub use=, =tepsim-stats= does not
+exist, and =book/= does not exist. The documentation agent noticed on its own
+and fast-forwarded. The statistics agent noticed and fast-forwarded. The wasm
+agent did not, and had written a complete implementation against a tree with no
+facade in it before I caught it and sent it back; it discarded everything and
+rewrote. Two of its files were a hand-transcribed =IDV= table and a placeholder
+sample engine, both of which already existed in validated form on =main=.
+
+The lesson is cheap to state and was expensive to learn: *check the base commit
+of every worktree before the agents start*, not after.
+
+** What landed
+| item   | what                                    | where |
+|--------+-----------------------------------------+-------|
+| B-0053 | Euler, RK4, Dormand-Prince 5(4)         | me    |
+| B-0055 | Recorder, five sinks, and =run_into=      | me    |
+| B-0058 | PyO3 bindings and an abi3 wheel          | agent |
+| B-0059 | The mdBook, thirteen chapters            | agent |
+| B-0049 | Jacobi, PCA, T-squared, SPE, DPCA        | agent |
+| B-0060 | wasm-bindgen bindings and a worker       | agent |
+
+** Validation numbers
+Tests: *411 default, 601 with =oracle=*, up from 387 and 577. Plus 47 Python
+tests and 105 Node checks that =xtask ci= does not yet run (B-0058a).
+
+*Integrators.* Orders against =y' = y=: Euler 0.993, RK4 3.970, dopri5 4.937.
+The walks advance once per outer step whichever method runs, and all three
+update the gas analyser exactly 9 times over an hour.
+
+*The result about the original.* Worst relative difference over all 53
+channels, at one hour: euler-rk4 1.113e-2, rk4-dopri5 1.496e-6, euler-dopri5
+1.112e-2. Two independent high-order methods agree with each other four orders
+of magnitude better than either agrees with Euler, so Euler is the outlier and
+the published TEP data carries about one percent of integration error against
+an accurate solution of the same equations. It saturates rather than
+accumulating, because the controllers hold the setpoints.
+
+*Python.* Wheel 328,137 bytes, =cp39-abi3=, imports in 1.4 ms. 2 h run 32.0 ms,
+48 h run 851 ms, and eight 48-hour runs across eight threads in 0.997 s against
+5.912 s serial, a 5.93x speedup from releasing the GIL. One copy at
+construction then views: channel accessors share memory with the matrix and
+every array is read-only. *Verified independently of the agent*: the open-loop
+plant trips at step 11,017 (3.060 h) on reactor pressure high, identical to the
+Rust CLI and to the Tier 4 test.
+
+*wasm.* Deployable total *45,015 bytes gzipped* against a 1.5 MB budget. The
+raw cargo artifact is 450,564 bytes and gzips to 113,888; wasm-bindgen strips
+the describe scaffolding to 87 KB raw, 35 KB gzipped. Determinism digest
+=c8a26889992f1719=, identical on aarch64 and wasm32 across three profiles, and
+exported glue-free so any runtime can check it. The wasm half of Tier 9 is
+automatable today.
+
+*Detectors.* Eigensolver reconstructs to 8.2e-15 at n=30, recovers the 1-D
+Laplacian's published spectrum to 8.0e-15, and gets Hilbert 8x8's smallest
+eigenvalue as +1.111539e-10 at condition 1.53e10. F quantile matches all ten
+published table entries. T-squared calibration: 4936 exceedances in 100,000 at
+a nominal 0.05, 0.6 standard errors out.
+
+*Book.* Thirteen chapters, 2,772 lines, =mdbook build= and =mdbook test= clean.
+
+** Surprises and decisions
+*Two wall-clock assertions failed, and both were measuring the machine.* The
+autocorrelation test asserted the transform was faster than the definition;
+with four agents compiling in parallel, the ordering flipped. The energy
+distance test was worse: it discarded the naive call's result, so a release
+build eliminated it as dead code, timed 0.0 s, and failed by concluding the
+naive form was affordable. Both now assert *scaling* instead. Quadrupling the
+data costs the definition x13.7 and the fast form x3.6; ten times the lags cost
+the direct autocorrelation x9.65 and the transform x0.64.
+
+A timing test that passes on an idle machine is measuring the machine. Where
+the claim is about complexity, measure complexity.
+
+*A citation block had been wrong since B-0011.* The documentation agent, told
+to cite a line range for every factual claim, checked them instead of copying
+them, and found every =teprob.f= line number in =stream.rs='s mapping
+derivation off by one: =FTM(1)= is at 565 not 564, =XMEAS(10)= at 688 not 687.
+=flows.rs= and =measurements.rs= had them right, which is how it surfaced. The
+mapping was correct; the citations were not, which is worse than useless in the
+one module whose entire purpose is to be the checkable record of it. Now fixed
+and pinned: a test reads the vendored Fortran and checks each cited line says
+what the prose claims, plus a second test that the neighbouring lines do *not*
+match, so a block shifted wholesale cannot pass.
+
+Prose is not compiled. Anything load-bearing written in a comment needs a test.
+
+*Both binding agents found bugs by breaking their own work on purpose.* The
+wasm run digest did not cover the packed row buffer, so a transposition would
+have shipped wrong numbers under a matching digest. The statistics agent ran 32
+mutations and two survived: a Jacobi rotation that evaluated the annihilated
+pivot instead of assigning zero, and a correlation grouped as
+=sqrt(a)*sqrt(b)= rather than =sqrt(a*b)=, whose difference is one ulp on
+exactly collinear columns and zero elsewhere. It closed both, and noted that
+one of the existing tests claimed "bit for bit" in its name while asserting
+=< 1e-14=.
+
+*A seam the facade does not have.* A mid-run fault toggle cannot reach a
+running =Simulation=: the scenario is taken at construction and handed to the
+driver there. The wasm agent declined to invent one, on the grounds that a run
+reachable only through the browser is a run nobody can reproduce. That is the
+right call and the seam belongs in B-0054.
+
+** Next
+B-0054, the scenario engine, is the last Phase 6 item not blocked on a
+sign-off, and it now has a second reason to exist: the live-fault seam above.
+
+What remains, honestly. Phase 5: B-0047c (the full battery, about 90 minutes,
+plus the seed-count decision the power finding forces), B-0048 (the report
+chapter, generated rather than hand-written), B-0049a (CVA and published
+detection rates), B-0050 (the cross-source experiment), B-0051 (Tier 7).
+Phase 6: B-0054, B-0057 (quirk deltas, needs B-0047c). Phase 7: B-0058a (the
+wheel matrix, and =xtask= running the Python tests at all). Phase 8: the Leptos
+app, which needs =trunk=, still not installed. Phase 9: B-0059a.
+
+Two items remain blocked on the user: B-0025b (should a shutdown end the run)
+and B-0040a (should the driver's IDV(12) stay the default).
