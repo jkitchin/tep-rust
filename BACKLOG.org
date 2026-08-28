@@ -2162,7 +2162,7 @@ Done when:
 - [ ] The content hash changes when the scenario does and not otherwise
 - [ ] Binary =IDV= flags remain reproducible exactly, as a special case
 
-** TODO B-0055 Recorder sinks
+** NEXT B-0055 Recorder sinks
 :PROPERTIES:
 :ID:    B-0055
 :PHASE: 6

@@ -5,6 +5,7 @@ use alloc::vec::Vec;
 use tepsim_control::{DRIVER_INITIAL_VALVES, Driver, STEADY_STATE_STEPS};
 use tepsim_core::{Inputs, Plant, SimTime, State, TemperatureSeeds, constants};
 
+use crate::recorder::Recorder;
 use crate::run::{Labels, Outcome, Run, Sample};
 use crate::scenario::{DISTURBANCES, Scenario};
 
@@ -275,6 +276,26 @@ impl Simulation {
             samples,
             outcome: self.event.unwrap_or(Outcome::Completed),
         }
+    }
+
+    /// Run the whole scenario, handing every sample to a [`Recorder`] instead
+    /// of collecting them.
+    ///
+    /// This is the form to use when the samples do not all need to be in
+    /// memory at once. A 48-hour run recorded at every step is 172,800 rows of
+    /// 53 channels, which is 73 MB; a browser rendering a live trace wants the
+    /// last few hundred, and a CSV writer wants none of them held at all.
+    ///
+    /// Returns how the run ended. The samples are wherever the recorder put
+    /// them.
+    pub fn run_into<R: Recorder>(mut self, recorder: &mut R) -> Outcome {
+        while !self.halted {
+            if let Some(sample) = self.step() {
+                recorder.record(&sample);
+            }
+        }
+        recorder.finish();
+        self.event.unwrap_or(Outcome::Completed)
     }
 
     /// Ground truth as of now.

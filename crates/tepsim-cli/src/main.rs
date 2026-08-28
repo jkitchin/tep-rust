@@ -1,17 +1,17 @@
 //! `tep`: run the Tennessee Eastman Process from a terminal.
 //!
 //! Deliberately small. Argument parsing is hand-written rather than pulled from
-//! a crate, because the whole surface is four flags and a subcommand, and
+//! a crate, because the whole surface is eight flags and a subcommand, and
 //! `tepsim-cli` is the one place a heavyweight dependency would show up in a
-//! user's build. When the scenario engine lands in B-0054 and this needs to
-//! parse scenario files, that decision is worth revisiting.
+//! user's build. When the scenario engine lands and this needs to parse
+//! scenario files, that decision is worth revisiting.
 
 #![forbid(unsafe_code)]
 
 use std::io::{self, BufWriter, Write};
 use std::process::ExitCode;
 
-use tepsim::{Integrator, Outcome, Run, Scenario, Simulation, channel_names};
+use tepsim::{Csv, Decimating, Integrator, Outcome, Scenario, Simulation};
 
 const USAGE: &str = "\
 tep - Tennessee Eastman Process simulator
@@ -26,10 +26,11 @@ RUN OPTIONS:
     --hours <h>              Simulated duration (default: 48)
     --seed <n>               Generator word (default: 4651207995)
     --every <steps>          Sample every N steps (default: 180, i.e. 3 min)
+    --decimate <n>           Write only every nth recorded sample
+    --integrator <name>      euler (default, matches the original), rk4, dopri5
     --open-loop              Hold the valves instead of controlling
     --no-forced-idv12        Do not switch IDV(12) on at hour eight
     --labels                 Include ground-truth columns
-    --integrator <name>      euler (default, matches the original), rk4, dopri5
 
 EXAMPLES:
     tep run --hours 8 > normal.csv
@@ -41,14 +42,12 @@ NOTE ON --integrator:
     Only `euler` reproduces the original. The published data uses fixed-step
     explicit Euler at one second and carries about 1% of integration error
     against an accurate solution; rk4 and dopri5 remove that error and so give
-    different numbers. See the book's validation chapter.
+    different numbers.
 ";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let command = args.first().map(String::as_str);
-
-    match command {
+    match args.first().map(String::as_str) {
         None | Some("help" | "--help" | "-h") => {
             print!("{USAGE}");
             ExitCode::SUCCESS
@@ -58,7 +57,7 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         Some("run") => match parse_run(&args[1..]) {
-            Ok((scenario, labels)) => run(scenario, labels),
+            Ok(options) => run(options),
             Err(message) => fail(&message),
         },
         Some(other) => fail(&format!("unknown command `{other}`")),
@@ -83,12 +82,17 @@ fn list_faults() {
     }
 }
 
-/// Parse `tep run`'s flags.
-///
-/// Returns the scenario and whether to emit label columns.
-fn parse_run(args: &[String]) -> Result<(Scenario, bool), String> {
+/// What `tep run` was asked to do.
+struct Options {
+    scenario: Scenario,
+    labels: bool,
+    decimate: usize,
+}
+
+fn parse_run(args: &[String]) -> Result<Options, String> {
     let mut scenario = Scenario::baseline();
     let mut labels = false;
+    let mut decimate = 1_usize;
     let mut rest = args.iter();
 
     while let Some(flag) = rest.next() {
@@ -142,6 +146,16 @@ fn parse_run(args: &[String]) -> Result<(Scenario, bool), String> {
                 }
                 scenario = scenario.sampling_every(steps);
             }
+            "--decimate" => {
+                let raw = value()?;
+                let factor: usize = raw
+                    .parse()
+                    .map_err(|_| format!("`--decimate {raw}` is not a number"))?;
+                if factor == 0 {
+                    return Err("`--decimate 0` would keep nothing".to_string());
+                }
+                decimate = factor;
+            }
             "--integrator" => {
                 let raw = value()?;
                 let method = Integrator::parse(&raw).ok_or_else(|| {
@@ -155,16 +169,26 @@ fn parse_run(args: &[String]) -> Result<(Scenario, bool), String> {
             other => return Err(format!("unknown option `{other}`")),
         }
     }
-    Ok((scenario, labels))
+    Ok(Options {
+        scenario,
+        labels,
+        decimate,
+    })
 }
 
-fn run(scenario: Scenario, labels: bool) -> ExitCode {
-    let steps = scenario.steps();
+fn run(options: Options) -> ExitCode {
+    let Options {
+        scenario,
+        labels,
+        decimate,
+    } = options;
+
     eprintln!(
-        "tep: {:.1} h, {steps} steps, sampling every {} ({} rows), seed {}, {}",
+        "tep: {:.1} h, {} steps, sampling every {} ({} rows), seed {}, {}",
         scenario.hours,
+        scenario.steps(),
         scenario.sample_every,
-        scenario.samples(),
+        scenario.samples().div_ceil(decimate),
         scenario.seed,
         if scenario.controlled {
             "closed loop"
@@ -180,18 +204,40 @@ fn run(scenario: Scenario, labels: bool) -> ExitCode {
         );
     }
 
-    let finished = Simulation::new(scenario).run();
-    if let Err(error) = write_csv(&finished, labels) {
-        // A closed pipe is how `| head` ends, and it is not a failure.
+    // Streamed through the library's own CSV sink rather than collected first.
+    // A 48-hour run sampled at every step is 172,800 rows of 53 channels, and
+    // there is no reason for the process ever to hold them.
+    //
+    // `Decimating` wraps the CSV sink and not the writer: it has to see whole
+    // samples, and decimating formatted text would drop parts of rows.
+    let stdout = io::stdout();
+    let mut writer = Adapter::new(BufWriter::new(stdout.lock()));
+    let outcome = {
+        let mut csv = Csv::new(&mut writer);
+        if labels {
+            csv = csv.with_labels();
+        }
+        let mut sink = Decimating::new(csv, decimate);
+        Simulation::new(scenario).run_into(&mut sink)
+    };
+
+    // A closed pipe is how `| head` ends, and it is not a failure.
+    if writer.broken_pipe() {
+        return ExitCode::SUCCESS;
+    }
+    if let Err(error) = writer.finish() {
         if error.kind() == io::ErrorKind::BrokenPipe {
             return ExitCode::SUCCESS;
         }
         return fail(&format!("writing output: {error}"));
     }
+    if let Some(error) = writer.error() {
+        return fail(&format!("writing output: {error}"));
+    }
 
-    match finished.outcome {
+    match outcome {
         Outcome::Completed => {
-            eprintln!("tep: completed, {} rows", finished.samples.len());
+            eprintln!("tep: completed");
             ExitCode::SUCCESS
         }
         Outcome::Tripped { step, hours, cause } => {
@@ -199,8 +245,7 @@ fn run(scenario: Scenario, labels: bool) -> ExitCode {
             // after it are part of what the original produces.
             eprintln!(
                 "tep: the plant tripped at step {step} ({hours:.3} h) on {cause:?}; \
-                 {} rows written, the plant frozen after the trip",
-                finished.samples.len()
+                 the plant is frozen after the trip"
             );
             ExitCode::SUCCESS
         }
@@ -211,43 +256,51 @@ fn run(scenario: Scenario, labels: bool) -> ExitCode {
     }
 }
 
-fn write_csv(run: &Run, labels: bool) -> io::Result<()> {
-    let stdout = io::stdout();
-    let mut out = BufWriter::new(stdout.lock());
+/// Bridges `core::fmt::Write`, which the library's sinks use, to
+/// `std::io::Write`, which stdout is.
+///
+/// The library cannot use `io::Write`: the same code compiles to wasm32 for the
+/// browser, where there is no `std`. Holding the first error rather than
+/// returning it is forced by `fmt::Write`'s signature, which is why
+/// [`Adapter::error`] exists.
+struct Adapter<W> {
+    out: W,
+    error: Option<io::Error>,
+}
 
-    write!(out, "step,hours")?;
-    for name in channel_names() {
-        write!(out, ",{name}")?;
+impl<W: Write> Adapter<W> {
+    const fn new(out: W) -> Self {
+        Self { out, error: None }
     }
-    if labels {
-        write!(out, ",fault,hours_since_onset")?;
-    }
-    writeln!(out)?;
 
-    for sample in &run.samples {
-        write!(out, "{},{:.6}", sample.step, sample.hours)?;
-        for value in sample.row() {
-            // Seventeen significant digits round-trips an f64 exactly, which
-            // is what makes a CSV written here reproducible rather than
-            // approximately reproducible.
-            write!(out, ",{value:.17e}")?;
+    fn broken_pipe(&self) -> bool {
+        self.error
+            .as_ref()
+            .is_some_and(|e| e.kind() == io::ErrorKind::BrokenPipe)
+    }
+
+    const fn error(&self) -> Option<&io::Error> {
+        self.error.as_ref()
+    }
+
+    fn finish(&mut self) -> io::Result<()> {
+        self.out.flush()
+    }
+}
+
+impl<W: Write> core::fmt::Write for Adapter<W> {
+    fn write_str(&mut self, s: &str) -> core::fmt::Result {
+        if self.error.is_some() {
+            return Err(core::fmt::Error);
         }
-        if labels {
-            let active: Vec<String> = sample.labels.faults().map(|n| n.to_string()).collect();
-            let since = sample
-                .labels
-                .faults()
-                .next()
-                .and_then(|n| sample.labels.since_onset[n - 1]);
-            write!(out, ",{}", active.join(" "))?;
-            match since {
-                Some(hours) => write!(out, ",{hours:.6}")?,
-                None => write!(out, ",")?,
+        match self.out.write_all(s.as_bytes()) {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                self.error = Some(error);
+                Err(core::fmt::Error)
             }
         }
-        writeln!(out)?;
     }
-    out.flush()
 }
 
 #[cfg(test)]
@@ -258,21 +311,22 @@ fn write_csv(run: &Run, labels: bool) -> io::Result<()> {
 mod tests {
     use super::*;
 
-    fn parse(args: &[&str]) -> Result<(Scenario, bool), String> {
+    fn parse(args: &[&str]) -> Result<Options, String> {
         let owned: Vec<String> = args.iter().map(|s| (*s).to_string()).collect();
         parse_run(&owned)
     }
 
     #[test]
     fn no_arguments_is_the_baseline() {
-        let (scenario, labels) = parse(&[]).expect("parses");
-        assert_eq!(scenario, Scenario::baseline());
-        assert!(!labels);
+        let options = parse(&[]).expect("parses");
+        assert_eq!(options.scenario, Scenario::baseline());
+        assert!(!options.labels);
+        assert_eq!(options.decimate, 1);
     }
 
     #[test]
     fn every_flag_reaches_the_scenario() {
-        let (scenario, labels) = parse(&[
+        let options = parse(&[
             "--fault",
             "4",
             "--hours",
@@ -281,24 +335,31 @@ mod tests {
             "99",
             "--every",
             "60",
+            "--decimate",
+            "5",
             "--open-loop",
             "--no-forced-idv12",
             "--labels",
         ])
         .expect("parses");
 
-        assert_eq!(scenario.active_faults().collect::<Vec<_>>(), vec![4]);
-        assert_eq!(scenario.hours, 12.0);
-        assert_eq!(scenario.seed, 99.0);
-        assert_eq!(scenario.sample_every, 60);
-        assert!(!scenario.controlled);
-        assert!(!scenario.driver_forces_idv12);
-        assert!(labels);
-        assert_eq!(scenario.integrator, Integrator::Euler);
+        assert_eq!(
+            options.scenario.active_faults().collect::<Vec<_>>(),
+            vec![4]
+        );
+        assert_eq!(options.scenario.hours, 12.0);
+        assert_eq!(options.scenario.seed, 99.0);
+        assert_eq!(options.scenario.sample_every, 60);
+        assert_eq!(options.decimate, 5);
+        assert!(!options.scenario.controlled);
+        assert!(!options.scenario.driver_forces_idv12);
+        assert!(options.labels);
+        // Unspecified, so the faithful default.
+        assert_eq!(options.scenario.integrator, Integrator::Euler);
 
-        let (rk4, _) = parse(&["--integrator", "rk4"]).expect("parses");
-        assert_eq!(rk4.integrator, Integrator::Rk4);
-        assert!(!rk4.integrator.is_faithful());
+        let rk4 = parse(&["--integrator", "rk4"]).expect("parses");
+        assert_eq!(rk4.scenario.integrator, Integrator::Rk4);
+        assert!(!rk4.scenario.integrator.is_faithful());
     }
 
     /// Bad input is refused with a message that says what to do, rather than
@@ -314,6 +375,7 @@ mod tests {
             (vec!["--hours", "-3"], "must be positive"),
             (vec!["--seed", "0"], "must be positive"),
             (vec!["--every", "0"], "would sample nothing"),
+            (vec!["--decimate", "0"], "would keep nothing"),
             (vec!["--integrator", "heun"], "not one of"),
             (vec!["--nonsense"], "unknown option"),
         ] {
@@ -337,11 +399,12 @@ mod tests {
     #[test]
     fn the_usage_text_mentions_every_flag_that_exists() {
         for flag in [
-            "--integrator",
             "--fault",
             "--hours",
             "--seed",
             "--every",
+            "--decimate",
+            "--integrator",
             "--open-loop",
             "--no-forced-idv12",
             "--labels",

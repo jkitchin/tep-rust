@@ -32,18 +32,24 @@
 //!
 //! Not from the paper, and not from another port. From the Fortran itself:
 //!
-//! - `teprob.f:564` drives `FTM(1)` from valve 1, and `XMV(1)` is documented as
+//! - `teprob.f:565` drives `FTM(1)` from valve 1, and `XMV(1)` is documented as
 //!   "D Feed Flow (stream 2)".
-//! - `teprob.f:566` gates `FTM(3)` on `IDV(6)`, documented as "A Feed Loss
+//! - `teprob.f:567` gates `FTM(3)` on `IDV(6)`, documented as "A Feed Loss
 //!   (Stream 1)".
-//! - `teprob.f:567` scales `FTM(4)` by `IDV(7)`, "C Header Pressure Loss
-//!   (Stream 4)".
-//! - `teprob.f:687` reports `FTM(10)` as `XMEAS(10)`, "Purge Rate (stream 9)".
-//! - `teprob.f:682` reports `FTM(9)` as `XMEAS(5)`, "Recycle Flow (stream 8)".
-//! - `teprob.f:569` drives `FTM(11)` from valve 7, "Separator Pot Liquid Flow
+//! - `teprob.f:568-569` scales `FTM(4)` by `IDV(7)`, "C Header Pressure Loss
+//!   (Stream 4)". Two lines: the statement is continued.
+//! - `teprob.f:688` reports `FTM(10)` as `XMEAS(10)`, "Purge Rate (stream 9)".
+//! - `teprob.f:683` reports `FTM(9)` as `XMEAS(5)`, "Recycle Flow (stream 8)".
+//! - `teprob.f:570` drives `FTM(11)` from valve 7, "Separator Pot Liquid Flow
 //!   (stream 10)".
-//! - `teprob.f:570` drives `FTM(13)` from valve 8, "Stripper Liquid Product
+//! - `teprob.f:571` drives `FTM(13)` from valve 8, "Stripper Liquid Product
 //!   Flow (stream 11)".
+//!
+//! Every line number above was off by one until B-0055. The mapping they
+//! establish was right; the citations were not, which is worse than useless in
+//! the one module whose entire purpose is to be the checkable record of it.
+//! `flows.rs` and `measurements.rs` had them right all along, which is how the
+//! discrepancy surfaced.
 
 /// A process stream, named by its role rather than by either numbering.
 ///
@@ -324,6 +330,86 @@ mod tests {
                 *count, expected,
                 "paper stream {n} is covered {count} times, expected {expected}"
             );
+        }
+    }
+}
+
+#[cfg(test)]
+mod citation_tests {
+    //! The module documentation above cites `teprob.f` line numbers to
+    //! establish the stream mapping. Those citations were off by one from
+    //! B-0011 until B-0055, and nothing caught it because prose is not
+    //! compiled. This reads the vendored source and checks them.
+    //!
+    //! `reference/teprob.f` is asserted unmodified by a checksum elsewhere, so
+    //! the file this reads is the file the citations refer to.
+
+    extern crate std;
+
+    use std::string::String;
+
+    /// `(line, what the line must contain)`, from the module documentation.
+    const CITATIONS: &[(usize, &str)] = &[
+        (565, "FTM(1)=VPOS(1)"),
+        (567, "FTM(3)=VPOS(3)*(1.D0-IDV(6))"),
+        (568, "FTM(4)=VPOS(4)*(1.D0-IDV(7)"),
+        (570, "FTM(11)=VPOS(7)"),
+        (571, "FTM(13)=VPOS(8)"),
+        (683, "XMEAS(5)=FTM(9)"),
+        (688, "XMEAS(10)=FTM(10)"),
+    ];
+
+    #[test]
+    fn every_cited_line_says_what_the_documentation_claims() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../reference/fortran/teprob.f"
+        );
+        let source = std::fs::read_to_string(path).expect("the vendored Fortran");
+        let lines: std::vec::Vec<&str> = source.lines().collect();
+
+        for (number, expected) in CITATIONS {
+            let line: String = lines
+                .get(number - 1)
+                .unwrap_or(&"")
+                .split_whitespace()
+                .collect();
+            let wanted: String = expected.split_whitespace().collect();
+            assert!(
+                line.contains(&wanted),
+                "teprob.f:{number} is {:?}, which does not contain {expected:?}",
+                lines.get(number - 1).unwrap_or(&"")
+            );
+        }
+    }
+
+    /// And the off-by-one really would be caught: the neighbouring lines do
+    /// not match. Without this, a citation block shifted wholesale by one
+    /// could still pass if the source happened to be repetitive.
+    #[test]
+    fn the_neighbouring_lines_do_not_match() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../reference/fortran/teprob.f"
+        );
+        let source = std::fs::read_to_string(path).expect("the vendored Fortran");
+        let lines: std::vec::Vec<&str> = source.lines().collect();
+
+        for (number, expected) in CITATIONS {
+            for offset in [-1_isize, 1] {
+                let neighbour = number.wrapping_add_signed(offset);
+                let line: String = lines
+                    .get(neighbour - 1)
+                    .unwrap_or(&"")
+                    .split_whitespace()
+                    .collect();
+                let wanted: String = expected.split_whitespace().collect();
+                assert!(
+                    !line.contains(&wanted),
+                    "teprob.f:{neighbour} also matches {expected:?}, so this \
+                     test cannot detect an off-by-one"
+                );
+            }
         }
     }
 }

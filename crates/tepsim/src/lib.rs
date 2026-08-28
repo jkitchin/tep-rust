@@ -43,11 +43,13 @@
 extern crate alloc;
 
 pub mod integrator;
+pub mod recorder;
 pub mod run;
 pub mod scenario;
 pub mod sim;
 
 pub use integrator::{Integrator, Step};
+pub use recorder::{Columnar, Csv, CsvString, Decimating, Recorder, Ring, Selecting};
 pub use run::{CHANNELS, Labels, MANIPULATED, MEASUREMENTS, Outcome, Run, Sample, channel_names};
 pub use scenario::{DISTURBANCES, Scenario};
 pub use sim::{Simulation, forced_disturbance_step};
