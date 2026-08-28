@@ -14,17 +14,17 @@ earlier phases will change what the right decomposition is.
 
 Rewrite this block at the end of every iteration. Keep it to five lines.
 
-- Phase: 5, three of ten done. Phases 1-4 are closed
-- Last completed: B-0044. A deterministic radix-2 FFT, agreeing with the
-  definition to under one ULP
+- Phase: 5, four of ten done. Phases 1-4 are closed
+- Last completed: B-0045. Autocorrelation and Welch spectra, the first Tier 5
+  statistics that can see time
 - In flight: (none)
-- Baseline: =cargo xtask ci= green; 338 tests default, 503 with =oracle=;
+- Baseline: =cargo xtask ci= green; 356 tests default, 521 with =oracle=;
   =validate --tiers 1,2,3,4= green; provenance *1123/1589* on =teprob.f=,
   *183/1408* on =temain_mod.f=, 43.6% combined
 - Toolchain: rustup, pinned to rustc 1.97.1, wasm32 installed, libm 0.2.16
 - Remote: private jkitchin/tep-rust, CI green on all 7 jobs
 - Blocked on: B-0025b and B-0040a await sign-off; neither blocks progress.
-  Next is B-0045, autocorrelation and Welch spectra.
+  Next is B-0046, the correlation matrix and the physics invariants.
 
 * Phase 0: foundations
 
@@ -1818,13 +1818,20 @@ Done when:
 - [X] Parseval's identity holds to 1e-14
 - [X] Round-trip forward-inverse to 7.5e-16
 
-** NEXT B-0045 Serial structure: autocorrelation and Welch spectra
+** DONE B-0045 Serial structure: autocorrelation and Welch spectra
 :PROPERTIES:
 :ID:    B-0045
 :PHASE: 5
 :TIER:  5
 :DEPS:  B-0044
 :PLAN:  Validation > Tier 5
+:COMMIT: 646dafa
+:RESULT: ACF via Wiener-Khinchin, agreeing with the definition to 6.8e-15,
+         41 ms against 65 ms on a Tier 5 series. Welch with periodic Hann,
+         50% overlap, per-segment mean removal; a unit sinusoid integrates to
+         its true power to 5e-16. Bartlett's formula added: the white-noise
+         band is wrong for a correlated series and made the AR(1) test fail.
+         18 tests, 5 mutations all caught.
 :END:
 
 The autocorrelation function to lag 200, and Welch's method: segment, window,
@@ -1834,10 +1841,12 @@ This is the test that catches "the Fortran limit-cycles and the port damps",
 which no moment comparison sees.
 
 Done when:
-- [ ] ACF checked against a known AR(1) process
-- [ ] Welch spectrum of a pure sinusoid puts the power in the right bin
-- [ ] The window and overlap are stated and justified, not defaults
-- [ ] Band comparison reports per-band ratios, not one scalar
+- [X] ACF checked against a known AR(1) process, at phi = 0.5, 0.8 and 0.95,
+      judged against Bartlett's standard error rather than the white-noise one
+- [X] Welch spectrum of a pure sinusoid puts the power in the right bin *and
+      at the right absolute level*, to 5e-16
+- [X] The window and overlap are stated and justified, not defaults
+- [X] Band comparison reports per-band ratios, not one scalar
 
 ** TODO B-0046 The correlation matrix and physics invariants
 :PROPERTIES:

@@ -5107,3 +5107,132 @@ back with the power it actually has.
 Note also that Tier 5 compares spectra *band by band* rather than as one
 scalar, per =PLAN.org=. The item's output should be per-band ratios with the
 band edges stated.
+
+* 2026-08-28 B-0045 Autocorrelation and Welch spectra
+:PROPERTIES:
+:ITEM:     B-0045
+:PHASE:    5
+:TIER:     5
+:COMMIT:   646dafa
+:GFORTRAN: 15.2.0
+:STATUS:   DONE
+:END:
+** Preflight
+Clean and green. Fidelity 100 of 100 steps, worst 3.521e-14 at =YP(12)= step 77,
+a seventh iteration unchanged. Provenance 1306/2997. gfortran 15.2.0.
+
+** What changed
+=tepsim_stats::serial=: =autocorrelation= (through the FFT) with
+=autocorrelation_direct= beside it, =bartlett_standard_error=, =Window=,
+=Spectrum=, =welch=, =band_comparison= and =log_band_edges=.
+
+These are the first Tier 5 statistics that see *time*. Shuffling a series leaves
+its mean, variance, histogram and KS statistic untouched and destroys its
+spectrum, so nothing before this could have detected the failure =PLAN.org=
+names: "the Fortran limit-cycles, the port damps".
+
+** Validation numbers
+18 tests, 0 failures. 356 default (up from 338), 521 with =oracle=.
+
+Autocorrelation, transform against the definition, worst absolute difference:
+
+| fixture                            | difference |
+|------------------------------------+------------|
+| white noise                        | 1.561e-16  |
+| a strong trend                     | 6.328e-15  |
+| a slow sinusoid                    | 6.772e-15  |
+| plant-shaped, offset plus a ripple | 4.330e-15  |
+
+Cost, release, one 172,800-sample series to lag 200: transform 41 ms, direct
+65 ms, a factor of 1.6. The scaling is the point, not the constant: at lag 1000
+the transform is unchanged and the direct form is five times worse.
+
+AR(1), n = 400,000, judged against Bartlett rather than white noise:
+
+| phi  | worst deviation | at lag | Bartlett SE | white-noise SE |
+|------+-----------------+--------+-------------+----------------|
+| 0.5  |            1.20 |      5 |     0.00288 |        0.00158 |
+| 0.8  |            1.25 |     16 |     0.00481 |        0.00158 |
+| 0.95 |            0.53 |      4 |     0.00253 |        0.00158 |
+
+Welch, absolute level. A sinusoid of amplitude A must integrate to A^2/2:
+
+| A    | rectangular | Hann     |
+|------+-------------+----------|
+| 1    | 4.44e-16    | 2.22e-16 |
+| 0.25 | 4.44e-16    | 2.22e-16 |
+| 7.5  | 3.79e-16    | 5.05e-16 |
+
+White noise: integrated density 0.082872 against a variance of 1/12 = 0.083333,
+0.55% out, which is the sampling error of 200 segments.
+
+Plant-shaped, offset 2705 with a 0.4-amplitude oscillation: total power to
+1e-9 of 0.08, DC bin below 1e-6.
+
+Hann leaks less than a hundredth of what rectangular does beyond five bins from
+a between-bins tone.
+
+48 h at one second with 4096-sample segments: 83 averages, 0.879 mHz
+resolution.
+
+Mutations, all caught: normalising by =(sum w)^2= (3 tests), no one-sided fold
+(3), no per-segment mean removal (1), symmetric instead of periodic Hann (1),
+ACF padded to =n= rather than =2n= (1).
+
+** Surprises and decisions
+*The white-noise error band is the wrong band, and using it fails a correct
+implementation.* The AR(1) test at =phi = 0.8= came out at 3.8 white-noise
+standard errors and I had asserted three. The temptation is to widen to four.
+The actual answer is that =1/sqrt(n)= is Bartlett's formula *specialised to
+white noise*, and a correlated series has a larger standard error: at
+=phi = 0.95= it is about =4.4/sqrt(n)= at large lag, so the white-noise band
+would reject a good estimate most of the time. With the general formula the
+worst deviation across all three =phi= is 1.25.
+
+=bartlett_standard_error= is now in the crate rather than the test, because
+Tier 5 will judge plant measurements, and plant measurements are strongly
+autocorrelated. It needs an ACF that reaches several times past the lag of
+interest: at =phi = 0.95= the correlation is still 0.36 at lag 20, and
+truncating the sum there understates the error badly. The test therefore
+computes 400 lags to judge 20.
+
+*The test that matters most is the one nothing else can do.* Tier 5 compares two
+spectra to each other. A normalisation wrong by a constant factor cancels
+exactly in every such comparison, so it is invisible to every test that
+compares spectra. It is only visible against an absolute standard, which is why
+=a_sinusoid_carries_the_power_it_actually_has= exists and why the mutation
+dropping the one-sided fold fails three tests rather than none.
+
+*Two mutations appeared uncaught and were not.* Both =sed= expressions failed to
+match after =cargo fmt= had reflowed the code, so nothing was mutated and the
+suite passed on unmodified source. Re-applied properly, each fails three tests.
+Worth stating because a mutation test that silently fails to mutate reports
+exactly what a passing test suite reports.
+
+*Half-open bands exclude Nyquist.* =band_power= is =[low, high)= so adjacent
+bands do not double-count their shared edge, which means a set of bands running
+from the resolution to =sample_rate / 2= accounts for the total minus the DC
+*and* Nyquist bins. Documented on =band_power= and asserted both ways, since
+B-0047 would otherwise find every ratio slightly off and have to work out why.
+
+** Next
+B-0046, the correlation matrix and the physics invariants.
+
+The correlation matrix is easy and the invariants are the interesting half.
+They are the only test in the entire ladder that can catch an error the port
+*faithfully inherited*: everything else compares against the Fortran, and an
+error in the Fortran is invisible to all of it.
+
+Concretely, from =teprob.f=: total mass in equals total mass out plus
+accumulation; each of the eight components' atoms are conserved except where a
+reaction consumes them, and the reaction stoichiometry at =teprob.f:512-527=
+says by how much; and the energy balances at =teprob.f:762-811= should close
+against the enthalpy differences.
+
+Two cautions. First, run every invariant against the *oracle* as well as the
+port and attribute any failure explicitly to one or the other. An invariant that
+fails on both is a finding about the original, which is Class B and belongs in
+=deltas.md=, not a bug to fix. Second, state each invariant as an equation with
+its =teprob.f= line range before writing any code for it, because "mass should
+balance" is not a testable statement until it says which streams and over what
+control volume.
