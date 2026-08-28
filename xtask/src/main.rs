@@ -12,6 +12,11 @@
 //! - `fidelity` diffs a short run against a committed golden oracle trace. It is
 //!   a stub until B-0004 produces that trace, and it fails loudly rather than
 //!   passing vacuously.
+//! - `validate` runs the ladder at full volume and writes `book/src/validation/`
+//!   from what the tests printed. The chapter used to be transcribed by hand
+//!   out of `LOG.org`, which is a copy of a copy and rots invisibly.
+//! - `deltas` cross-checks the `@delta` markers in the source against the
+//!   entries in `book/src/deltas.md` and fails if either half is missing.
 //! - `python` builds the wheel, installs it into a throwaway virtualenv and runs
 //!   the pytest suite against it. Part of `ci`, skipped when maturin is absent.
 //! - `licences` checks that the licence texts the wheel ships are the texts and
@@ -21,7 +26,11 @@
 
 #![forbid(unsafe_code)]
 
+mod deltas;
+mod report;
+
 use std::fmt;
+use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
@@ -76,8 +85,9 @@ fn main() -> ExitCode {
     let result = match cmd {
         "ci" => cmd_ci(&root, flags.iter().any(|f| f == "--fast")),
         "provenance" => cmd_provenance(&root),
-        "fidelity" => cmd_fidelity(&root),
+        "fidelity" => cmd_fidelity(&root).map(|_| ()),
         "validate" => cmd_validate(&root, flags),
+        "deltas" => deltas::cmd_deltas(&root),
         "python" => cmd_python(&root, true),
         "licences" => check_wheel_licences(&root),
         "help" | "--help" | "-h" => {
@@ -106,8 +116,12 @@ usage: cargo xtask <command>
                 --fast skips the Fortran oracle differential job
   provenance    teprob.f line ranges not claimed by any Rust function
   fidelity      diff a short run against the committed golden oracle trace
-  validate [--tiers 1,2,3] [--compare-to-log]
-                run the validation ladder at full volume, in release
+  validate [--tiers 1,2,3] [--smoke] [--compare-to-log]
+                run the validation ladder at full volume, in release, and
+                write book/src/validation/ from what the tests printed
+                --smoke runs the reduced sweeps, and says so on the page
+  deltas        cross-check the @delta markers against book/src/deltas.md,
+                and write book/src/validation/delta-index.md
   python        build the wheel, install it into a throwaway virtualenv, and
                 run the pytest suite against it. Skipped without maturin
   licences      the licence texts the wheel ships are texts, not symlink
@@ -182,6 +196,17 @@ fn cmd_ci(root: &Path, fast: bool) -> Result<(), String> {
     // job, because it costs nothing and a checkout that mangled the licence
     // symlinks is worth hearing about before five minutes of clippy, not after.
     check_wheel_licences(root)?;
+
+    // `deltas` is deliberately NOT a gate step yet, and this is the note saying
+    // why rather than an omission. It fails today on a real, pre-existing
+    // finding: D-008 is documented in `book/src/deltas.md` and no `@delta`
+    // marker names it, so the register's two halves disagree. The fix is one
+    // line in `crates/tepsim-control/src/lib.rs`, above `const FAST`, whose doc
+    // comment already says in prose that `CONTRL22` is absent and that this is
+    // D-008. The iteration that adds that marker should add
+    // `deltas::cmd_deltas(root)?` here in the same commit and delete this
+    // comment. Wiring it in first would only make the gate red for everyone
+    // and teach people to pass `--fast`.
 
     step(root, "cargo", &["fmt", "--all", "--check"])?;
     step(
@@ -716,136 +741,135 @@ fn check_oracle_isolation(root: &Path) -> Result<(), String> {
 /// release, and the session protocol invokes it at every preflight.
 fn cmd_validate(root: &Path, flags: &[String]) -> Result<(), String> {
     let tiers = parse_tiers(flags)?;
+    // Reduced sweeps, and the pages say so. Without this the only way to run
+    // the ladder at all is at full volume, which is minutes per Tier 1 target
+    // and is why the report never got generated from a real run before now.
+    let smoke = flags.iter().any(|f| f == "--smoke");
     if flags.iter().any(|f| f == "--compare-to-log") {
         println!(
             "[note] --compare-to-log is accepted but does nothing yet: it needs\n\
-             the recorded numbers parsed out of LOG.org, which lands with the\n\
-             validation report. Compare against the previous log entry by hand."
+             the recorded numbers parsed out of LOG.org. The generated chapters\n\
+             under book/src/validation/ are the diffable record in the meantime."
         );
     }
+
+    // Which tiers wrote a chapter this run, for the index page. A tier that was
+    // not selected, or that has no generator yet, must not be listed as if it
+    // had been measured.
+    let mut written: Vec<u8> = Vec::new();
+    // The command actually being run, recorded on every page it writes. Not a
+    // per-chapter command that would reproduce that one page: the header claims
+    // "this wrote it", and that has to be literally what happened.
+    let invocation = format!(
+        "cargo xtask validate --tiers {}{}",
+        tiers
+            .iter()
+            .map(u8::to_string)
+            .collect::<Vec<_>>()
+            .join(","),
+        if smoke { " --smoke" } else { "" }
+    );
 
     for tier in &tiers {
         match tier {
             1 => {
-                if which("gfortran").is_none() {
-                    return Err(
-                        "tier 1 needs gfortran, which is not on PATH. Per CLAUDE.md, \
-                         a session without it must not do model work."
-                            .to_string(),
-                    );
-                }
+                require_gfortran(1)?;
                 println!("\n=== tier 1: utility routines vs the Fortran ===");
                 // One target per invocation, so a failure names which routine
                 // family broke rather than which binary did.
+                let env: &[(&str, &str)] = if smoke {
+                    &[]
+                } else {
+                    &[("TEP_TIER1_SWEEP", "full")]
+                };
+                let mut runs = Vec::new();
                 for target in TIER1_TESTS {
-                    step_with_env(
+                    runs.push(report::run_target(
                         root,
-                        "cargo",
-                        &[
-                            "test",
-                            "-p",
-                            "tepsim-oracle",
-                            "--features",
-                            "oracle",
-                            "--release",
-                            "--test",
-                            target,
-                            "--",
-                            "--nocapture",
-                            "--test-threads",
-                            "1",
-                        ],
-                        &[("TEP_TIER1_SWEEP", "full")],
-                    )?;
+                        target,
+                        report::Libm::Vendored,
+                        &[],
+                        env,
+                    )?);
                 }
+                write_chapter(
+                    root,
+                    1,
+                    "the utility routines",
+                    TIER1_LEAD,
+                    smoke,
+                    &invocation,
+                    &runs,
+                )?;
+                written.push(1);
             }
             2 => {
-                if which("gfortran").is_none() {
-                    return Err(
-                        "tier 2 needs gfortran, which is not on PATH. Per CLAUDE.md, \
-                         a session without it must not do model work."
-                            .to_string(),
-                    );
-                }
+                require_gfortran(2)?;
                 println!("\n=== tier 2: the plant model vs the Fortran ===");
                 // One file per invocation, so a failure names which part of
                 // the model broke rather than which binary did.
+                let mut runs = Vec::new();
                 for target in TIER2_TESTS {
-                    step(
+                    runs.push(report::run_target(
                         root,
-                        "cargo",
-                        &[
-                            "test",
-                            "-p",
-                            "tepsim-oracle",
-                            "--features",
-                            "oracle",
-                            "--release",
-                            "--test",
-                            target,
-                            "--",
-                            "--nocapture",
-                            "--test-threads",
-                            "1",
-                        ],
-                    )?;
+                        target,
+                        report::Libm::Vendored,
+                        &[],
+                        &[],
+                    )?);
                 }
-                // And again with the transcendentals taken out, where the
-                // claim is bit equality rather than a tolerance. See
-                // `tepsim_core::math`.
+                // And again with the transcendentals taken out, where the claim
+                // is bit equality rather than a tolerance. See
+                // `tepsim_core::math`. Per target rather than one invocation,
+                // as above, and because a chapter needs one libtest tally per
+                // row to report.
                 println!("\n--- tier 2 again, on the platform libm ---");
-                let mut exact = vec![
-                    "test",
-                    "-p",
-                    "tepsim-oracle",
-                    "--features",
-                    "oracle,libm-system",
-                    "--release",
-                ];
-                for name in LIBM_SYSTEM_TESTS {
-                    exact.push("--test");
-                    exact.push(name);
+                for target in LIBM_SYSTEM_TESTS {
+                    runs.push(report::run_target(
+                        root,
+                        target,
+                        report::Libm::Platform,
+                        &[],
+                        &[],
+                    )?);
                 }
-                step(root, "cargo", &exact)?;
+                write_chapter(
+                    root,
+                    2,
+                    "the plant model",
+                    TIER2_LEAD,
+                    smoke,
+                    &invocation,
+                    &runs,
+                )?;
+                written.push(2);
             }
             3 => {
-                if which("gfortran").is_none() {
-                    return Err(
-                        "tier 3 needs gfortran, which is not on PATH. Per CLAUDE.md, \
-                         a session without it must not do model work."
-                            .to_string(),
-                    );
-                }
+                require_gfortran(3)?;
                 println!("\n=== tier 3: the generator stream vs the Fortran ===");
+                let mut runs = Vec::new();
                 for target in TIER3_TESTS {
-                    step(
+                    runs.push(report::run_target(
                         root,
-                        "cargo",
-                        &[
-                            "test",
-                            "-p",
-                            "tepsim-oracle",
-                            "--features",
-                            "oracle",
-                            "--release",
-                            "--test",
-                            target,
-                            "--",
-                            "--nocapture",
-                            "--test-threads",
-                            "1",
-                        ],
-                    )?;
+                        target,
+                        report::Libm::Vendored,
+                        &[],
+                        &[],
+                    )?);
                 }
+                write_chapter(
+                    root,
+                    3,
+                    "the generator stream",
+                    TIER3_LEAD,
+                    smoke,
+                    &invocation,
+                    &runs,
+                )?;
+                written.push(3);
             }
             4 => {
-                if which("gfortran").is_none() {
-                    return Err(
-                        "tier 4 needs gfortran, which is not on PATH. Per CLAUDE.md, \
-                         a session without it must not do model work."
-                            .to_string(),
-                    );
-                }
+                require_gfortran(4)?;
                 // Diagnostic, not a gate: `PLAN.org` is explicit that
                 // long-horizon divergence is expected. Both configurations are
                 // run, because the *contrast* is the result.
@@ -888,13 +912,7 @@ fn cmd_validate(root: &Path, flags: &[String]) -> Result<(), String> {
                 }
             }
             5 => {
-                if which("gfortran").is_none() {
-                    return Err(
-                        "tier 5 needs gfortran, which is not on PATH. Per CLAUDE.md, \
-                         a session without it must not do model work."
-                            .to_string(),
-                    );
-                }
+                require_gfortran(5)?;
                 // 21 scenarios by 100 seeds by 48 h, on both sources: about
                 // an hour of simulation. `ci` runs a smoke battery of twelve
                 // runs over the same code.
@@ -916,7 +934,7 @@ fn cmd_validate(root: &Path, flags: &[String]) -> Result<(), String> {
                         "--test-threads",
                         "1",
                     ],
-                    &[(TIER5_ENV, "full")],
+                    if smoke { &[] } else { &[(TIER5_ENV, "full")] },
                 )?;
                 // The invariants are Tier 5 too, and they are cheap.
                 for features in ["oracle", "oracle,libm-system"] {
@@ -947,9 +965,197 @@ fn cmd_validate(root: &Path, flags: &[String]) -> Result<(), String> {
         }
     }
 
+    // The index last, so it describes a run that finished. It re-reads the
+    // chapters on disk rather than trusting `written`, which is what keeps it
+    // honest about a chapter some earlier run left behind.
+    write_validation_index(root, &tiers, &written)?;
+
     println!("\nvalidate: green for tier(s) {tiers:?}");
+    if written.is_empty() {
+        println!(
+            "no chapter was generated: only tiers {GENERATED_TIERS:?} have a \
+             generator today."
+        );
+    }
     Ok(())
 }
+
+/// No gfortran, no model work. `CLAUDE.md` is explicit about this.
+fn require_gfortran(tier: u8) -> Result<(), String> {
+    if which("gfortran").is_some() {
+        return Ok(());
+    }
+    Err(format!(
+        "tier {tier} needs gfortran, which is not on PATH. Per CLAUDE.md, a \
+         session without it must not do model work."
+    ))
+}
+
+/// The tiers `validate` writes a chapter for.
+///
+/// Tiers 4 and 5 still *run*; they just do not write a page yet. Generating a
+/// chapter nobody has ever seen rendered, at the end of an hour-long Tier 5
+/// battery, is the wrong place to find out the renderer was wrong, so they wait
+/// for a session that can afford to run them. Tiers 6 to 10 have no harness at
+/// all. The index says both of these on the page rather than leaving a reader
+/// to infer it from an absence.
+const GENERATED_TIERS: &[u8] = &[1, 2, 3];
+
+/// The tiers `validate` runs but writes no chapter for.
+const RUNNABLE_TIERS: &[u8] = &[4, 5];
+
+/// Write one tier's chapter, and say which volume produced it.
+fn write_chapter(
+    root: &Path,
+    tier: u8,
+    title: &str,
+    lead: &str,
+    smoke: bool,
+    command: &str,
+    runs: &[report::TargetRun],
+) -> Result<(), String> {
+    let volume = if smoke {
+        "**Reduced volume.** This run passed `--smoke`, so the sweeps are the \
+         short ones the CI\ngate uses rather than the full ones `PLAN.org` \
+         specifies. The case counts in the\ntables below are what actually ran. \
+         Drop `--smoke` for the gate volume."
+    } else {
+        "Full volume: the sweeps `PLAN.org` specifies, not the reduced ones the \
+         CI gate runs."
+    };
+    let lead = format!("{lead}\n\n{volume}");
+    let page = report::render_tier(root, tier, title, &lead, command, runs);
+    report::write_generated(root, &format!("{}/tier{tier}.md", report::DIR), &page)
+}
+
+const TIER1_LEAD: &str = "\
+`TESUB1` (enthalpy), `TESUB2` (temperature from enthalpy by Newton), `TESUB3`
+(heat capacity) and `TESUB4` (liquid density) are swept against the Fortran over
+a simplex grid, a Dirichlet sample and a boundary pool, at every temperature in
+the physical range, for each of the three `ITY` modes. `PLAN.org` sets the gate
+at a maximum relative error below 1e-13, with a ULP histogram reported rather
+than a verdict.";
+
+const TIER2_LEAD: &str = "\
+Both implementations are forced into an identical state, evaluated once, and
+compared on all fifty derivative components. Sampling is from three pools: states
+along the nominal closed-loop trajectory, random perturbations of those states,
+and adversarial states placed at every discontinuity and clamp in the model.
+
+Every comparison runs twice. The vendored `libm` disagrees with gfortran's by an
+ULP on about a tenth of `exp` and `pow` calls, so the default build can only be
+held to 1e-12; the `libm-system` build removes the transcendental from the
+comparison and is held to bit equality. Both runs are below, and the `libm`
+column says which is which.
+
+The tolerance is relative to the scale of the terms rather than to the result. A
+balance is inflow minus outflow, and near steady state those nearly cancel, so an
+error that is 1e-16 of either term can be 1e-4 of their difference.";
+
+/// The ladder, as `PLAN.org` defines it. No numbers here: the numbers are in
+/// the chapters, and each of those came from a run.
+const LADDER: &[(u8, &str)] = &[
+    (1, "`TESUB1` to `TESUB8` match the oracle"),
+    (2, "single-step derivatives match, over all three pools"),
+    (3, "the generator call *order* matches, draw for draw"),
+    (
+        4,
+        "trajectories stay inside the measurement noise (diagnostic)",
+    ),
+    (
+        5,
+        "statistical equivalence: TOST, KS, ACF, spectra, correlations",
+    ),
+    (6, "downstream detectors cannot tell the two sources apart"),
+    (7, "the published `d00` to `d21` files are reproduced"),
+    (8, "differential fuzzing finds no counterexample"),
+    (9, "identical digests across platforms, wasm included"),
+    (10, "every quirk fix ships with a measured delta"),
+];
+
+/// The index page: what has a generated chapter, and the preflight number.
+fn write_validation_index(root: &Path, ran: &[u8], written: &[u8]) -> Result<(), String> {
+    let command = "cargo xtask validate";
+    let mut page = report::header(root, "Validation, measured", command, report::MEASURED);
+    page.push_str(
+        "\nThe narrative version of this material, with the reasoning behind \
+         each tier and the\nhistory of what it caught, is in \
+         [Validation](../validation.md). This section is the\nother half: the \
+         numbers, written by the command that ran the suite, from the suite's\n\
+         own output. Nothing here was transcribed.\n\n\
+         A tier with no chapter has not been generated. That is stated rather \
+         than left to be\ninferred from an absence, because a missing page and \
+         a page nobody updated look the\nsame from the table of contents.\n\n",
+    );
+    let _ = writeln!(
+        page,
+        "Toolchain on the machine that ran this: {}.\n",
+        report::toolchain()
+    );
+
+    // The preflight is cheap and needs no Fortran, so the index always carries
+    // it. It is also the one number `CLAUDE.md` asks every session to look at.
+    page.push_str("## Fidelity preflight\n\n");
+    match cmd_fidelity(root) {
+        Ok(f) => {
+            let _ = writeln!(
+                page,
+                "`cargo xtask fidelity` runs the port forward from the nominal \
+                 state and diffs states,\nderivatives, measurements and the \
+                 generator word against a golden oracle trace\ncommitted to the \
+                 repository. It needs no Fortran toolchain, so it runs \
+                 everywhere in\nabout a second.\n\n\
+                 | steps diffed | worst | where | gate | trace recorded with |\n\
+                 |---|---|---|---|---|\n\
+                 | {} of {} | {:e} | `{}` | {:e} | gfortran {} |\n",
+                f.steps, f.steps, f.worst, f.worst_at, f.tolerance, f.recorded_with
+            );
+        }
+        Err(e) => {
+            // Reported on the page, not swallowed. An index that silently omits
+            // a failing preflight is worse than one that has no preflight.
+            let _ = writeln!(
+                page,
+                "**The preflight did not complete**, so this page carries no \
+                 fidelity number:\n\n```text\n{e}\n```\n"
+            );
+        }
+    }
+
+    page.push_str("## The ladder\n\n| tier | what it proves | chapter |\n|---|---|---|\n");
+    for (tier, proves) in LADDER {
+        let relative = format!("{}/tier{tier}.md", report::DIR);
+        let state = match report::read_provenance(root, &relative) {
+            Some((by, commit)) => {
+                format!("[tier {tier}](tier{tier}.md), from `{commit}` by `{by}`")
+            }
+            None if GENERATED_TIERS.contains(tier) => {
+                format!("none yet: `cargo xtask validate --tiers {tier}`")
+            }
+            // Two different absences, and conflating them would misread the
+            // second as the first. Tiers 4 and 5 have a suite and no generator;
+            // 6 to 10 have neither.
+            None if RUNNABLE_TIERS.contains(tier) => "runs, but writes no chapter yet".to_string(),
+            None => "no harness yet".to_string(),
+        };
+        let _ = writeln!(page, "| {tier} | {proves} | {state} |");
+    }
+
+    let _ = writeln!(
+        page,
+        "\nThis run selected tier(s) {ran:?} and wrote chapter(s) for {written:?}. \
+         Tiers 4 and 5\nrun but do not write a chapter yet; tiers 6 to 10 have no \
+         harness. The [delta\nindex](delta-index.md) is generated separately, by \
+         `cargo xtask deltas`.\n"
+    );
+    report::write_generated(root, &format!("{}/index.md", report::DIR), &page)
+}
+
+const TIER3_LEAD: &str = "\
+Both sides are instrumented to emit every generator draw, and the traces are
+diffed. This is the tier that catches a port whose arithmetic is right and whose
+*call order* is not, which no statistical comparison would find until after a
+48-hour run.";
 
 /// The integration tests that make up Tier 1, run at full sweep volume.
 const TIER1_TESTS: [&str; 2] = ["tier1_enthalpy", "tier1_temperature"];
@@ -1314,7 +1520,22 @@ fn gaps(merged: &[LineRange], total: usize) -> Vec<LineRange> {
 // fidelity
 // ---------------------------------------------------------------------------
 
-fn cmd_fidelity(root: &Path) -> Result<(), String> {
+/// What the preflight measured, so the report can quote it.
+///
+/// Returned rather than only printed: the validation index carries this number,
+/// and re-deriving it by parsing this command's own stdout would be a second
+/// implementation of the same measurement.
+pub(crate) struct Fidelity {
+    steps: usize,
+    worst: f64,
+    worst_at: String,
+    tolerance: f64,
+    /// The gfortran that recorded the trace, which is not necessarily the one
+    /// on this machine. A mismatch is a re-baseline, not a regression.
+    recorded_with: String,
+}
+
+fn cmd_fidelity(root: &Path) -> Result<Fidelity, String> {
     let path = root.join(GOLDEN_TRACE);
     let text = fs::read_to_string(&path).map_err(|e| {
         format!(
@@ -1366,7 +1587,7 @@ fn cmd_fidelity(root: &Path) -> Result<(), String> {
 /// Tier 2 applies it: the derivatives are a cancelling quantity and are
 /// measured against the scale of their own terms, everything else against its
 /// own value. See the decision of 2026-08-27 in `BACKLOG.org`.
-fn diff_port_against(trace: &Trace) -> Result<(), String> {
+fn diff_port_against(trace: &Trace) -> Result<Fidelity, String> {
     use tepsim_core::{Inputs, Plant, SimTime, State, constants};
 
     /// `PLAN.org`, "Tier 2".
@@ -1475,7 +1696,13 @@ fn diff_port_against(trace: &Trace) -> Result<(), String> {
         ));
     }
     println!("  fidelity: green");
-    Ok(())
+    Ok(Fidelity {
+        steps: trace.steps.len(),
+        worst: worst.0,
+        worst_at: worst.1,
+        tolerance: TOLERANCE,
+        recorded_with: trace.gfortran.clone(),
+    })
 }
 
 /// The local gfortran version, or `None` if there is no Fortran compiler here.
