@@ -448,6 +448,37 @@ impl Scenario {
     pub fn digest(&self) -> String {
         hex64(runner::scenario_digest(&self.inner))
     }
+
+    /// This scenario as one line of canonical text.
+    ///
+    /// Every field, written out, tagged with the format version, in characters
+    /// a URL fragment carries without percent-encoding. This is the *only*
+    /// thing the page and the worker exchange about a scenario: before it
+    /// existed, `app.js`, `worker.js` and `share.js` each enumerated the fields
+    /// by hand, and a field added here reached none of them.
+    ///
+    /// Round-trips through [`Scenario::from_text`] bit for bit, so
+    /// [`Scenario::digest`] survives it. See `tepsim::text`.
+    #[wasm_bindgen(getter, js_name = text)]
+    #[must_use]
+    pub fn text(&self) -> String {
+        self.inner.to_text()
+    }
+
+    /// Parse a scenario back from [`Scenario::text`].
+    ///
+    /// # Errors
+    ///
+    /// Throws with a message naming what was wrong: a missing or unknown
+    /// field, a malformed number, a value out of range, or a format version
+    /// this build does not read. Nothing is defaulted quietly, so a link that
+    /// cannot be honoured says so instead of opening a different run.
+    #[wasm_bindgen(js_name = fromText)]
+    pub fn from_text(text: &str) -> Result<Scenario, JsError> {
+        tepsim::Scenario::from_text(text)
+            .map(|inner| Scenario { inner })
+            .map_err(|error| JsError::new(&error.to_string()))
+    }
 }
 
 /// A run in progress, advanced in chunks.

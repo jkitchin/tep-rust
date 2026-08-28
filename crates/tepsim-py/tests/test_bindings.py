@@ -394,6 +394,95 @@ def test_scenario_repr_round_trips():
         assert eval(repr(scenario)) == scenario
 
 
+# ---------------------------------------------------------------------------
+# Serialisation
+# ---------------------------------------------------------------------------
+#
+# `repr` is for a human reading a traceback and only Python can read it back.
+# `to_text` is the wire format: the same string the Rust, wasm and browser sides
+# read and write, so a scenario built here can be run in a browser and a link
+# out of a browser can be run here.
+
+
+SCENARIOS = [
+    tep.Scenario.baseline(),
+    tep.Scenario.fault(4, hours=8),
+    tep.Scenario(faults=[1, 6, 20], seed=42, hours=6.5, sample_every=60),
+    tep.Scenario.baseline(controlled=False, driver_forces_idv12=False),
+    tep.Scenario.baseline(trip_ends_the_run=True),
+    tep.Scenario.baseline(step_hours=1 / 7200),
+]
+
+
+@pytest.mark.parametrize("scenario", SCENARIOS)
+def test_a_scenario_round_trips_through_its_text(scenario):
+    text = scenario.to_text()
+    assert text.startswith("tepsim.scenario.v1;")
+    back = tep.Scenario.from_text(text)
+    assert back == scenario
+    # The numbers survive exactly, not approximately. 4651207995 is the
+    # generator word `teprob.f:1187` compiles in, and a text that rounded it
+    # would name a run other than the one it produced.
+    assert back.seed == scenario.seed
+    assert back.step_hours == scenario.step_hours
+    assert back.hours == scenario.hours
+    # And the rendering is canonical: one scenario, one text.
+    assert back.to_text() == text
+
+
+@pytest.mark.parametrize("scenario", SCENARIOS)
+def test_the_digest_survives_the_text(scenario):
+    # The property that makes a serialised scenario worth anything. A dataset
+    # labelled with this digest and shipped with the text can be checked.
+    assert tep.Scenario.from_text(scenario.to_text()).digest == scenario.digest
+    assert len(scenario.digest) == 16
+
+
+def test_distinct_scenarios_have_distinct_digests_and_texts():
+    seen_text = {s.to_text() for s in SCENARIOS}
+    seen_digest = {s.digest for s in SCENARIOS}
+    assert len(seen_text) == len(SCENARIOS)
+    assert len(seen_digest) == len(SCENARIOS)
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        # A field this build does not have. Rejected by name rather than
+        # ignored, because ignoring it means running a different scenario.
+        (tep.Scenario.baseline().to_text() + ";wobble=3", "wobble"),
+        # A version this build does not read.
+        (tep.Scenario.baseline().to_text().replace("v1", "v2", 1), "tepsim.scenario.v2"),
+        # A field left out. Not defaulted: a text says what it runs.
+        (tep.Scenario.baseline().to_text().replace(";trip=0", ""), "trip"),
+        # A number that is not one.
+        (tep.Scenario.baseline().to_text().replace("hours=48", "hours=soon"), "soon"),
+        # A number out of range.
+        (tep.Scenario.baseline().to_text().replace("seed=4651207995", "seed=0"), "seed"),
+        # An integrator that does not exist.
+        (
+            tep.Scenario.baseline().to_text().replace("integrator=euler", "integrator=leapfrog"),
+            "leapfrog",
+        ),
+        # Not a scenario text at all.
+        ("", "tepsim.scenario.v1"),
+        ("hours=1", "tepsim.scenario.v1"),
+    ],
+)
+def test_a_bad_text_raises_and_says_what_was_wrong(text, expected):
+    with pytest.raises(ValueError, match=expected):
+        tep.Scenario.from_text(text)
+
+
+def test_a_text_scenario_runs_to_the_same_numbers():
+    # The end of the claim: a scenario that travelled as text produces the same
+    # arrays as the one it came from.
+    scenario = tep.Scenario.fault(1, hours=2)
+    direct = tep.Simulation(scenario).run().to_numpy()
+    travelled = tep.Simulation(tep.Scenario.from_text(scenario.to_text())).run().to_numpy()
+    np.testing.assert_array_equal(direct, travelled)
+
+
 @pytest.mark.parametrize(
     "make",
     [

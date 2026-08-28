@@ -1,9 +1,12 @@
 //! What to simulate: how long, from which seed, with which disturbances.
 
+use alloc::string::String;
+
 use tepsim_core::{Extensions, FAULTS, QuirkFixes};
 use tepsim_scenario::{Invalid, Schedule};
 
 use crate::integrator::Integrator;
+use crate::text::TextError;
 
 /// One second, in hours. The step the original's `INTGTR` uses.
 pub const DEFAULT_STEP_HOURS: f64 = 1.0 / 3600.0;
@@ -20,6 +23,15 @@ pub const DEFAULT_SEED: f64 = 4_651_207_995.0;
 /// Twenty, not the twenty-one of the later literature: `teprob.f:340` loops
 /// `DO 500 I=1,20`. See [`tepsim_core::FAULTS`].
 pub const DISTURBANCES: usize = FAULTS.len();
+
+/// What a [`Scenario`] contains, as a version string.
+///
+/// Absorbed by [`Scenario::digest`] and written as the leading tag of
+/// [`Scenario::to_text`], deliberately the same string in both places. The
+/// digest and the text describe the same set of fields, so a change to that
+/// set has to move both at once, and sharing the constant is what makes that
+/// automatic rather than remembered.
+pub const SCENARIO_VERSION: &str = "tepsim.scenario.v1";
 
 /// A complete description of a run.
 ///
@@ -147,7 +159,7 @@ impl Scenario {
         let mut digest = tepsim_scenario::Digest::new();
         // Versioned, so a later change to what a scenario contains cannot make
         // an old digest silently mean something else.
-        digest.push_str("tepsim.scenario.v1");
+        digest.push_str(SCENARIO_VERSION);
         digest.push_f64(self.seed);
         digest.push_f64(self.hours);
         digest.push_f64(self.step_hours);
@@ -168,6 +180,40 @@ impl Scenario {
     #[must_use]
     pub fn digest_hex(&self) -> [u8; 16] {
         tepsim_scenario::short_hex(self.digest())
+    }
+
+    /// This scenario as its canonical text.
+    ///
+    /// Every field, written out, tagged with [`SCENARIO_VERSION`]. Round-trips
+    /// through [`Scenario::from_text`] bit for bit, so the digest survives it,
+    /// which is what lets a run travel as a line of text rather than as a file.
+    /// The format is described in [`crate::text`].
+    ///
+    /// ```
+    /// use tepsim::Scenario;
+    ///
+    /// let scenario = Scenario::fault(4).with_hours(8.0);
+    /// let text = scenario.to_text();
+    /// assert!(text.starts_with("tepsim.scenario.v1;"));
+    /// assert_eq!(Scenario::from_text(&text), Ok(scenario));
+    /// ```
+    #[must_use]
+    pub fn to_text(&self) -> String {
+        crate::text::to_text(self)
+    }
+
+    /// Parse a canonical scenario text.
+    ///
+    /// Strict: every field must be present, unknown fields are named, and a
+    /// value outside its range is rejected rather than clamped. See
+    /// [`TextError`] for the reasons and [`crate::text`] for the format.
+    ///
+    /// # Errors
+    ///
+    /// The first problem found, as a [`TextError`] whose `Display` says what
+    /// was wrong.
+    pub fn from_text(text: &str) -> Result<Self, TextError> {
+        crate::text::from_text(text)
     }
 
     /// Choose the integrator.

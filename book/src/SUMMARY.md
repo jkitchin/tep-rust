@@ -8,6 +8,13 @@
 - [Getting started](getting-started.md)
 - [The twenty disturbances](disturbances.md)
 
+# Tutorials
+
+- [A first run, and the 53 channels](tutorials/first-run.md)
+- [Injecting a fault](tutorials/injecting-a-fault.md)
+- [Building a detector](tutorials/a-detector.md)
+- [A fault that arrives, and clears](tutorials/scheduling-a-fault.md)
+
 # The process
 
 - [The plant](process/plant.md)

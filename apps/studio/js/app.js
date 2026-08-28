@@ -40,7 +40,7 @@ import init, {
 import { History } from "./history.js";
 import { TrendGrid } from "./chart.js";
 import { buildFlowsheet } from "./flowsheet.js";
-import { decodeState, encodeState } from "./share.js";
+import { decodeLink, encodeLink } from "./share.js";
 import { formatValue } from "./format.js";
 
 // Produced by a native run of the same commit; `crates/tepsim-wasm/tests/
@@ -88,19 +88,31 @@ const UNITS = columnUnits();
 const ROW_WIDTH = bindingRowWidth();
 const STEPPED = sampledColumns();
 
+// The one place a `Scenario` becomes the plain object the form binds to.
+// `pushStateIntoScenario` is its inverse, and the two are meant to be read
+// together. This is the only field list left on this page: a form has one input
+// per field and there is no way around that. What used to be beside it, and is
+// now gone, is a second list in `startRequest`, a third in `worker.js` and a
+// fourth in `share.js`, none of which any test could keep in step.
+function scenarioFields(handle) {
+  return {
+    seed: handle.seed,
+    hours: handle.hours,
+    stepHours: handle.stepHours,
+    sampleEvery: handle.sampleEvery,
+    integrator: handle.integrator,
+    controlled: handle.controlled,
+    driverForcesIdv12: handle.driverForcesIdv12,
+    tripEndsTheRun: handle.tripEndsTheRun,
+    faults: [...handle.activeFaults],
+  };
+}
+
 // A fresh `Scenario` is the definition of the baseline, so the page's defaults
 // are read off it instead of being written down a second time and drifting.
 const probe = new Scenario();
 const DEFAULTS = {
-  seed: probe.seed,
-  hours: probe.hours,
-  stepHours: probe.stepHours,
-  sampleEvery: probe.sampleEvery,
-  integrator: probe.integrator,
-  controlled: probe.controlled,
-  driverForcesIdv12: probe.driverForcesIdv12,
-  tripEndsTheRun: probe.tripEndsTheRun,
-  faults: [],
+  ...scenarioFields(probe),
   // Reactor pressure and temperature, both separator and stripper level, the
   // product rate and the product G composition: the six a first look at a
   // disturbance actually wants.
@@ -111,9 +123,42 @@ const DEFAULTS = {
   // the flowsheet.
   speedMultiple: 0,
 };
+// What a link is written against: the scenario as one serialised token, and the
+// view fields, which reach no arithmetic and are therefore still spelled out.
+const LINK_DEFAULTS = {
+  scenario: probe.text,
+  channels: DEFAULTS.channels,
+  chunkSamples: DEFAULTS.chunkSamples,
+  speedMultiple: DEFAULTS.speedMultiple,
+};
 probe.free();
 
-let state = decodeState(globalThis.location.hash, DEFAULTS, ROW_WIDTH);
+let state = { ...DEFAULTS };
+
+// Apply the scenario half of a link. The bindings parse it and they are strict,
+// so a link from a build with a field this one does not have is refused by name
+// rather than quietly opening a different run. A refusal is reported and the
+// baseline is kept, because a mistyped link should still give a working page.
+function applyLink(link) {
+  state = {
+    ...state,
+    channels: [...link.channels],
+    chunkSamples: link.chunkSamples,
+    speedMultiple: link.speedMultiple,
+  };
+  if (link.scenario === LINK_DEFAULTS.scenario) return null;
+  let parsed = null;
+  try {
+    parsed = Scenario.fromText(link.scenario);
+  } catch (error) {
+    return String(error);
+  }
+  Object.assign(state, scenarioFields(parsed));
+  parsed.free();
+  return null;
+}
+
+let linkProblem = applyLink(decodeLink(globalThis.location.hash, LINK_DEFAULTS, ROW_WIDTH));
 
 // ---------------------------------------------------------------------------
 // The scenario the panel is editing. One long-lived wasm handle, mutated in
@@ -133,8 +178,9 @@ function pushStateIntoScenario() {
   try {
     scenario.setIntegrator(state.integrator);
   } catch {
-    // `decodeState` only admits names the bindings know, so this is
-    // unreachable. Swallowing it stops a hostile link from killing the page.
+    // `state.integrator` comes either from the select, which offers only names
+    // the bindings gave it, or from a `Scenario` the bindings parsed, so this
+    // is unreachable. Swallowing it stops a hostile link from killing the page.
     state.integrator = DEFAULTS.integrator;
     scenario.setIntegrator(DEFAULTS.integrator);
   }
@@ -248,7 +294,19 @@ function readForm() {
 }
 
 function syncFragment() {
-  const fragment = encodeState(state, DEFAULTS);
+  // The link carries the scenario as the bindings serialise it, so the handle
+  // has to be current first. `refreshScenarioReadout` pushes as well; both are
+  // a few dozen stores and neither allocates.
+  pushStateIntoScenario();
+  const fragment = encodeLink(
+    {
+      scenario: scenario.text,
+      channels: state.channels,
+      chunkSamples: state.chunkSamples,
+      speedMultiple: state.speedMultiple,
+    },
+    LINK_DEFAULTS,
+  );
   // `replaceState` rather than assigning `location.hash`: assigning pushes a
   // history entry per keystroke and turns the back button into an undo log for
   // a spinner.
@@ -259,8 +317,15 @@ function syncFragment() {
 function refreshScenarioReadout() {
   pushStateIntoScenario();
   const error = scenario.validationError();
-  $("scenario-error").textContent = error ?? "";
-  $("scenario-error").hidden = !error;
+  // A link this build cannot honour is reported and takes the message slot,
+  // because it is the news: the panel is showing the baseline, and without
+  // saying so the page would look as though that is what the link asked for.
+  // It does not block the run. The panel itself is valid, and a page that
+  // refused to start because of a link the user has already been told about
+  // would be a dead end.
+  const message = linkProblem ?? error;
+  $("scenario-error").textContent = message ?? "";
+  $("scenario-error").hidden = !message;
   // `setButtons` owns both buttons, so that editing a field mid-run cannot
   // re-enable Start behind the running flag's back.
   setButtons();
@@ -326,20 +391,18 @@ function ensureWorker() {
   return worker;
 }
 
+// The scenario crosses to the worker as the one string the bindings serialise
+// it to, and nothing else about it does. `chunkSamples` and `speedMultiple` are
+// not part of the scenario: they decide when the next chunk is asked for and
+// never what is in it, so a paced run and an unpaced one emit identical bytes.
 function startRequest() {
+  // The caller has just run `refreshScenarioReadout`, which pushed the form
+  // into the handle, so `text` is the scenario the panel is showing.
   return {
     type: "start",
-    seed: state.seed,
-    hours: state.hours,
-    stepHours: state.stepHours,
-    sampleEvery: state.sampleEvery,
-    controlled: state.controlled,
-    driverForcesIdv12: state.driverForcesIdv12,
-    tripEndsTheRun: state.tripEndsTheRun,
-    integrator: state.integrator,
+    scenario: scenario.text,
     chunkSamples: state.chunkSamples,
     speedMultiple: state.speedMultiple,
-    faults: [...state.faults],
   };
 }
 
@@ -474,7 +537,10 @@ function drawStats(data) {
 // Wiring.
 // ---------------------------------------------------------------------------
 
-function onSettingChanged({ restart = false } = {}) {
+function onSettingChanged({ restart = false, fromUser = true } = {}) {
+  // Touching the panel answers the complaint about the link: whatever the link
+  // asked for, this is now what the user asked for.
+  if (fromUser) linkProblem = null;
   readForm();
   syncFragment();
   refreshScenarioReadout();
@@ -545,10 +611,13 @@ $("copy-share").addEventListener("click", async () => {
 });
 
 globalThis.addEventListener("hashchange", () => {
-  // Somebody pasted a different link into the same tab.
-  state = decodeState(globalThis.location.hash, DEFAULTS, ROW_WIDTH);
+  // Somebody pasted a different link into the same tab. Start from the
+  // baseline, so a link that omits a view field means the default rather than
+  // whatever the panel happened to be showing.
+  state = { ...DEFAULTS };
+  linkProblem = applyLink(decodeLink(globalThis.location.hash, LINK_DEFAULTS, ROW_WIDTH));
   writeForm();
-  onSettingChanged();
+  onSettingChanged({ fromUser: false });
   if (running) start();
 });
 
@@ -558,7 +627,7 @@ globalThis.addEventListener("resize", () => {
 });
 
 writeForm();
-onSettingChanged();
+onSettingChanged({ fromUser: false });
 trends.setHours(state.hours);
 trends.setSelection(state.channels);
 requestAnimationFrame(frame);

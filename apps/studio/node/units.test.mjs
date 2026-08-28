@@ -12,8 +12,9 @@ import assert from "node:assert/strict";
 
 import { History } from "../dist/js/history.js";
 import { decimateMinMax, formatHours, formatValue, niceRange } from "../dist/js/format.js";
-import { decodeState, encodeState } from "../dist/js/share.js";
+import { decodeLink, encodeLink } from "../dist/js/share.js";
 import { READOUTS, columnOf } from "../dist/js/flowsheet.js";
+import { bindings } from "./harness.mjs";
 
 const ROW_WIDTH = 54;
 
@@ -127,80 +128,107 @@ test("decimateMinMax is bounded by the canvas and keeps the extremes", () => {
   assert.equal(decimateMinMax(new History(ROW_WIDTH, 100), 1, 300).length, 0);
 });
 
-// The link encoding. Every field a run's output depends on has to survive the
-// round trip exactly, because the claim a link makes is that it reproduces a
-// run and not that it approximates one.
+// The link encoding.
+//
+// Since B-0054a the scenario is one opaque token here: `Scenario.text` produces
+// it, `Scenario.fromText` consumes it, and this file neither reads nor writes a
+// field of it. That is the point. The three hand-maintained field lists that
+// used to keep a link, a worker request and a settings panel in step could not
+// be kept in step, and a field added to `Scenario` reached none of them.
+//
+// What is tested here is what is left: that the token survives the fragment
+// byte for byte, and that the view fields, which reach no arithmetic, fall back
+// rather than throw.
+const BASELINE =
+  "tepsim.scenario.v1;seed=4651207995;hours=48;step=2.777777777777778e-4;" +
+  "every=180;faults=;controlled=1;idv12=1;trip=0;continuous=0;integrator=euler;events=";
+
 const DEFAULTS = {
-  seed: 4651207995,
-  hours: 48,
-  stepHours: 1 / 3600,
-  sampleEvery: 180,
-  integrator: "euler",
-  controlled: true,
-  driverForcesIdv12: true,
-  tripEndsTheRun: false,
-  faults: [],
+  scenario: BASELINE,
   channels: [7, 9, 12, 15, 17, 40],
   chunkSamples: 20,
   speedMultiple: 0,
 };
 
 test("the baseline link is empty", () => {
-  assert.equal(encodeState({ ...DEFAULTS }, DEFAULTS), "");
-  assert.deepEqual(decodeState("", DEFAULTS, 54), DEFAULTS);
-  assert.deepEqual(decodeState("#", DEFAULTS, 54), DEFAULTS);
+  assert.equal(encodeLink({ ...DEFAULTS }, DEFAULTS), "");
+  assert.deepEqual(decodeLink("", DEFAULTS, 54), DEFAULTS);
+  assert.deepEqual(decodeLink("#", DEFAULTS, 54), DEFAULTS);
 });
 
-test("every field survives the round trip", () => {
-  const state = {
-    seed: 1234567891,
-    hours: 6.5,
-    stepHours: 1 / 7200,
-    sampleEvery: 60,
-    integrator: "rk4",
-    controlled: false,
-    driverForcesIdv12: false,
-    tripEndsTheRun: true,
-    faults: [1, 6, 20],
+test("the scenario token survives the fragment byte for byte", () => {
+  // Semicolons, equals signs, commas and colons all appear inside the token and
+  // all are fragment-safe. `decodeLink` splits a pair at its *first* `=`, which
+  // is the whole reason a scenario full of them can be a value at all.
+  const scenario =
+    "tepsim.scenario.v1;seed=4651207995.25;hours=6.5;step=1.388888888888889e-4;" +
+    "every=60;faults=1,6,20;controlled=0;idv12=0;trip=1;continuous=1;" +
+    "integrator=rk4;events=8:start:6,12:magnitude:13:0.5,20:setpoint:9:0.25";
+  const link = { ...DEFAULTS, scenario };
+  const fragment = encodeLink(link, DEFAULTS);
+  assert.ok(fragment.includes(scenario), "the token was mangled on the way out");
+  assert.equal(decodeLink(`#${fragment}`, DEFAULTS, 54).scenario, scenario);
+});
+
+test("every view field survives the round trip", () => {
+  const link = {
+    scenario: BASELINE,
     channels: [7, 41, 53],
     chunkSamples: 5,
     speedMultiple: 600,
   };
-  const decoded = decodeState(`#${encodeState(state, DEFAULTS)}`, DEFAULTS, 54);
-  assert.deepEqual(decoded, state);
-});
-
-test("the seed survives exactly", () => {
-  // 4651207995 is what `teprob.f:1187` compiles in. A link that rounded it
-  // would silently produce a different run from the one it claims to be.
-  const state = { ...DEFAULTS, seed: 4651207995.25 };
-  const decoded = decodeState(`#${encodeState(state, DEFAULTS)}`, DEFAULTS, 54);
-  assert.equal(decoded.seed, 4651207995.25);
+  assert.deepEqual(decodeLink(`#${encodeLink(link, DEFAULTS)}`, DEFAULTS, 54), link);
 });
 
 test("a hostile link opens the baseline rather than a broken page", () => {
-  const nonsense =
-    "#s=abc&h=-1&dt=0&n=0&i=leapfrog&c=maybe&f=0,21,99,7&p=0,54,9&k=-3&x=-1";
-  const decoded = decodeState(nonsense, DEFAULTS, 54);
-  assert.equal(decoded.seed, DEFAULTS.seed, "a non-numeric seed falls back");
-  assert.equal(decoded.hours, DEFAULTS.hours, "a negative duration falls back");
-  assert.equal(decoded.stepHours, DEFAULTS.stepHours);
-  assert.equal(decoded.sampleEvery, DEFAULTS.sampleEvery);
-  assert.equal(decoded.integrator, "euler", "an unknown integrator falls back");
-  assert.equal(decoded.controlled, DEFAULTS.controlled);
-  // Twenty disturbances, not twenty-one: `teprob.f:340` loops DO 500 I=1,20.
-  assert.deepEqual(decoded.faults, [7], "only 1..20 survive");
+  // The view fields fall back. The scenario token is handed back as written and
+  // rejected by the bindings, which is where a rejection can carry a reason.
+  const nonsense = "#q=leapfrog&p=0,54,9&k=-3&x=-1";
+  const decoded = decodeLink(nonsense, DEFAULTS, 54);
+  assert.equal(decoded.scenario, "leapfrog", "the token is not interpreted here");
   assert.deepEqual(decoded.channels, [9], "column 0 is time and 54 is past the end");
   assert.equal(decoded.chunkSamples, DEFAULTS.chunkSamples);
   assert.equal(decoded.speedMultiple, DEFAULTS.speedMultiple);
+
+  // A malformed percent escape must not throw: `decodeURIComponent` does.
+  assert.doesNotThrow(() => decodeLink("#q=%", DEFAULTS, 54));
 });
 
-test("an empty fault list is distinguishable from an absent one", () => {
-  // `#f=` must mean "no faults", not "use the default", or a link that clears
-  // the panel would be indistinguishable from one that never touched it.
-  const withFaults = { ...DEFAULTS, faults: [3] };
-  const cleared = decodeState("#f=", withFaults, 54);
-  assert.deepEqual(cleared.faults, []);
+test("an empty channel list is distinguishable from an absent one", () => {
+  // `#p=` must mean "plot nothing", not "use the default", or a link that
+  // cleared the picker would be indistinguishable from one that never touched
+  // it.
+  assert.deepEqual(decodeLink("#p=", DEFAULTS, 54).channels, []);
+  assert.deepEqual(decodeLink("#", DEFAULTS, 54).channels, DEFAULTS.channels);
+});
+
+test("a link and the bindings agree on the token", async () => {
+  // The claim the whole design rests on: what `encodeLink` puts in a fragment
+  // is exactly what `Scenario.fromText` reads back, with no encoding step in
+  // between that either side could get wrong.
+  const { Scenario } = await bindings();
+  const built = new Scenario();
+  built.hours = 6.5;
+  built.setFault(6, true);
+  built.setIntegrator("rk4");
+  const token = built.text;
+  const digest = built.digest();
+  built.free();
+
+  const fragment = encodeLink({ ...DEFAULTS, scenario: token }, DEFAULTS);
+  const back = Scenario.fromText(decodeLink(`#${fragment}`, DEFAULTS, 54).scenario);
+  assert.equal(back.digest(), digest, "the digest did not survive the link");
+  assert.equal(back.text, token);
+  back.free();
+});
+
+test("the baseline token in this file is the one the bindings produce", async () => {
+  // A golden, so a change to the format shows up here rather than as a link
+  // that silently stops working.
+  const { Scenario } = await bindings();
+  const probe = new Scenario();
+  assert.equal(probe.text, BASELINE);
+  probe.free();
 });
 
 test("every flowsheet readout points at a real column", () => {
