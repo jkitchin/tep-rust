@@ -13,6 +13,21 @@ all-features = false
 allow = ["MIT", "NCSA"]
 confidence-threshold = 0.93
 
+# One exception, scoped to one crate, rather than widening the list above.
+#
+# `unicode-ident` is `(MIT OR Apache-2.0) AND Unicode-3.0`: the MIT half is
+# already allowed and the Unicode half cannot be chosen away. It arrives through
+# `proc-macro2`, which `wasm-bindgen`'s derive macro needs, so it is a
+# *compile-time* dependency of `tepsim-wasm` and appears in no shipped artifact:
+# not the wasm bundle, not the wheels, not any binary. It holds the Unicode
+# character tables that decide what a Rust identifier is.
+#
+# Scoped by name so a second crate arriving under Unicode-3.0 still fails the
+# gate and gets looked at, which is the point of the narrow allow-list.
+[[licenses.exceptions]]
+name = "unicode-ident"
+allow = ["Unicode-3.0"]
+
 [advisories]
 yanked = "deny"
 ignore = []

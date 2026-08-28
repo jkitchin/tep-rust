@@ -1,0 +1,460 @@
+<!doctype html>
+<!--
+  A self-contained harness for the tepsim-wasm bindings.
+
+  There is no bundler and no build step for this page. It needs two things: the
+  compiled module and the wasm-bindgen glue that loads it.
+
+    cargo build -p tepsim-wasm --target wasm32-unknown-unknown --profile release-wasm
+    cargo install wasm-bindgen-cli --version 0.2.127
+    wasm-bindgen --target web \
+      --out-dir crates/tepsim-wasm/www/pkg \
+      target/wasm32-unknown-unknown/release-wasm/tepsim_wasm.wasm
+
+  The wasm-bindgen-cli version must match the wasm-bindgen dependency in
+  Cargo.lock exactly. It refuses to run otherwise, which is correct: the glue
+  and the module share a private ABI that changes between releases.
+
+  Then serve the repository root over HTTP and open this page. A module worker
+  cannot be loaded from a file:// URL, so opening the file directly will not
+  work.
+
+    python3 -m http.server 8000
+    open http://localhost:8000/crates/tepsim-wasm/www/
+
+  This is a harness, not the application. TEP Studio is a Leptos app built with
+  Trunk and lands in phase 8; see PLAN.org. What this page exists to show is
+  that the binding layer works: a scenario goes in, chunks come back from a Web
+  Worker as transferable Float64Arrays, and the page repaints between chunks
+  without ever blocking.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>tepsim-wasm harness</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --line: color-mix(in srgb, currentColor 22%, transparent);
+      }
+      body {
+        font: 14px/1.5 ui-sans-serif, system-ui, sans-serif;
+        margin: 0;
+        padding: 1.5rem;
+        max-width: 74rem;
+      }
+      h1 { font-size: 1.3rem; margin: 0 0 0.25rem; }
+      h2 { font-size: 1rem; margin: 1.5rem 0 0.5rem; }
+      code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+      .banner {
+        border: 1px solid var(--line);
+        border-left-width: 4px;
+        padding: 0.75rem 1rem;
+        margin: 1rem 0;
+        border-radius: 4px;
+      }
+      .banner.warn { border-left-color: #c47f00; }
+      .banner.bad { border-left-color: #c0392b; }
+      .banner.good { border-left-color: #2e7d32; }
+      .row { display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-end; }
+      label { display: block; font-size: 0.85rem; }
+      input[type="number"], select { width: 10rem; font: inherit; padding: 0.2rem; }
+      button { font: inherit; padding: 0.35rem 0.9rem; }
+      table { border-collapse: collapse; font-size: 0.85rem; }
+      th, td { text-align: left; padding: 0.15rem 0.7rem 0.15rem 0; vertical-align: top; }
+      .panels { display: flex; flex-wrap: wrap; gap: 2rem; align-items: flex-start; }
+      .scroll { max-height: 22rem; overflow: auto; border: 1px solid var(--line); padding: 0.5rem; }
+      canvas { width: 100%; height: 280px; border: 1px solid var(--line); border-radius: 4px; }
+      dl { display: grid; grid-template-columns: max-content auto; gap: 0.15rem 1rem; margin: 0.5rem 0; }
+      dt { opacity: 0.7; }
+      dd { margin: 0; }
+      .muted { opacity: 0.7; }
+      .swatch { display: inline-block; width: 0.7rem; height: 0.7rem; border-radius: 2px; margin-right: 0.3rem; }
+    </style>
+  </head>
+  <body>
+    <h1>tepsim-wasm harness</h1>
+    <p class="muted">
+      The binding layer, not TEP Studio, and not a user interface anybody should
+      have to look at twice.
+    </p>
+
+    <div id="load-banner" class="banner warn">Loading the module.</div>
+    <div id="integrator-banner" class="banner" hidden></div>
+
+    <h2>Scenario</h2>
+    <div class="row">
+      <label>Seed<br /><input id="seed" type="number" step="any" /></label>
+      <label>Hours<br /><input id="hours" type="number" step="any" value="10" /></label>
+      <label>Step (h)<br /><input id="stepHours" type="number" step="any" /></label>
+      <label>Sample every (steps)<br /><input id="sampleEvery" type="number" step="1" /></label>
+      <label>Integrator<br /><select id="integrator"></select></label>
+      <label>Samples per chunk<br /><input id="chunk" type="number" step="1" value="20" /></label>
+      <label><input id="controlled" type="checkbox" checked /> closed loop</label>
+      <button id="start" disabled>Start</button>
+      <button id="stop" disabled>Stop</button>
+    </div>
+    <p id="scenario-status" class="muted mono"></p>
+
+    <h2>Run</h2>
+    <dl>
+      <dt>samples</dt><dd id="stat-samples" class="mono">0</dd>
+      <dt>simulated hours</dt><dd id="stat-hours" class="mono">0</dd>
+      <dt>chunks received</dt><dd id="stat-chunks" class="mono">0</dd>
+      <dt>wall clock</dt><dd id="stat-wall" class="mono">0 ms</dd>
+      <dt>speed</dt><dd id="stat-speed" class="mono">-</dd>
+      <dt>outcome</dt><dd id="stat-outcome" class="mono">-</dd>
+      <dt>ground truth</dt><dd id="stat-labels" class="mono">-</dd>
+      <dt>output checksum</dt><dd id="stat-checksum" class="mono">-</dd>
+      <dt>scenario digest</dt><dd id="stat-digest" class="mono">-</dd>
+    </dl>
+
+    <div class="row" style="gap: 0.5rem">
+      <label>Plot channel<br /><select id="channel"></select></label>
+    </div>
+    <canvas id="plot" width="1400" height="280"></canvas>
+    <p class="muted" id="plot-caption"></p>
+
+    <div class="panels">
+      <div>
+        <h2>Disturbances</h2>
+        <p class="muted" style="max-width: 28rem">
+          The twenty <code>IDV</code> flags, read out of
+          <code>tepsim_core::FAULTS</code>. Toggling one restarts the run from
+          the beginning with the new scenario, and the page says so: a
+          simulation takes its scenario at construction and these bindings do
+          not invent a side door the native API does not have, because a run
+          reachable only through the browser is a run nobody can reproduce.
+        </p>
+        <div class="scroll"><table id="faults"></table></div>
+      </div>
+      <div>
+        <h2>Columns</h2>
+        <p class="muted" style="max-width: 28rem">
+          A packed row is <code>[hours, XMEAS(1..41), XMV(1..12)]</code>. The
+          identifiers are <code>tepsim::channel_names</code>; the labels and
+          units come from <code>tepsim_core::variables</code>, which the core
+          checks against the <code>teprob.f</code> header table.
+        </p>
+        <div class="scroll"><table id="columns"></table></div>
+      </div>
+    </div>
+
+    <script type="module">
+      import init, {
+        Scenario,
+        version,
+        checksumAlgorithm,
+        selfCheckDigest,
+        faults,
+        columnIds,
+        columnLabels,
+        columnUnits,
+        integrators,
+      } from "./pkg/tepsim_wasm.js";
+
+      // Produced by a native run of the same commit. See
+      // crates/tepsim-wasm/tests/determinism.rs.
+      const EXPECTED_SELF_CHECK = "c8a26889992f1719";
+
+      const $ = (id) => document.getElementById(id);
+      const loadBanner = $("load-banner");
+
+      try {
+        await init();
+      } catch (error) {
+        loadBanner.className = "banner bad";
+        loadBanner.textContent =
+          "Could not load ./pkg/tepsim_wasm.js. Generate the glue with " +
+          "wasm-bindgen; the command is in the comment at the top of this file. " +
+          "(" + error + ")";
+        throw error;
+      }
+
+      // The determinism check comes first, because nothing below is worth
+      // looking at unless this browser agrees with the native build.
+      const digest = selfCheckDigest();
+      const agrees = digest === EXPECTED_SELF_CHECK;
+      loadBanner.className = agrees ? "banner good" : "banner bad";
+      loadBanner.innerHTML = agrees
+        ? `Self-check digest <span class="mono">${digest}</span> matches the native run: ` +
+          `one hour of the baseline plant, 3,600 Euler steps, bit for bit. ` +
+          `tepsim-wasm ${version()}, checksum ${checksumAlgorithm()}.`
+        : `Self-check digest <span class="mono">${digest}</span> does not match the ` +
+          `native <span class="mono">${EXPECTED_SELF_CHECK}</span>. This browser is not ` +
+          `reproducing the reference build bit for bit. Do not trust anything below.`;
+
+      // Fault panel.
+      const faultList = faults();
+      $("faults").innerHTML = faultList
+        .map(
+          (f) => `<tr>
+            <td><input type="checkbox" data-fault="${f.id}" /></td>
+            <td class="mono">IDV(${f.id})</td>
+            <td>${f.label}</td>
+            <td class="muted">${f.kind}${f.affectsThePlant ? "" : ", valves only"}</td>
+            <td class="muted mono">${f.line}</td>
+          </tr>`,
+        )
+        .join("");
+      // Each `Fault` is a handle into wasm memory. The table above has copied
+      // every string it needs, so give them back rather than leaking twenty
+      // objects for the life of the page.
+      for (const f of faultList) f.free();
+
+      // Column table.
+      const ids = columnIds();
+      const labels = columnLabels();
+      const units = columnUnits();
+      $("columns").innerHTML = ids
+        .map(
+          (id, i) =>
+            `<tr><td class="mono">${i}</td><td class="mono">${id}</td>` +
+            `<td>${labels[i]}</td><td class="muted">${units[i]}</td></tr>`,
+        )
+        .join("");
+
+      // Channel picker. Column 0 is time, so the choices start at 1.
+      $("channel").innerHTML = ids
+        .slice(1)
+        .map((id, i) => `<option value="${i + 1}">${labels[i + 1]}</option>`)
+        .join("");
+      // XMEAS(7), reactor pressure: the channel an open-loop run trips on.
+      $("channel").value = "7";
+
+      $("integrator").innerHTML = integrators()
+        .map((name) => `<option value="${name}">${name}</option>`)
+        .join("");
+
+      // The scenario, edited in place by the controls.
+      const scenario = new Scenario();
+      $("seed").value = String(scenario.seed);
+      $("stepHours").value = String(scenario.stepHours);
+      $("sampleEvery").value = String(scenario.sampleEvery);
+
+      function readScenario() {
+        scenario.seed = Number($("seed").value);
+        scenario.hours = Number($("hours").value);
+        scenario.stepHours = Number($("stepHours").value);
+        scenario.sampleEvery = Number($("sampleEvery").value) | 0;
+        scenario.controlled = $("controlled").checked;
+        try {
+          scenario.setIntegrator($("integrator").value);
+        } catch {
+          // The select only offers names the module gave us, so this cannot
+          // happen; swallowing it keeps a bad keystroke from killing the page.
+        }
+        scenario.clearFaults();
+        for (const box of document.querySelectorAll("[data-fault]")) {
+          if (box.checked) scenario.setFault(Number(box.dataset.fault), true);
+        }
+      }
+
+      function refreshScenario() {
+        const error = scenario.validationError();
+        $("scenario-status").textContent = error
+          ? `invalid: ${error}`
+          : `${scenario.steps.toLocaleString()} steps, ${scenario.sampleCount} samples, ` +
+            `digest ${scenario.digest()}, faults [${[...scenario.activeFaults].join(", ")}]`;
+        $("stat-digest").textContent = error ? "-" : scenario.digest();
+        $("start").disabled = Boolean(error);
+
+        const banner = $("integrator-banner");
+        banner.hidden = scenario.isFaithful;
+        if (!scenario.isFaithful) {
+          banner.className = "banner warn";
+          banner.innerHTML =
+            `<strong>${scenario.integrator} is not the original.</strong> Only Euler ` +
+            `reproduces the Fortran, and every claim the validation ladder makes is a ` +
+            `claim about Euler. This is a better integration of the same equations and a ` +
+            `different set of numbers.`;
+        }
+      }
+
+      for (const id of ["seed", "hours", "stepHours", "sampleEvery"]) {
+        $(id).addEventListener("input", () => {
+          readScenario();
+          refreshScenario();
+        });
+      }
+      for (const id of ["controlled", "integrator"]) {
+        $(id).addEventListener("change", () => {
+          readScenario();
+          refreshScenario();
+        });
+      }
+      $("faults").addEventListener("change", (event) => {
+        const id = Number(event.target.dataset.fault);
+        if (!id) return;
+        readScenario();
+        refreshScenario();
+        // Mid-run: ask the worker, which rebuilds and tells us it did.
+        worker?.postMessage({ type: "setFault", id, active: event.target.checked });
+      });
+      readScenario();
+      refreshScenario();
+
+      // Plot. One channel, autoscaled from the first chunk, drawn incrementally.
+      const canvas = $("plot");
+      const ctx = canvas.getContext("2d");
+      let rowWidth = 0;
+      let columnLabelsFromRun = labels;
+      let totalSamples = 0;
+      let lo = 0;
+      let hi = 1;
+      let lastPoint = null;
+
+      function resetPlot() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        lastPoint = null;
+        lo = Number.POSITIVE_INFINITY;
+        hi = Number.NEGATIVE_INFINITY;
+      }
+
+      function drawChunk(values, emittedBefore) {
+        const channel = Number($("channel").value);
+        const rows = values.length / rowWidth;
+        const h = canvas.height;
+        const w = canvas.width;
+
+        // Autoscale on the first chunk and keep the scale afterwards, so the
+        // trace does not jump around as it draws. A real chart would rescale
+        // and redraw; this one is a harness.
+        if (lastPoint === null) {
+          for (let r = 0; r < rows; r += 1) {
+            const v = values[r * rowWidth + channel];
+            if (v < lo) lo = v;
+            if (v > hi) hi = v;
+          }
+          const pad = (hi - lo || Math.abs(hi) || 1) * 0.25;
+          lo -= pad;
+          hi += pad;
+        }
+
+        const span = hi - lo || 1;
+        const y = (v) => h - ((v - lo) / span) * (h - 8) - 4;
+        const x = (i) => (i / Math.max(totalSamples - 1, 1)) * w;
+
+        ctx.strokeStyle = "#4c78a8";
+        ctx.lineWidth = 1.25;
+        ctx.beginPath();
+        if (lastPoint) ctx.moveTo(lastPoint[0], lastPoint[1]);
+        for (let r = 0; r < rows; r += 1) {
+          const px = x(emittedBefore + r);
+          const py = y(values[r * rowWidth + channel]);
+          if (r === 0 && !lastPoint) ctx.moveTo(px, py);
+          else ctx.lineTo(px, py);
+          lastPoint = [px, py];
+        }
+        ctx.stroke();
+
+        $("plot-caption").textContent =
+          `${columnLabelsFromRun[channel]} (${units[channel]}), ` +
+          `${lo.toPrecision(6)} to ${hi.toPrecision(6)}, drawn as each chunk arrives.`;
+      }
+
+      $("channel").addEventListener("change", () => {
+        resetPlot();
+        $("plot-caption").textContent = "Restart the run to plot another channel.";
+      });
+
+      // Worker wiring.
+      let worker = null;
+      let started = 0;
+      let chunks = 0;
+
+      function startRun() {
+        stopRun();
+        readScenario();
+        if (scenario.validationError()) return;
+
+        resetPlot();
+        chunks = 0;
+        totalSamples = scenario.sampleCount;
+        started = performance.now();
+        $("stop").disabled = false;
+        $("start").disabled = true;
+        $("stat-outcome").textContent = "running";
+
+        worker = new Worker("./worker.js", { type: "module" });
+        worker.onmessage = ({ data }) => {
+          if (data.type === "ready") {
+            worker.postMessage({
+              type: "start",
+              seed: scenario.seed,
+              hours: scenario.hours,
+              stepHours: scenario.stepHours,
+              sampleEvery: scenario.sampleEvery,
+              controlled: scenario.controlled,
+              integrator: scenario.integrator,
+              chunkSamples: Math.max(1, Number($("chunk").value) | 0),
+              faults: [...scenario.activeFaults],
+            });
+            return;
+          }
+          if (data.type === "started") {
+            rowWidth = data.rowWidth;
+            columnLabelsFromRun = data.columnLabels;
+            totalSamples = data.totalSamples;
+            resetPlot();
+            chunks = 0;
+            started = performance.now();
+            return;
+          }
+          if (data.type === "restart") {
+            $("stat-outcome").textContent = "restarted for the new fault set";
+            return;
+          }
+          if (data.type === "error") {
+            $("scenario-status").textContent = `worker: ${data.message}`;
+            stopRun();
+            return;
+          }
+          if (data.type === "chunk") {
+            chunks += 1;
+            // data.values arrived by transfer: this thread now owns the buffer
+            // and the worker's reference to it is detached.
+            drawChunk(data.values, data.emittedBefore);
+
+            const wall = performance.now() - started;
+            $("stat-samples").textContent = `${data.emitted} of ${data.total}`;
+            $("stat-hours").textContent = data.hours.toFixed(4);
+            $("stat-chunks").textContent = String(chunks);
+            $("stat-wall").textContent = `${wall.toFixed(0)} ms`;
+            $("stat-speed").textContent =
+              wall > 0 ? `${((data.hours * 3600_000) / wall).toFixed(0)}x real time` : "-";
+            $("stat-checksum").textContent = data.checksum;
+            const active = [...data.activeFaults];
+            $("stat-labels").textContent = active.length
+              ? `IDV ${active.join(", ")} active`
+              : "no disturbance active";
+            if (data.finished) {
+              $("stat-outcome").textContent =
+                data.outcome === "tripped"
+                  ? `tripped at ${data.tripHours.toFixed(3)} h: ${data.tripCause}`
+                  : data.outcome;
+              stopRun();
+            } else if (data.outcome === "tripped") {
+              $("stat-outcome").textContent =
+                `tripped at ${data.tripHours.toFixed(3)} h: ${data.tripCause} ` +
+                `(the plant freezes and keeps reporting, as teprob.f does)`;
+            }
+          }
+        };
+      }
+
+      function stopRun() {
+        if (worker) {
+          worker.terminate();
+          worker = null;
+        }
+        $("stop").disabled = true;
+        refreshScenario();
+      }
+
+      $("start").addEventListener("click", startRun);
+      $("stop").addEventListener("click", stopRun);
+    </script>
+  </body>
+</html>
