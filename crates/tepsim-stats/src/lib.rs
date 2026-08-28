@@ -42,6 +42,7 @@
 //! | [`eigen`] | cyclic Jacobi, the deterministic symmetric eigensolver |
 //! | [`pca`] | PCA, Hotelling's T-squared, SPE, and both control limits |
 //! | [`dpca`] | the same on a lag-augmented matrix |
+//! | [`cva`] | canonical variate analysis, over a generalised eigenproblem |
 //! | [`detection`] | detection rate, false alarm rate, detection delay |
 //!
 //! # Reporting
@@ -59,6 +60,7 @@
 extern crate alloc;
 
 pub mod correlation;
+pub mod cva;
 pub mod detection;
 pub mod distribution;
 pub mod dpca;
@@ -73,6 +75,7 @@ pub mod special;
 pub mod summary;
 
 pub use correlation::{CorrelationMatrix, frobenius_distance, worst_correlation_difference};
+pub use cva::{Cva, GeneralizedSymmetricEigen, cholesky, generalized_symmetric_eigen, past_future};
 pub use detection::{
     DetectionReport, alarms_above, detection_delay, detection_report, false_alarm_rate,
     fault_detection_rate,
