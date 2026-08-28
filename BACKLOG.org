@@ -1760,7 +1760,7 @@ Done when:
       example, cited by source, not against a number this project produced
 - [X] TOST reports the interval, not just the verdict
 
-** TODO B-0043 Distribution comparison: Kolmogorov-Smirnov and energy distance
+** NEXT B-0043 Distribution comparison: Kolmogorov-Smirnov and energy distance
 :PROPERTIES:
 :ID:    B-0043
 :PHASE: 5
