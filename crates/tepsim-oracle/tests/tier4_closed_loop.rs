@@ -21,11 +21,32 @@
 
 extern crate alloc;
 
-use tepsim_control::{DRIVER_INITIAL_VALVES, Driver, DriverQuirks, STEADY_STATE_STEPS};
+use tepsim_control::{DRIVER_INITIAL_VALVES, Driver, STEADY_STATE_STEPS};
+use tepsim_core::constants::MEASUREMENT_NOISE;
 use tepsim_core::{Inputs, Plant, SimTime, State, constants, math};
 use tepsim_oracle::Oracle;
 
 const DT: f64 = 1.0 / 3600.0;
+
+/// How many simulated hours the differential and the no-trip run cover.
+///
+/// `cargo test` runs the short horizon, which is already past the driver's
+/// forced `IDV(12)` at hour eight. `cargo xtask validate --tiers 4` sets
+/// `TEP_TIER4_HOURS=48` to run `NPTS = 172800` steps, the run the original
+/// driver was written to do.
+///
+/// The gate is not the default for the usual reason: 172,800 steps against the
+/// oracle takes about half a minute per libm configuration, and `ci` runs on
+/// every commit. The short run exercises every code path the long one does.
+const HOURS_ENV: &str = "TEP_TIER4_HOURS";
+const SHORT_HOURS: usize = 10;
+
+fn hours() -> usize {
+    std::env::var(HOURS_ENV)
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(SHORT_HOURS)
+}
 
 /// `temain_mod.f:369-394`, transcribed. The order within each group is the
 /// source's.
@@ -188,6 +209,11 @@ fn load_preset(oracle: &mut Oracle) {
 struct ClosedLoop {
     /// Worst relative measurement error, and which `XMEAS` it was on.
     worst_measurement: (f64, usize),
+    /// The last time at which every measurement was still inside its own
+    /// noise magnitude `XNS(i)`, in hours. The Tier 4 criterion.
+    hours_within_noise: f64,
+    /// Worst error over noise at the end of the run, and where.
+    noise_ratio_at_end: (f64, usize),
     /// Worst absolute valve difference, in percent of range, and which valve.
     worst_valve: (f64, usize),
     /// The first step at which any valve differed at all.
@@ -224,6 +250,8 @@ fn closed_loop(oracle: &mut Oracle, hours: usize) -> ClosedLoop {
     let mut previous = oracle.measurements();
 
     let mut worst_measurement = (0.0_f64, 0);
+    let mut hours_within_noise = 0.0;
+    let mut noise_ratio_at_end = (0.0_f64, 0);
     let mut worst_valve = (0.0_f64, 0);
     let mut first_valve_split = None;
     let mut steps = 0;
@@ -268,15 +296,28 @@ fn closed_loop(oracle: &mut Oracle, hours: usize) -> ClosedLoop {
             .expect("converges");
         driver.settle();
 
+        let mut over_noise = (0.0_f64, 0);
         for (index, (a, b)) in ours.as_array().iter().zip(theirs).enumerate() {
-            if b == 0.0 {
-                continue;
+            if b != 0.0 {
+                let relative = (a - b).abs() / b.abs();
+                if relative > worst_measurement.0 {
+                    worst_measurement = (relative, index + 1);
+                }
             }
-            let relative = (a - b).abs() / b.abs();
-            if relative > worst_measurement.0 {
-                worst_measurement = (relative, index + 1);
+            // The criterion PLAN.org actually states: a difference smaller
+            // than the instrument's own noise is not observable on it.
+            let noise = MEASUREMENT_NOISE[index];
+            if noise != 0.0 {
+                let ratio = (a - b).abs() / noise;
+                if ratio > over_noise.0 {
+                    over_noise = (ratio, index + 1);
+                }
             }
         }
+        if over_noise.0 < 1.0 {
+            hours_within_noise = t;
+        }
+        noise_ratio_at_end = over_noise;
 
         previous = *ours.as_array();
         state = next;
@@ -288,6 +329,8 @@ fn closed_loop(oracle: &mut Oracle, hours: usize) -> ClosedLoop {
     }
     ClosedLoop {
         worst_measurement,
+        hours_within_noise,
+        noise_ratio_at_end,
         worst_valve,
         first_valve_split,
         steps,
@@ -300,13 +343,14 @@ fn the_closed_loop_plant_matches_the_fortran_driver() {
     let mut oracle = Oracle::lock();
     // Past the eight-hour mark, so the run covers the driver's hard-coded
     // `IDV(12)` (B-0040) rather than stopping short of it.
-    let hours = 10;
+    let hours = hours();
     let run = closed_loop(&mut oracle, hours);
 
     println!(
         "closed loop, {} libm, {hours} h ({} steps)\n  \
          worst XMEAS  : {:.3e} at XMEAS({})\n  \
          worst XMV    : {:.3e} %range at XMV({})\n  \
+         within XNS   : {:.3} h of {hours}, ending at {:.3e} x XNS({})\n  \
          first split  : {}",
         if math::USES_SYSTEM_LIBM {
             "platform"
@@ -318,6 +362,9 @@ fn the_closed_loop_plant_matches_the_fortran_driver() {
         run.worst_measurement.1,
         run.worst_valve.0,
         run.worst_valve.1,
+        run.hours_within_noise,
+        run.noise_ratio_at_end.0,
+        run.noise_ratio_at_end.1,
         run.first_valve_split
             .map_or_else(|| "never".to_string(), |step| format!("step {step}"))
     );
@@ -464,7 +511,8 @@ fn the_driver_forces_idv12_at_the_eight_hour_mark() {
 /// The Class C fix, measured. **Delta D-011.**
 ///
 /// Two port runs that differ in nothing but
-/// [`DriverQuirks::only_the_requested_disturbances`], from the same seeds and
+/// [`tepsim_control::DriverQuirks::only_the_requested_disturbances`], from the
+/// same seeds and
 /// the same generator word, cross-checked against two Fortran runs that differ
 /// in the same way.
 ///
@@ -484,6 +532,11 @@ fn the_driver_forces_idv12_at_the_eight_hour_mark() {
 #[test]
 fn the_forced_disturbance_changes_the_plant_measurably() {
     let mut oracle = Oracle::lock();
+    // Fixed at ten hours rather than following `TEP_TIER4_HOURS`. This test
+    // holds four full measurement traces at once to compare them step by step,
+    // and at 48 h that is 226 MB. Two hours past the mark is enough to measure
+    // the delta; the sign-off (B-0040a) is what runs it long, with Tier 5
+    // statistics rather than stored traces.
     let hours = 10;
 
     let port = |fixed: bool, seeds, priming| {
@@ -514,7 +567,7 @@ fn the_forced_disturbance_changes_the_plant_measurably() {
         trace
     };
 
-    let mut fortran = |oracle: &mut Oracle, fixed: bool| {
+    let fortran = |oracle: &mut Oracle, fixed: bool| {
         let (_, initial) = oracle.init_cold();
         oracle.set_disturbances(&[0; 20]);
         oracle.set_rng(tepsim_oracle::golden::SEED);
@@ -641,34 +694,122 @@ fn the_forced_disturbance_changes_the_plant_measurably() {
     );
 }
 
-/// The plant stays up for eight hours closed-loop, which open-loop it cannot.
+/// The controlled plant runs the driver's full horizon without tripping.
 ///
-/// That is the point of the control layer, and it is the cheapest possible
-/// end-to-end check that the loops are wired to the right valves: a scheme with
-/// two loops transposed trips the plant within minutes.
+/// `NPTS = 172800` at a one-second step is 48 simulated hours, and that is the
+/// run `temain_mod.f` was written to do. `cargo test` runs ten hours; `cargo
+/// xtask validate --tiers 4` sets `TEP_TIER4_HOURS=48` and runs the whole
+/// thing.
+///
+/// Both the port and the Fortran are run, because "the plant stays up" is a
+/// claim about the model and the controllers together, and a port that trips
+/// where the original does not is broken even if every derivative matches.
+///
+/// The same horizon is run open-loop for contrast, and what happens there is
+/// *recorded* rather than asserted: see the printed output.
 #[test]
-fn the_controlled_plant_does_not_trip() {
+fn the_controlled_plant_runs_the_full_horizon_without_tripping() {
     let mut oracle = Oracle::lock();
-    let (_, mut fortran) = oracle.init_cold();
+    let hours = hours();
+    let steps = hours * 3_600;
+
+    let (_, initial) = oracle.init_cold();
     oracle.set_disturbances(&[0; 20]);
     oracle.set_rng(tepsim_oracle::golden::SEED);
     load_preset(&mut oracle);
     oracle.set_manipulated(&DRIVER_INITIAL_VALVES);
+    let after_init = oracle.teproc();
+    let seeds = tepsim_core::TemperatureSeeds {
+        reactor: after_init.tcr,
+        separator: after_init.tcs,
+        stripper: after_init.tcc,
+        mixing: after_init.tcv,
+    };
+    let priming = oracle.measurements();
 
+    // The Fortran, driven as `temain_mod.f` drives it.
+    let mut yy = initial;
     let mut t = 0.0;
-    for step in 1..=8 * 3_600 {
+    for step in 1..=steps {
+        if step >= STEADY_STATE_STEPS {
+            let mut idv = [0; 20];
+            idv[11] = 1;
+            oracle.set_disturbances(&idv);
+        }
         run_fortran_controllers(&mut oracle, step);
-        let yp = oracle.derivatives(t, &fortran);
+        let yp = oracle.derivatives(t, &yy);
         assert_eq!(
             oracle.shutdown_flag(),
             0,
-            "the controlled plant tripped at step {step} ({t:.3} h)"
+            "the Fortran tripped at step {step} ({t:.3} h)"
         );
         conshand(&mut oracle);
-        for (slot, rate) in fortran.iter_mut().zip(yp) {
+        for (slot, rate) in yy.iter_mut().zip(yp) {
             *slot += DT * rate;
         }
         t += DT;
     }
-    println!("8 simulated hours closed-loop with no trip");
+
+    // The port, closed loop and then open loop, from the same start.
+    let run = |controlled: bool| -> Result<(), (usize, tepsim_core::Shutdown)> {
+        let mut plant = Plant::new();
+        plant.set_rng(tepsim_oracle::golden::SEED);
+        plant.set_seeds(seeds);
+        let mut driver = Driver::new();
+        let mut state = State::from_flat(&constants::NOMINAL_STATE);
+        let mut previous = priming;
+        let mut t = 0.0;
+        for step in 1..=steps {
+            let valves = if controlled {
+                *driver.control(&previous, DT)
+            } else {
+                // Open loop: the same forced IDV(12), the same starting
+                // valves, and nothing moving them.
+                let _ = driver.control(&previous, DT);
+                DRIVER_INITIAL_VALVES
+            };
+            let inputs = Inputs {
+                manipulated: valves,
+                disturbances: *driver.disturbances(),
+            };
+            let time = SimTime(t);
+            plant.advance_discrete(time, &inputs);
+            let (derivative, signals) = plant
+                .derivatives(time, &state, &inputs)
+                .expect("the temperature solve converges");
+            if signals.shutdown.is_tripped() {
+                return Err((step, signals.shutdown));
+            }
+            previous = *plant.sample_measurements(time, &signals).as_array();
+            plant.step_seeds(&state).expect("converges");
+            state = state.step(DT, &derivative);
+            driver.settle();
+            t += DT;
+        }
+        Ok(())
+    };
+
+    let closed = run(true);
+    let open = run(false);
+    println!(
+        "{hours} h ({steps} steps): fortran up, port closed-loop {}, port \
+         open-loop {}",
+        match &closed {
+            Ok(()) => "up".to_string(),
+            Err((step, why)) => format!("TRIPPED at step {step} on {:?}", why.first()),
+        },
+        match &open {
+            Ok(()) => "up".to_string(),
+            Err((step, why)) => format!(
+                "tripped at step {step} ({:.3} h) on {:?}",
+                *step as f64 / 3600.0,
+                why.first()
+            ),
+        }
+    );
+
+    assert!(
+        closed.is_ok(),
+        "the controlled port tripped where the Fortran did not"
+    );
 }

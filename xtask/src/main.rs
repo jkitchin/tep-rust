@@ -460,7 +460,7 @@ fn cmd_validate(root: &Path, flags: &[String]) -> Result<(), String> {
                         }
                     );
                     for target in TIER4_TESTS {
-                        step(
+                        step_with_env(
                             root,
                             "cargo",
                             &[
@@ -478,6 +478,11 @@ fn cmd_validate(root: &Path, flags: &[String]) -> Result<(), String> {
                                 "--test-threads",
                                 "1",
                             ],
+                            // `NPTS = 172800` at a one-second step: the run
+                            // `temain_mod.f` was written to do. `ci` runs ten
+                            // hours, which is already past the driver's forced
+                            // `IDV(12)`; this runs the whole thing.
+                            &[(TIER4_HOURS_ENV, "48")],
                         )?;
                     }
                 }
@@ -495,6 +500,9 @@ fn cmd_validate(root: &Path, flags: &[String]) -> Result<(), String> {
 
 /// The integration tests that make up Tier 1, run at full sweep volume.
 const TIER1_TESTS: [&str; 2] = ["tier1_enthalpy", "tier1_temperature"];
+
+/// Selects Tier 4's horizon, as `TEP_TIER1_SWEEP` selects Tier 1's volume.
+const TIER4_HOURS_ENV: &str = "TEP_TIER4_HOURS";
 
 /// Tier 4. The open-loop trajectory is diagnostic; the closed-loop one is not
 /// quite, because the controllers hold the plant at a setpoint and so remove
