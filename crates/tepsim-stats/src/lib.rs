@@ -29,6 +29,8 @@
 //! | [`special`] | `ln_gamma` and the regularised incomplete beta |
 //! | [`distribution`] | Student's t CDF and quantile |
 //! | [`equivalence`] | Welch's t-test, and TOST on top of it |
+//! | [`ks`] | the two-sample Kolmogorov-Smirnov test |
+//! | [`energy`] | the energy distance between two samples |
 //!
 //! # Reporting
 //!
@@ -42,12 +44,18 @@
 #![no_std]
 #![forbid(unsafe_code)]
 
+extern crate alloc;
+
 pub mod distribution;
+pub mod energy;
 pub mod equivalence;
+pub mod ks;
 pub mod special;
 pub mod summary;
 
 pub use distribution::{student_t_cdf, student_t_quantile};
+pub use energy::{energy_distance, energy_distance_naive};
 pub use equivalence::{Tost, WelchT, tost, welch_t};
+pub use ks::{kolmogorov_q, ks_statistic, ks_two_sample_p};
 pub use special::{ln_gamma, regularized_incomplete_beta};
 pub use summary::Summary;
