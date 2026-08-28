@@ -153,6 +153,7 @@ impl Recorder for Columnar {
 /// Seventeen significant digits, which is what round-trips an `f64` exactly.
 /// Fewer would make a recorded dataset only approximately reproducible, and the
 /// whole point of a deterministic simulator is that it is exactly so.
+#[derive(Debug)]
 pub struct Csv<W> {
     out: W,
     labels: bool,
@@ -306,7 +307,6 @@ impl Ring {
     }
 
     /// The held samples, oldest first.
-    #[must_use]
     pub fn iter(&self) -> impl Iterator<Item = &Sample> {
         let split = if self.samples.len() < self.capacity {
             0

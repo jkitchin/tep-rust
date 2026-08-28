@@ -83,6 +83,7 @@ fn list_faults() {
 }
 
 /// What `tep run` was asked to do.
+#[derive(Debug)]
 struct Options {
     scenario: Scenario,
     labels: bool,

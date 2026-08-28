@@ -9,9 +9,7 @@
     reason = "the run is deterministic, so recorded values are exactly equal"
 )]
 
-use tepsim::{
-    CHANNELS, Columnar, Csv, Decimating, Outcome, Recorder, Ring, Scenario, Selecting, Simulation,
-};
+use tepsim::{CHANNELS, Columnar, Csv, Decimating, Outcome, Ring, Scenario, Selecting, Simulation};
 
 fn short() -> Scenario {
     Scenario::baseline().with_hours(1.0)
