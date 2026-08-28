@@ -1586,7 +1586,7 @@ what happens when a quotient of single-precision literals is folded in double.
       in both directions: the folding must be single, and the test requires
       single and double to actually differ or it discriminates nothing
 
-** TODO B-0039 The multi-rate scheduler and the closed-loop driver
+** NEXT B-0039 The multi-rate scheduler and the closed-loop driver
 :PROPERTIES:
 :ID:    B-0039
 :PHASE: 4
