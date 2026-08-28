@@ -197,16 +197,19 @@ fn cmd_ci(root: &Path, fast: bool) -> Result<(), String> {
     // symlinks is worth hearing about before five minutes of clippy, not after.
     check_wheel_licences(root)?;
 
-    // `deltas` is deliberately NOT a gate step yet, and this is the note saying
-    // why rather than an omission. It fails today on a real, pre-existing
-    // finding: D-008 is documented in `book/src/deltas.md` and no `@delta`
-    // marker names it, so the register's two halves disagree. The fix is one
-    // line in `crates/tepsim-control/src/lib.rs`, above `const FAST`, whose doc
-    // comment already says in prose that `CONTRL22` is absent and that this is
-    // D-008. The iteration that adds that marker should add
-    // `deltas::cmd_deltas(root)?` here in the same commit and delete this
-    // comment. Wiring it in first would only make the gate red for everyone
-    // and teach people to pass `--fast`.
+    // The delta register's two halves have to agree: every `## D-0NN` heading
+    // in `book/src/deltas.md` needs a `@delta` marker in the source, and every
+    // marker needs a heading. Prose and code drift apart otherwise, and this
+    // register is the project's record of every place the port knowingly
+    // differs from the Fortran, which is exactly the document that must not
+    // rot.
+    //
+    // When this check was written it failed on a real, pre-existing finding:
+    // D-008 was documented and no marker named it, although the doc comment
+    // above `const FAST` in `tepsim-control` said in prose that `CONTRL22` is
+    // absent and that this is D-008. The marker was added and the check is a
+    // gate step from that same commit.
+    deltas::cmd_deltas(root)?;
 
     step(root, "cargo", &["fmt", "--all", "--check"])?;
     step(

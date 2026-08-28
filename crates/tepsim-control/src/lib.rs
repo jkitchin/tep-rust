@@ -938,6 +938,8 @@ impl Default for Scheme {
 /// The fast group in source order, then the composition group, then the
 /// quality loop. `CONTRL22` is absent: it is defined and never called, which
 /// is delta D-008.
+//
+// @delta D-008 class=A temain_mod.f:1295-1332
 const FAST: [usize; 14] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 16, 17, 18];
 const COMPOSITION: [usize; 4] = [13, 14, 15, 19];
 const QUALITY: [usize; 1] = [20];
