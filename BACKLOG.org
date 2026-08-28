@@ -2069,6 +2069,128 @@ sinks, and the quirk fixes with measured deltas.
 Exit: delta register complete; Class C items signed off by the user; Tier 10
 green.
 
+Decomposed in B-0052, *out of order and by direction*: the user redirected here
+from Phase 5 because nothing downstream can start until the facade exists.
+=tepsim-core= is twelve thousand validated lines and =tepsim= is fourteen lines
+of =pub use=, so Phases 7 and 8 are blocked on an API rather than on PyO3 or
+wasm-bindgen.
+
+** NEXT B-0052 The facade: Simulation, Scenario, Run
+:PROPERTIES:
+:ID:    B-0052
+:PHASE: 6
+:TIER:  4
+:DEPS:  B-0041
+:PLAN:  Architecture > Core data model
+:END:
+
+The smallest thing that makes =tepsim= a library someone can use: a
+=Simulation= that owns a plant, a driver and a state; a =Scenario= that says
+which disturbance, which seed, how long; a =Run= holding columnar output; and
+ground-truth labels alongside the data.
+
+*The acceptance criterion writes itself.* =tier5::run_port= is the loop already
+proven bit-identical to the Fortran over 172,800 closed-loop steps. The facade
+must reproduce it exactly, and =tier5::run_port= should then be rewritten on
+top of the facade so there is one loop rather than two.
+
+The warm start is the one real obstacle. =TEINIT= calls =TEFUNC= once, so the
+four Newton temperatures a run starts from are *not* the nominal literals in
+=TemperatureSeeds::default()=. =tepsim= cannot depend on the oracle, so those
+values have to be constants in =tepsim-core=, asserted against the oracle in
+=tepsim-oracle='s tests.
+
+Done when:
+- [ ] =Simulation= reproduces =tier5::run_port= bit for bit
+- [ ] =tier5::run_port= is rewritten on the facade, and Tier 5's tests still
+      pass unchanged
+- [ ] The post-=TEINIT= warm start is a constant in =tepsim-core=, asserted
+      against the oracle
+- [ ] Ground-truth labels are recorded alongside the measurements
+- [ ] A doc example that runs, and =tep --help= that does something
+
+** TODO B-0053 Integrators: RK4 and Dormand-Prince
+:PROPERTIES:
+:ID:    B-0053
+:PHASE: 6
+:TIER:  4
+:DEPS:  B-0052
+:PLAN:  Architecture > Splitting the right-hand side
+:END:
+
+An =Integrator= trait over =State='s vector-space operations, with fixed-step
+Euler (what the original does), RK4, and adaptive Dormand-Prince.
+
+This is what the three-phase split was *for*. B-0012 established that =TEFUNC=
+is not a pure function of =(t, y)=, and a multi-stage integrator that called it
+four times per step would advance the disturbance walks four times and draw
+noise four times. The split makes RK4 correct; this item is where that is
+finally cashed in and demonstrated.
+
+Done when:
+- [ ] RK4 on a problem with a known closed-form solution, to fourth order
+- [ ] The step-order property demonstrated: halving the step divides the error
+      by 16 for RK4 and by 2 for Euler
+- [ ] The walks advance *once* per outer step whichever integrator is used,
+      asserted rather than assumed
+- [ ] Euler still reproduces the Fortran bit for bit
+
+** TODO B-0054 The scenario engine
+:PROPERTIES:
+:ID:    B-0054
+:PHASE: 6
+:TIER:  4
+:DEPS:  B-0052
+:PLAN:  Architecture > Ground truth and labeling
+:END:
+
+Events on a schedule, continuous-magnitude disturbances rather than the
+original's binary flags, serialisation, and a content hash so a dataset is
+self-describing.
+
+Done when:
+- [ ] A scenario round-trips through its serialised form
+- [ ] The content hash changes when the scenario does and not otherwise
+- [ ] Binary =IDV= flags remain reproducible exactly, as a special case
+
+** TODO B-0055 Recorder sinks
+:PROPERTIES:
+:ID:    B-0055
+:PHASE: 6
+:TIER:  none
+:DEPS:  B-0052
+:PLAN:  Architecture > Recording and output
+:END:
+
+CSV for teaching, a ring buffer for the browser's live display, downsampling
+and channel selection at the sink. Arrow and Parquet if the dependency cost is
+acceptable, and a recorded decision if it is not.
+
+** TODO B-0056 The CLI
+:PROPERTIES:
+:ID:    B-0056
+:PHASE: 6
+:TIER:  none
+:DEPS:  B-0054 B-0055
+:PLAN:  Architecture > Workspace layout
+:END:
+
+=tep run=, =tep list-faults=, =tep dataset=. Today the binary prints "Nothing
+does."
+
+** TODO B-0057 Quirk fixes with measured deltas
+:PROPERTIES:
+:ID:    B-0057
+:PHASE: 6
+:TIER:  10
+:DEPS:  B-0052 B-0047c
+:PLAN:  Quirk and delta register
+:END:
+
+Every Class C fix behind its flag, with the Tier 5 battery run on and off and
+the delta measured. Needs B-0047c, since the battery is how a delta is
+measured.
+
 * Phase 7: Python bindings and wheels
 
 PyO3, the clean-break API from the plan, abi3-py39 plus cp313t/cp314t plus a
