@@ -2505,6 +2505,46 @@ Items parked on a decision. Move them back into their phase when answered.
 
 * Decisions
 
+** 2026-08-28 Tier 5's mean test is paired, and the seed count stays at 100
+:PROPERTIES:
+:ITEM: B-0047c
+:END:
+
+B-0047b measured that =PLAN.org='s margin of a tenth of a standard deviation on
+the mean needs about 255 seeds at the nominal plant, not the 100 the plan
+specifies. The partial full battery put it between 237 and 460 depending on
+scenario, worst at =IDV(6)=.
+
+The backlog offered three ways out: run 255 seeds, keep 100 and record the
+manipulated variables as undecided, or argue the margin is the wrong yardstick.
+There is a fourth, and it is better than all of them.
+
+*The two sources are run at the same seeds.* Each seed's difference is
+therefore an observation, and the seed-to-seed wander cancels out of it
+entirely, because both sources are given the same disturbance realisation and
+see the same wander. The unpaired test spends almost all of its variance on a
+term that is common to both sides.
+
+That is why the power was so poor and why more seeds was the wrong answer. The
+variables that ran out of power are the manipulated ones, driven by integrating
+controllers whose 48-hour mean has a random-walk component. The two
+implementations differ by far less than that walk moves.
+
+*Decision: gate on the paired test, keep 100 seeds, and report the unpaired
+result alongside.* Measured on a fixture with a shared offset of order one and
+a true difference of 0.01: unpaired power 7.75, which cannot resolve it at any
+difference, against paired power 0.0000. Against a source compared with itself
+the paired power is exactly zero even at four seeds.
+
+The unpaired result is kept because it is the conservative statement and is the
+right one for any comparison that cannot be seed-matched. Nothing is hidden:
+both appear in the report and =Report::undecided= still names anything the gate
+could not decide.
+
+This does not touch the calibrated statistics. Kolmogorov-Smirnov, the energy
+distance, the autocorrelation, the spectra and the Frobenius norm compare
+pooled samples or whole ensembles and were never affected by the pairing.
+
 ** 2026-08-28 Three per-crate licence exceptions for the Python bindings
 :PROPERTIES:
 :ITEM: B-0058
