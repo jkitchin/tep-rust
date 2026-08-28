@@ -14,9 +14,9 @@ earlier phases will change what the right decomposition is.
 
 Rewrite this block at the end of every iteration. Keep it to five lines.
 
-- Phase: 5, six of eleven done (B-0047 split in two). Phases 1-4 are closed
-- Last completed: B-0047a. The Tier 5 run harness: 960 samples of 53 variables
-  per 48 h run, bit-identical between sources under =libm-system=
+- Phase: 5, seven of twelve done. Phases 1-4 are closed. *Redirected to Phase 6
+  by the user: stand up the facade so there is something to bind and to ship*
+- Last completed: B-0047b. The Tier 5 battery with calibrated margins
 - In flight: (none)
 - Baseline: =cargo xtask ci= green; 366 tests default, 549 with =oracle=;
   =validate --tiers 1,2,3,4= green; provenance *1123/1589* on =teprob.f=,
@@ -24,7 +24,8 @@ Rewrite this block at the end of every iteration. Keep it to five lines.
 - Toolchain: rustup, pinned to rustc 1.97.1, wasm32 installed, libm 0.2.16
 - Remote: private jkitchin/tep-rust, CI green on all 7 jobs
 - Blocked on: B-0025b and B-0040a await sign-off; neither blocks progress.
-  Next is B-0047b, the battery itself, with calibrated margins.
+  Next is Phase 6's facade, by direction. B-0047c and B-0048 remain in
+  Phase 5 and are not blocking.
 
 * Phase 0: foundations
 
@@ -1915,13 +1916,23 @@ Done when:
 - [X] The scenario count is settled against the vendored Fortran rather than
       against =PLAN.org='s prose: twenty-one, not twenty-two
 
-** NEXT B-0047b The Tier 5 battery: every statistic, with calibrated margins
+** DONE B-0047b The Tier 5 battery: every statistic, with calibrated margins
 :PROPERTIES:
 :ID:    B-0047b
 :PHASE: 5
 :TIER:  5
 :DEPS:  B-0047a
 :PLAN:  Validation > Tier 5
+:COMMIT: 31d184b
+:RESULT: Battery built and gated in =ci= at smoke size. Margins calibrated by
+         a 20-split exchangeability test; only the mean's margin is absolute
+         and it comes from =PLAN.org=. Partial full run, 3 of 21 scenarios at
+         100 seeds x 48 h: every calibrated statistic p=1.0000, Frobenius
+         cross 1.19e-2 against a within-source max of 7.59. Finding: the
+         mean margin needs ~255 seeds at the nominal plant, not 100; see
+         B-0047c. Found and fixed two harness bugs, an i32 overflow in the
+         Tier 3 trace that segfaulted after ~50 runs, and =welch_t= computing
+         =n-1= on an empty summary.
 :END:
 
 Apply TOST, KS, energy distance, ACF, Welch spectra and the correlation matrix
@@ -1938,11 +1949,38 @@ distribution. Tier 6's logic, applied a tier early.
 Every margin is written down *before* the cross-source numbers are looked at.
 
 Done when:
-- [ ] Within-source distributions computed first, and recorded
-- [ ] Equivalence margins stated per statistic, and *not* tuned to pass
-- [ ] The battery runs and records every statistic for every scenario
-- [ ] Any scenario outside its margin is a =BLOCKED= item with the numbers,
-      not a relaxed margin
+- [X] Within-source distributions computed first, and recorded
+- [X] Equivalence margins stated per statistic, and *not* tuned to pass
+- [X] The battery runs and records every statistic for every scenario, at
+      smoke size in =ci= and at full size under =validate=
+- [X] Any scenario outside its margin is a =BLOCKED= item with the numbers,
+      not a relaxed margin. None was; the finding is power, not difference
+
+** TODO B-0047c Run the full Tier 5 battery and settle the seed count
+:PROPERTIES:
+:ID:    B-0047c
+:PHASE: 5
+:TIER:  5
+:DEPS:  B-0047b
+:PLAN:  Validation > Tier 5
+:END:
+
+The machinery is done and =ci= exercises it. This is the *run*: 21 scenarios
+by 100 seeds by 48 hours on both sources, about 90 minutes of compute, plus a
+decision about the seed count.
+
+B-0047b measured that =PLAN.org='s margin of a tenth of a standard deviation
+on the mean needs about 255 seeds at the nominal plant. Three options, and the
+item has to pick one and say why: run 255 seeds and pay the time; keep 100 and
+record the manipulated variables as undecided; or note that a margin defined
+against the *pooled* spread is the wrong yardstick for a variable whose
+run-to-run mean wanders, and propose a different one to =PLAN.org= as a logged
+decision. Do not simply widen it.
+
+Done when:
+- [ ] The full battery has run to completion, with the numbers in =LOG.org=
+- [ ] The seed count is settled by a recorded decision, not by whichever
+      number happened to pass
 
 ** TODO B-0048 xtask validate --tiers 5 and the report chapter
 :PROPERTIES:

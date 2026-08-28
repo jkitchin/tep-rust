@@ -5451,3 +5451,113 @@ every margin a measurement rather than a choice.
 Write the margins down before looking at the cross-source numbers. And note
 =CLAUDE.md=: a statistic outside its margin is a =BLOCKED= item with the
 numbers, never a widened margin.
+
+* 2026-08-28 B-0047b The Tier 5 battery, with calibrated margins
+:PROPERTIES:
+:ITEM:     B-0047b
+:PHASE:    5
+:TIER:     5
+:COMMIT:   31d184b
+:GFORTRAN: 15.2.0
+:STATUS:   DONE
+:END:
+** Preflight
+Clean and green. Fidelity 100 of 100, worst 3.521e-14 at =YP(12)= step 77,
+unchanged for a tenth iteration. Provenance 1306/2997. gfortran 15.2.0.
+
+** What changed
+=tier5::battery=: TOST on per-run means and log variances, and four calibrated
+statistics (Kolmogorov-Smirnov, energy distance, autocorrelation, Welch
+spectra) plus the correlation matrix's Frobenius distance.
+
+The design question this item existed to answer was *where the margins come
+from*, and the answer is that four of the six are measured rather than chosen.
+Split the reference's seeds in half, compute the statistic against itself over
+twenty deterministic splits, and treat the cross-source value as one more draw
+from that null. The p-value is =(1 + #{within >= cross}) / (K + 1)=, gated at
+0.05, so with twenty splits the cross-source value fails exactly when it is the
+strict maximum of the twenty-one.
+
+** Validation numbers
+Smoke battery in =ci=: 3 scenarios, 4 seeds, 2 h, 12 runs per source, 14 s.
+
+Full battery, *partial*: 3 of 21 scenarios at 100 seeds by 48 hours, stopped by
+direction after about 25 minutes to redirect effort to Phase 6.
+
+| scenario | worst mean power | frobenius cross | within max | p      |
+|----------+------------------+-----------------+------------+--------|
+| nominal  |             1.59 |        1.186e-2 |      7.595 | 1.0000 |
+| IDV(1)   |             1.61 |        7.080e-3 |      5.703 | 1.0000 |
+| IDV(2)   |             0.23 |        2.827e-5 |      1.924 | 1.0000 |
+
+Every calibrated statistic passed at p = 1.0000 on all three: the cross-source
+value was never the maximum of its null. The Frobenius distance is three to
+five orders of magnitude inside the within-source spread.
+
+TOST power against battery size, measured:
+
+| battery                  | worst power |
+|--------------------------+-------------|
+| 4 seeds, 2 h (smoke)     |       11.93 |
+| 8 seeds, 12 h            |        3.38 |
+| 8 seeds, 48 h            |        1.04 |
+| 100 seeds, 48 h, nominal |        1.59 |
+| 100 seeds, 48 h, IDV(2)  |        0.23 |
+
+** Surprises and decisions
+*The margin's achievability depends on the scenario, and nobody had noticed.*
+=PLAN.org= sets the mean margin at a tenth of the standard deviation. Which
+standard deviation? The pooled one, and a disturbed plant has a much larger
+pooled spread than a quiet one. So the same absolute run-to-run wander in the
+mean sits comfortably inside the margin under =IDV(2)= and outside it at the
+nominal operating point. At the nominal plant the margin needs about *255
+seeds*, not 100.
+
+The variables that run out of power are the manipulated ones, =XMV(1..12)=.
+That is what an integrating controller does: its output has a random-walk
+component, so its mean over 48 hours varies between seeds by much more than a
+tenth of its own within-run spread. This is a fact about the plant, not about
+the port.
+
+*An underpowered test has not failed.* It has declined to decide, and reporting
+it as a difference would be exactly the error TOST exists to prevent, in the
+other direction. =Report::undecided= separates them and =seeds_for_power= says
+what the margin would cost. The battery still asserts on the *measured* gap for
+undecided variables: a difference well outside the margin is a finding even
+when the test lacks the power to say so formally.
+
+*Two harness bugs, both found only by running long.*
+
+=TRCN=, the Tier 3 trace counter, is a Fortran =INTEGER= that nothing clears
+between evaluations. At about 264 draws per step over 172,800 steps it passes
+2^31 after roughly fifty runs, goes negative, passes the =TRCN.LE.TRCCAP=
+guard, and writes outside the array. The symptom was a SIGSEGV deep inside the
+Fortran, tens of millions of steps into the battery, with nothing nearby to
+suggest why: the same seed ran perfectly in isolation, and starting at seed 40
+moved the crash to seed 90, which is what identified it as cumulative rather
+than data-dependent. It now saturates at =TRCCAP+1=. Nothing in Tiers 1 to 4
+was ever affected because no shorter run approached the overflow, and fidelity
+plus all seven Tier 3 files pass unchanged.
+
+=welch_t= computed =(n - 1)= on a =Summary= with no observations. In debug that
+panics; in release it wraps to =usize::MAX= and returns a degrees-of-freedom
+figure that looks like a number. The case is =XMV(12)=, the agitator, which is
+never written by a controller: every run has zero variance, so the log-variance
+ensemble is empty. Now =NaN=, with a known-answer test.
+
+Both are the same lesson. A validation harness is code, it has bugs, and the
+bugs it has are the ones only its longest runs reach.
+
+** Next
+*Redirected by the user to Phase 6*: stand up the =tepsim= facade, so that
+there is something for the Python and wasm bindings to bind to and something to
+ship.
+
+That is the right call and the state of the tree says why. =tepsim-core= is
+12,081 lines and validated bit-for-bit against the Fortran over a full 48-hour
+closed-loop run. =tepsim= is fourteen lines of =pub use=. =tepsim-py= is eleven
+lines of doc comment, =tepsim-wasm= thirteen. Phases 7 and 8 are not blocked on
+PyO3 or wasm-bindgen; they are blocked on there being no API to bind.
+
+B-0047c (the full battery run and the seed-count decision) and B-0048 (the
+report chapter) stay in Phase 5 and block nothing.
