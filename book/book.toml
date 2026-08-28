@@ -1,0 +1,15 @@
+[book]
+title = "TEP-Rust"
+authors = ["John Kitchin"]
+description = "A pure-Rust port of the Tennessee Eastman Process simulator, validated against the original Fortran."
+src = "src"
+language = "en"
+
+[build]
+build-dir = "book"
+create-missing = false
+
+[output.html]
+mathjax-support = true
+smart-punctuation = false
+no-section-label = false
