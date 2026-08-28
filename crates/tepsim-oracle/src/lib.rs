@@ -57,6 +57,12 @@ pub mod tier3;
 #[cfg(feature = "oracle")]
 pub mod tier5;
 
+// Tier 7 needs no Fortran of its own: it compares the port against files
+// vendored under `reference/data/`. It is gated all the same, because the
+// battery it judges with lives in `tier5` and that does need the Fortran.
+#[cfg(feature = "oracle")]
+pub mod tier7;
+
 #[cfg(feature = "oracle")]
 mod ffi;
 

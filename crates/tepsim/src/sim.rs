@@ -154,6 +154,32 @@ impl Simulation {
         self.halted
     }
 
+    /// Switch a disturbance on or off part way through a run.
+    ///
+    /// [`Scenario`] can only say which disturbances are on from the first
+    /// step, but the published `d00`-`d21` datasets are not generated that
+    /// way: `temain_mod.f:366-368` applies the fault after a settling period,
+    /// eight hours in the vendored driver. Reproducing them therefore needs
+    /// the fault to arrive mid-run, which is what this is for, and Tier 7 is
+    /// its first caller.
+    ///
+    /// The onset recorded in [`Labels::since_onset`] is the step this takes
+    /// effect on, not zero, because the loop derives onsets from what the
+    /// driver is actually holding rather than from the scenario.
+    ///
+    /// `IDV(12)` is a special case: the driver forces it on at
+    /// [`forced_disturbance_step`] unless
+    /// [`Scenario::driver_forces_idv12`] is cleared, so switching it *off*
+    /// after that step does not stick.
+    ///
+    /// # Panics
+    ///
+    /// If `n` is not in `1..=DISTURBANCES`.
+    pub fn request_disturbance(&mut self, n: usize, on: bool) {
+        assert!((1..=DISTURBANCES).contains(&n), "IDV index out of range");
+        self.driver.request_disturbance(n, on);
+    }
+
     /// Advance one integrator step.
     ///
     /// Returns a [`Sample`] on the steps where one is due and `None`
