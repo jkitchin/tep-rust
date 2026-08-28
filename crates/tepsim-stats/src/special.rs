@@ -26,6 +26,17 @@ pub fn ln(x: f64) -> f64 {
     libm::log(x)
 }
 
+/// True unless `x` is strictly positive. `NaN` counts as not positive.
+///
+/// A named function rather than `!(x > 0.0)` written out at each guard, because
+/// that form trips `clippy::neg_cmp_op_on_partial_ord` while the obvious
+/// rewrite `x <= 0.0` silently changes the meaning: it is *false* for `NaN`,
+/// and `NaN` is precisely the case these guards exist to stop. Getting that
+/// wrong turns a guard into a passthrough.
+pub(crate) fn not_positive(x: f64) -> bool {
+    x.is_nan() || x <= 0.0
+}
+
 /// The natural logarithm of the gamma function, for `x > 0`.
 ///
 /// Lanczos approximation with `g = 7` and nine coefficients, the parameters

@@ -27,13 +27,22 @@
 //! |---|---|
 //! | [`summary`] | first and second moments, stably |
 //! | [`special`] | `ln_gamma` and the regularised incomplete beta |
-//! | [`distribution`] | Student's t CDF and quantile |
+//! | [`distribution`] | Student's t and Snedecor's F, CDFs and quantiles |
 //! | [`equivalence`] | Welch's t-test, and TOST on top of it |
 //! | [`ks`] | the two-sample Kolmogorov-Smirnov test |
 //! | [`energy`] | the energy distance between two samples |
 //! | [`fft`] | a deterministic radix-2 transform, for Welch spectra |
 //! | [`serial`] | autocorrelation and Welch power spectra |
 //! | [`correlation`] | the cross-correlation matrix, which PCA consumes |
+//!
+//! and, for Tier 6, the fault detectors that turn those into a downstream task:
+//!
+//! | Module | Tier 6 role |
+//! |---|---|
+//! | [`eigen`] | cyclic Jacobi, the deterministic symmetric eigensolver |
+//! | [`pca`] | PCA, Hotelling's T-squared, SPE, and both control limits |
+//! | [`dpca`] | the same on a lag-augmented matrix |
+//! | [`detection`] | detection rate, false alarm rate, detection delay |
 //!
 //! # Reporting
 //!
@@ -50,21 +59,32 @@
 extern crate alloc;
 
 pub mod correlation;
+pub mod detection;
 pub mod distribution;
+pub mod dpca;
+pub mod eigen;
 pub mod energy;
 pub mod equivalence;
 pub mod fft;
 pub mod ks;
+pub mod pca;
 pub mod serial;
 pub mod special;
 pub mod summary;
 
 pub use correlation::{CorrelationMatrix, frobenius_distance, worst_correlation_difference};
-pub use distribution::{student_t_cdf, student_t_quantile};
+pub use detection::{
+    DetectionReport, alarms_above, detection_delay, detection_report, false_alarm_rate,
+    fault_detection_rate,
+};
+pub use distribution::{f_cdf, f_quantile, normal_quantile, student_t_cdf, student_t_quantile};
+pub use dpca::{Dpca, augment_with_lags};
+pub use eigen::{SymmetricEigen, symmetric_eigen};
 pub use energy::{energy_distance, energy_distance_naive};
 pub use equivalence::{Tost, WelchT, tost, welch_t};
 pub use fft::{Complex, Fft, dft_naive};
 pub use ks::{kolmogorov_q, ks_statistic, ks_two_sample_p};
+pub use pca::{ControlLimits, Pca, Retention, Statistics, spe_limit, t_squared_limit};
 pub use serial::{
     BandComparison, Spectrum, Window, autocorrelation, autocorrelation_direct, band_comparison,
     bartlett_standard_error, log_band_edges, welch,
