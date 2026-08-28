@@ -4909,3 +4909,112 @@ n = m = 100 is a number that can be looked up). And the energy distance is
 O(n*m) in the naive form, which for 100 seeds by 172,800 samples is not
 affordable; the item should measure the cost and say what it does about it
 rather than discovering the problem in B-0047.
+
+* 2026-08-28 B-0043 Kolmogorov-Smirnov and the energy distance
+:PROPERTIES:
+:ITEM:     B-0043
+:PHASE:    5
+:TIER:     5
+:COMMIT:   7f3ebc2
+:GFORTRAN: 15.2.0
+:STATUS:   DONE
+:END:
+** Preflight
+Clean and green. Fidelity 100 of 100 steps, worst 3.521e-14 at =YP(12)= step 77,
+a fifth iteration at the same number. Provenance 1306/2997 unchanged. gfortran
+15.2.0.
+
+** What changed
+=tepsim-stats= gains =ks= and =energy=, and =alloc= (both sort). The KS
+statistic is a merge walk; its p-value goes through Kolmogorov's distribution,
+which needs two series because neither works everywhere; the energy distance
+uses the one-dimensional closed form rather than the definition.
+
+** Validation numbers
+23 new tests, 0 failures. 326 tests default (up from 303), 491 with =oracle=.
+
+Kolmogorov's distribution against the series the published tables are derived
+from, three terms, to 1e-14 absolute at every alpha:
+
+| alpha | c       | Q(c)           | 2nd term | 3rd term |
+|-------+---------+----------------+----------+----------|
+| 0.2   | 1.07298 | 0.199800002000 | 2.00e-4  | 2.00e-9  |
+| 0.1   | 1.22387 | 0.099987500004 | 1.25e-5  | 3.91e-12 |
+| 0.05  | 1.35810 | 0.049999218750 | 7.81e-7  | 7.63e-15 |
+| 0.025 | 1.48021 | 0.024999951172 | 4.88e-8  | 1.49e-17 |
+| 0.01  | 1.62762 | 0.009999998750 | 1.25e-9  | 3.91e-21 |
+| 0.005 | 1.73082 | 0.004999999922 | 7.81e-11 | 7.63e-24 |
+| 0.001 | 1.94947 | 0.001000000000 | 1.25e-13 | 3.91e-30 |
+
+The two series agree to 1e-13 across the whole overlap 0.75 to 1.25.
+
+Energy distance, fast form against the definition: worst relative 3.4e-14 over
+100 random pairs; 4.8e-12 on plant-shaped data.
+
+*Cost, which B-0047 needs.* 172,800 samples per side:
+
+| form           | time                       |
+|----------------+----------------------------|
+| O(n log n)     | 281 ms                     |
+| the definition | 1186 s (projected from 1k) |
+
+A factor of about 4,200. Tier 5 is 22 scenarios by 53 variables by two sources;
+the definition would be roughly a fortnight of compute per battery, the closed
+form about seven minutes.
+
+Stephens' correction shifts lambda by 1.92% at n = m = 100, and p at D = 0.2 by
+more than 1e-3.
+
+Mutations, all caught: no Stephens correction (1 test), alternating series used
+below its switchover (1), wrong weight =(2j-n)= in the pair sum (2), no centring
+(1), naive tie walk (2, after the fix below).
+
+** Surprises and decisions
+*The fast energy distance needs its inputs centred, and the plant is exactly the
+data that shows it.* =self_absolute_sum= accumulates =(2j - n - 1) * x_j=, whose
+weights sum to zero. At 2705 kPa with a spread of tenths those terms reach 1e6
+and the answer is 1.6e4: four digits lost before the outer =2A - B - C=
+subtraction removes three more. Uncentred it disagreed with the definition in
+the eighth significant figure. The statistic is translation-invariant, so
+subtracting a common offset costs nothing and fixes it: 1.4e-8 becomes 4.8e-12.
+Random uniform data on [0,1] did *not* show this. The plant-shaped fixture did.
+
+*Two of my KS table values were transcription errors.* =alpha = 0.025= was
+written as 1.48007 and =alpha = 0.005= as 1.73115. The routine says 1.48021 and
+1.73082, and the relation those tables come from, =c = sqrt(-ln(alpha/2)/2)=,
+confirms the routine. Both rows are dropped from the table test, which now
+carries only the four values every table prints, and the derivation is checked
+separately and much more sharply. This is the fourth time in this project that a
+number written from memory has been the error rather than the code, which is why
+the constants rule exists.
+
+*The tie mutation passed at first, and the reason is worth keeping.* Every tie
+case I had written was balanced, and for a balanced tie the intermediate points
+of the naive walk lie between the endpoints, so the maximum is unaffected. The
+distinguishing case is one tied value with very different sample sizes: two
+point masses at 7, with n = 2 and m = 100, where the correct D is 0 and the
+naive walk reports 0.98. That case is now in, along with a brute-force
+supremum cross-check over 200 quantised random pairs that would have caught it
+generically.
+
+The lesson generalises past this test: a hand-written fixture tests the case its
+author was thinking about. The mutation test is what finds the case they were
+not.
+
+** Next
+B-0044, the FFT. Radix-2 Cooley-Tukey, deterministic: fixed summation order, no
+threading, no runtime planning.
+
+Known answers are easy to come by and should be taken: hand-computed DFTs at
+n = 2, 4 and 8 (the n = 4 transform of =[1,0,0,0]= is all ones, of =[1,1,1,1]=
+is =[4,0,0,0]=, and the transform of a pure bin-k sinusoid is two spikes);
+agreement with a naive O(n^2) DFT over random inputs; Parseval's identity; and
+the forward-inverse round trip. Note that the round trip and Parseval are *not*
+sufficient on their own, since a transform with a permuted output satisfies
+both.
+
+One design note for B-0045 that belongs here: Welch's method needs the segment
+length to be a power of two, and at dt = 1 s over 48 h there are 172,800
+samples, so segments of 4096 with 50% overlap give 83 averages and a resolution
+of 0.244 mHz. That is the shape to aim at, and it means the FFT never needs
+Bluestein.

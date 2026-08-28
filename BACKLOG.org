@@ -14,17 +14,17 @@ earlier phases will change what the right decomposition is.
 
 Rewrite this block at the end of every iteration. Keep it to five lines.
 
-- Phase: 5, one of ten done. Phases 1-4 are closed
-- Last completed: B-0042. Phase 5 decomposed, and =tepsim-stats= stood up with
-  26 known-answer tests
+- Phase: 5, two of ten done. Phases 1-4 are closed
+- Last completed: B-0043. Kolmogorov-Smirnov and the energy distance, the
+  latter O(n log n) rather than the definition's four-thousand-fold slower form
 - In flight: (none)
-- Baseline: =cargo xtask ci= green; 303 tests default, 468 with =oracle=;
+- Baseline: =cargo xtask ci= green; 326 tests default, 491 with =oracle=;
   =validate --tiers 1,2,3,4= green; provenance *1123/1589* on =teprob.f=,
   *183/1408* on =temain_mod.f=, 43.6% combined
 - Toolchain: rustup, pinned to rustc 1.97.1, wasm32 installed, libm 0.2.16
 - Remote: private jkitchin/tep-rust, CI green on all 7 jobs
 - Blocked on: B-0025b and B-0040a await sign-off; neither blocks progress.
-  Next is B-0043, the Kolmogorov-Smirnov statistic and energy distance.
+  Next is B-0044, an FFT with known-answer tests.
 
 * Phase 0: foundations
 
@@ -1760,24 +1760,36 @@ Done when:
       example, cited by source, not against a number this project produced
 - [X] TOST reports the interval, not just the verdict
 
-** NEXT B-0043 Distribution comparison: Kolmogorov-Smirnov and energy distance
+** DONE B-0043 Distribution comparison: Kolmogorov-Smirnov and energy distance
 :PROPERTIES:
 :ID:    B-0043
 :PHASE: 5
 :TIER:  5
 :DEPS:  B-0042
 :PLAN:  Validation > Tier 5
+:COMMIT: 7f3ebc2
+:RESULT: KS statistic by merge walk, checked against a brute-force supremum
+         over 200 tie-heavy pairs; Kolmogorov's distribution checked term by
+         term against the series the published tables come from, to 1e-14;
+         energy distance in O((n+m) log(n+m)), 281 ms at 172,800 samples
+         against a projected 1186 s for the definition. Centring the energy
+         distance was necessary: uncentred it was wrong in the 8th figure on
+         plant-shaped data. 23 tests, 5 mutations all caught.
 :END:
 
 The two-sample KS statistic, its asymptotic p-value (the Kolmogorov
 distribution), and the energy distance between two samples.
 
 Done when:
-- [ ] KS statistic exact on small hand-checkable samples
-- [ ] The asymptotic p-value checked against published critical values
-- [ ] Energy distance checked against a worked example
-- [ ] The cost of the naive energy distance is measured and stated; it is
-      O(n*m) and Tier 5 runs it on 100 seeds
+- [X] KS statistic exact on small hand-checkable samples, plus a brute-force
+      cross-check over 200 random tie-heavy pairs
+- [X] The asymptotic p-value checked against published critical values, and
+      against the series they are derived from term by term
+- [X] Energy distance checked against a worked example and against the
+      definition
+- [X] The cost of the naive energy distance is measured and stated: 1186 s
+      per comparison projected at 172,800 samples, against 281 ms for the
+      O(n log n) form that replaced it
 
 ** TODO B-0044 A real FFT, with known-answer tests
 :PROPERTIES:
