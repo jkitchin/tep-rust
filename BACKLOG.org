@@ -14,17 +14,17 @@ earlier phases will change what the right decomposition is.
 
 Rewrite this block at the end of every iteration. Keep it to five lines.
 
-- Phase: 5, four of ten done. Phases 1-4 are closed
-- Last completed: B-0045. Autocorrelation and Welch spectra, the first Tier 5
-  statistics that can see time
+- Phase: 5, five of ten done. Phases 1-4 are closed
+- Last completed: B-0046. The correlation matrix and four physics invariants,
+  the only tests here that can catch an error the port faithfully inherited
 - In flight: (none)
-- Baseline: =cargo xtask ci= green; 356 tests default, 521 with =oracle=;
+- Baseline: =cargo xtask ci= green; 366 tests default, 540 with =oracle=;
   =validate --tiers 1,2,3,4= green; provenance *1123/1589* on =teprob.f=,
   *183/1408* on =temain_mod.f=, 43.6% combined
 - Toolchain: rustup, pinned to rustc 1.97.1, wasm32 installed, libm 0.2.16
 - Remote: private jkitchin/tep-rust, CI green on all 7 jobs
 - Blocked on: B-0025b and B-0040a await sign-off; neither blocks progress.
-  Next is B-0046, the correlation matrix and the physics invariants.
+  Next is B-0047, the Tier 5 battery: both sources, every statistic.
 
 * Phase 0: foundations
 
@@ -1848,13 +1848,20 @@ Done when:
 - [X] The window and overlap are stated and justified, not defaults
 - [X] Band comparison reports per-band ratios, not one scalar
 
-** NEXT B-0046 The correlation matrix and physics invariants
+** DONE B-0046 The correlation matrix and physics invariants
 :PROPERTIES:
 :ID:    B-0046
 :PHASE: 5
 :TIER:  5
 :DEPS:  B-0042
 :PLAN:  Validation > Tier 5
+:COMMIT: a17e22e
+:RESULT: Correlation matrix + Frobenius distance, 10 tests. Four invariants,
+         each run on both implementations: I-1 reaction mass (Fortran
+         4.664e-16, port 3.498e-16), I-2 plant mass balance (2.079e-16 /
+         2.344e-16), I-3 the inert has no reaction term (exact), I-4
+         per-component moles (7.436e-15 / 2.892e-15). I-4 exists because a
+         mutation showed I-2 structurally cannot see a missing reaction term.
 :END:
 
 The 53-by-53 cross-correlation matrix and its Frobenius norm, which is what
@@ -1866,10 +1873,11 @@ the port *faithfully inherited*, so they are worth more than their size
 suggests.
 
 Done when:
-- [ ] Correlation matrix against a hand-checkable example
-- [ ] Each invariant stated as an equation with its tolerance and its source
+- [X] Correlation matrix against a hand-checkable example, and against exact
+      plus and minus one for perfect linear relationships
+- [X] Each invariant stated as an equation with its tolerance and its source
       line range in =teprob.f=
-- [ ] The invariants run against the *oracle* as well as the port, and any
+- [X] The invariants run against the *oracle* as well as the port, and any
       failure is attributed to one or the other explicitly
 
 ** TODO B-0047 The Tier 5 battery: run both sources and apply everything

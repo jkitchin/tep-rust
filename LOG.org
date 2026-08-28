@@ -5236,3 +5236,114 @@ fails on both is a finding about the original, which is Class B and belongs in
 its =teprob.f= line range before writing any code for it, because "mass should
 balance" is not a testable statement until it says which streams and over what
 control volume.
+
+* 2026-08-28 B-0046 The correlation matrix and the physics invariants
+:PROPERTIES:
+:ITEM:     B-0046
+:PHASE:    5
+:TIER:     5
+:COMMIT:   a17e22e
+:GFORTRAN: 15.2.0
+:STATUS:   DONE
+:END:
+** Preflight
+Clean and green. Fidelity 100 of 100, worst 3.521e-14 at =YP(12)= step 77, an
+eighth iteration unchanged. Provenance 1306/2997. gfortran 15.2.0.
+
+** What changed
+=tepsim_stats::correlation=, and =crates/tepsim-oracle/tests/tier5_invariants.rs=
+with four conservation invariants.
+
+The invariants are the only tests in the whole ladder that can catch an error
+the port *faithfully inherited*. Every other tier compares against the Fortran,
+so an error in the Fortran is invisible to all of them.
+
+** Validation numbers
+19 new tests (10 correlation, 9 invariants), 0 failures. 366 default (up from
+356), 540 with =oracle= (up from 521).
+
+| invariant                        | Fortran   | port      | gate  |
+|----------------------------------+-----------+-----------+-------|
+| I-1 reaction mass, 200 states    | 4.664e-16 | 3.498e-16 | 1e-14 |
+| I-2 plant mass balance, nominal  | 2.079e-16 | 2.344e-16 | 1e-13 |
+| I-2 along 2 h open loop          | 6.556e-16 | -         | 1e-13 |
+| I-3 inert reaction term          | exactly 0 | exactly 0 | exact |
+| I-4 per-component moles, 1 h     | 7.436e-15 | 2.892e-15 | 1e-13 |
+
+All four reactions balance exactly with the published molecular weights:
+=2+28+32=62=, =2+28+46=76=, =2+46=48=, =3*32=2*48=. That is why I-1 is an
+equality and not a tolerance.
+
+I-4's teeth are checked: the largest reaction term over its run is 457.5
+lbmol/h, so it genuinely exercises the term it is there to see. I-2's are too:
+the accumulation reaches 0.0613 lb/h against a residual of 2.1e-11 lb/h, a
+factor of 2.9e9.
+
+Mutations: D's coefficient 1.5 to 1 fails 2; the inert given a reaction term
+fails 2; the purge dropped from the separator balance fails 1; the reaction
+dropped from the reactor balance fails 1, *and only I-4 catches it*.
+
+** Surprises and decisions
+*I-2 structurally cannot see a missing reaction term, and I only learned that
+from a mutation.* Deleting =CRXR= from the reactor's component balance left the
+total mass balance passing at 2e-16. That is not a weak test, it is a true fact
+about the invariant: I-2 is the =XMW=-weighted sum of I-4, and I-1 says the
+reaction is mass-neutral, so the reaction term cancels out of I-2 exactly. Total
+mass conservation is blind to stoichiometry by construction.
+
+The fix was to add the unweighted per-component balance, I-4, which sees it
+immediately. The general lesson: an invariant that is a *sum* of other
+invariants is weaker than the set, and how much weaker is not obvious from
+reading it.
+
+*Two failures were my formula, not the plant, and both looked like the plant.*
+
+=XMWS= is filled for streams 1, 2, 6, 8, 9 and 10 only (=teprob.f:529-548=).
+Streams 3, 4, 11 and 13 keep whatever the slot held, and two of those are feeds
+or products this invariant needs. Reading =XMWS(13)= gave a mass balance failing
+by 95%, *identically on both implementations*. Identical failure on both is the
+signature of a wrong formula rather than a wrong plant, and it is worth naming
+as a diagnostic: a real inherited error would also fail on both, but it would
+not fail at 95%.
+
+Then, with that fixed, the port sat at 6.9e-9 against the Fortran's 2.1e-16.
+Cause: I rebuilt the port's stream table with =WalkInputs::default()= instead of
+the walk inputs the derivative actually used, so the A/C feed composition
+differed between the two halves of the balance. Seven orders of magnitude from
+one wrong argument.
+
+*The gate went from 1e-11 to 1e-13.* Both implementations close to one or two
+ulp of a 32,000 lb/h throughput. A term dropped from a balance equation is an
+entire stream, of order 1e-5 relative at the very smallest, so asking for what
+the code delivers costs nothing and leaves nowhere for a regression to hide.
+
+*The correlation matrix needed one square root, not two.* =r(x, 2x)= came out
+0.9999999999999998 because =sqrt(5) * sqrt(20)= is 10.000000000000002 while
+=sqrt(5 * 20)= is exactly 10. Storing sums of squares and taking a single root
+of their product is both cheaper and exactly right on the cases where the answer
+is exactly plus or minus one.
+
+** Next
+B-0047, the Tier 5 battery. Every statistic now exists and every one has been
+checked against something outside this project.
+
+The remaining design questions, which the item should settle *before* running
+anything:
+
+*What is a sample?* =PLAN.org= says 100 seeds by 22 scenarios by 48 hours by two
+sources. That is 4400 runs of 172,800 steps. B-0041 measured a closed-loop run
+against the oracle at about 6 seconds; port-only will be faster, but 4400 runs
+is still an hour or two. Decide whether the battery samples the trajectory (say
+every 180 steps, as =temain_mod.f='s own output does) or keeps every step,
+because the KS and energy statistics scale with the sample count and the
+autocorrelation does not.
+
+*What is the equivalence margin?* =PLAN.org= says one tenth of the Fortran
+standard deviation for the means. It says nothing about the margins for
+variances, KS, spectra or the Frobenius norm. Those have to be chosen and
+written down *before* the numbers are seen, or they are not margins.
+
+*How does a failure get reported?* Per =CLAUDE.md=, a statistic outside its
+margin is a =BLOCKED= item with the numbers, never a widened margin. The battery
+should make that easy: the natural output is a table of every statistic for
+every scenario with its margin beside it.
