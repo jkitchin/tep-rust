@@ -12,6 +12,10 @@
 //! - `fidelity` diffs a short run against a committed golden oracle trace. It is
 //!   a stub until B-0004 produces that trace, and it fails loudly rather than
 //!   passing vacuously.
+//! - `python` builds the wheel, installs it into a throwaway virtualenv and runs
+//!   the pytest suite against it. Part of `ci`, skipped when maturin is absent.
+//! - `licences` checks that the licence texts the wheel ships are the texts and
+//!   not the symlink targets a checkout without symlink support leaves behind.
 //!
 //! See `CLAUDE.md` for how these fit into the session protocol.
 
@@ -74,6 +78,8 @@ fn main() -> ExitCode {
         "provenance" => cmd_provenance(&root),
         "fidelity" => cmd_fidelity(&root),
         "validate" => cmd_validate(&root, flags),
+        "python" => cmd_python(&root, true),
+        "licences" => check_wheel_licences(&root),
         "help" | "--help" | "-h" => {
             usage();
             return ExitCode::SUCCESS;
@@ -95,12 +101,17 @@ fn usage() {
         "\
 usage: cargo xtask <command>
 
-  ci [--fast]   the gate: fmt, clippy, test, doc, deny, oracle isolation
+  ci [--fast]   the gate: fmt, clippy, test, doc, deny, oracle isolation,
+                the wheel's licence texts, and its pytest suite
                 --fast skips the Fortran oracle differential job
   provenance    teprob.f line ranges not claimed by any Rust function
   fidelity      diff a short run against the committed golden oracle trace
   validate [--tiers 1,2,3] [--compare-to-log]
                 run the validation ladder at full volume, in release
+  python        build the wheel, install it into a throwaway virtualenv, and
+                run the pytest suite against it. Skipped without maturin
+  licences      the licence texts the wheel ships are texts, not symlink
+                targets left by a checkout that could not follow them
   help          this message"
     );
 }
@@ -167,6 +178,10 @@ const LIBM_SYSTEM_TESTS: &[&str] = &[
 fn cmd_ci(root: &Path, fast: bool) -> Result<(), String> {
     check_toolchain(root)?;
     check_oracle_isolation(root)?;
+    // Up here with the other structural checks rather than down in the python
+    // job, because it costs nothing and a checkout that mangled the licence
+    // symlinks is worth hearing about before five minutes of clippy, not after.
+    check_wheel_licences(root)?;
 
     step(root, "cargo", &["fmt", "--all", "--check"])?;
     step(
@@ -225,8 +240,367 @@ fn cmd_ci(root: &Path, fast: bool) -> Result<(), String> {
         step(root, "cargo", &bit_exact)?;
     }
 
+    // Last, because it builds a release wheel and the fast signals should come
+    // first. The licences were already checked at the top of this function, so
+    // it does not repeat that here.
+    cmd_python(root, false)?;
+
     println!("\nci: green");
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// python
+// ---------------------------------------------------------------------------
+
+/// The maturin project: the wheel, the pytest suite, and the licence texts.
+const PY_CRATE_DIR: &str = "crates/tepsim-py";
+
+/// Where the throwaway wheel and virtualenv are built.
+///
+/// Under `target/`, which is already ignored, so a gate run leaves the working
+/// tree clean.
+const PY_WORK_DIR: &str = "target/xtask-python";
+
+/// Build the wheel, install it into a throwaway virtualenv, run pytest.
+///
+/// The pytest suite tests the *binding*, and a binding only exists once it is
+/// compiled and installed, so there is no way to run these tests against the
+/// source tree. That is why they went unrun by the gate until B-0058a: a
+/// `cargo test` cannot reach them.
+///
+/// Release, not debug. The suite asserts that `run()` releases the GIL by
+/// timing four twelve-hour runs against each other, and a debug build turns
+/// that from a second into a minute. Release is also the configuration a wheel
+/// actually ships in, so this is the artifact under test rather than a proxy
+/// for it.
+///
+/// Absent maturin this prints why and returns success. A machine that cannot
+/// build a wheel cannot ship one either, and failing the Rust gate over it
+/// would only teach people to stop running the gate. The same reasoning the
+/// oracle job already uses for gfortran.
+fn cmd_python(root: &Path, check_licences: bool) -> Result<(), String> {
+    // Before the wheel is built, never after: a wheel whose licence file holds
+    // `../../LICENSE` is a licence violation that has already been packaged.
+    if check_licences {
+        check_wheel_licences(root)?;
+    }
+
+    let Some(maturin) = which("maturin") else {
+        println!(
+            "\n[skip] python job: maturin is not on PATH.\n\
+             The pytest suite in {PY_CRATE_DIR}/tests runs against an installed \
+             wheel,\nso without maturin there is nothing to run it against. \
+             `pip install maturin`."
+        );
+        return Ok(());
+    };
+    let Some(python) = which_python() else {
+        println!(
+            "\n[skip] python job: neither python3 nor python is on PATH.\n\
+             The suite needs an interpreter to make a virtualenv with."
+        );
+        return Ok(());
+    };
+
+    // Throwaway means throwaway: a virtualenv left over from a previous run
+    // could hold a stale `tepsim`, and pip would then have nothing to do and
+    // report success. Remove first, ask questions never.
+    let work = root.join(PY_WORK_DIR);
+    if work.exists() {
+        fs::remove_dir_all(&work).map_err(|e| format!("clearing {}: {e}", work.display()))?;
+    }
+    let dist = work.join("dist");
+    let venv = work.join("venv");
+    fs::create_dir_all(&dist).map_err(|e| format!("creating {}: {e}", dist.display()))?;
+
+    let maturin = maturin.to_string_lossy().into_owned();
+    let python = python.to_string_lossy().into_owned();
+    let manifest = format!("{PY_CRATE_DIR}/Cargo.toml");
+    let dist_arg = dist.to_string_lossy().into_owned();
+    let venv_arg = venv.to_string_lossy().into_owned();
+
+    step(
+        root,
+        &maturin,
+        &[
+            "build",
+            "--release",
+            "--out",
+            &dist_arg,
+            "--manifest-path",
+            &manifest,
+            // Explicit, so the wheel is built for the interpreter the tests are
+            // about to run on. With `abi3-py39` the tag is `cp39-abi3` whatever
+            // this is, but pinning it keeps the two halves from drifting.
+            "--interpreter",
+            &python,
+        ],
+    )?;
+
+    let wheel = one_wheel(&dist)?;
+    step(root, &python, &["-m", "venv", &venv_arg])?;
+
+    let venv_python = venv_python(&venv).to_string_lossy().into_owned();
+    // `[test]` pulls pytest from `[project.optional-dependencies]`, and numpy
+    // comes from the wheel's own `dependencies`. Naming them here instead would
+    // be a second place for the requirements to live.
+    let requirement = format!("{}[test]", wheel.to_string_lossy());
+    step(
+        root,
+        &venv_python,
+        &[
+            "-m",
+            "pip",
+            "install",
+            "--disable-pip-version-check",
+            &requirement,
+        ],
+    )?;
+
+    // Prove the tests are about to import the wheel just built. Without this
+    // the job passes just as happily against a `tepsim` that leaked in from
+    // somewhere else, which is the one way a green Python gate could lie.
+    // Written to a file rather than passed with `-c`, so the echoed command
+    // stays one readable line.
+    let probe = work.join("check_import_site.py");
+    fs::write(&probe, IMPORT_SITE_CHECK)
+        .map_err(|e| format!("writing {}: {e}", probe.display()))?;
+    let probe_arg = probe.to_string_lossy().into_owned();
+    step(root, &venv_python, &[&probe_arg, &venv_arg])?;
+
+    step(
+        root,
+        &venv_python,
+        &[
+            "-m",
+            "pytest",
+            &format!("{PY_CRATE_DIR}/tests"),
+            "-q",
+            // No `.pytest_cache` in the working tree: the gate must leave the
+            // tree clean enough to commit from.
+            "-p",
+            "no:cacheprovider",
+        ],
+    )?;
+
+    println!("\n[ok] python: {} passed its pytest suite", wheel.display());
+    Ok(())
+}
+
+/// Asserts that `import tepsim` resolves inside the throwaway virtualenv.
+const IMPORT_SITE_CHECK: &str = r#"# Fail unless `tepsim` comes from the virtualenv named in argv[1].
+
+import pathlib
+import sys
+
+import tepsim
+
+here = pathlib.Path(tepsim.__file__).resolve()
+venv = pathlib.Path(sys.argv[1]).resolve()
+if venv not in here.parents:
+    sys.exit(
+        f"tepsim imported from {here}, which is outside {venv}. The tests would "
+        "be checking some other installation, not the wheel just built."
+    )
+print(f"tepsim {tepsim.__version__} from {here}")
+"#;
+
+/// The single wheel maturin produced, or an explanation of why there is not one.
+fn one_wheel(dist: &Path) -> Result<PathBuf, String> {
+    let entries = fs::read_dir(dist).map_err(|e| format!("reading {}: {e}", dist.display()))?;
+    let mut wheels = Vec::new();
+    for entry in entries {
+        let path = entry
+            .map_err(|e| format!("reading {}: {e}", dist.display()))?
+            .path();
+        if path.extension().is_some_and(|e| e == "whl") {
+            wheels.push(path);
+        }
+    }
+    wheels.sort();
+    match wheels.len() {
+        1 => Ok(wheels.remove(0)),
+        // Not "take the first": two wheels in a directory this command emptied
+        // a moment ago means maturin built something unexpected, and installing
+        // an arbitrary one of them would test an arbitrary artifact.
+        n => Err(format!(
+            "expected exactly one wheel in {}, found {n}: {wheels:?}",
+            dist.display()
+        )),
+    }
+}
+
+/// The interpreter inside a virtualenv, which Windows puts somewhere else.
+fn venv_python(venv: &Path) -> PathBuf {
+    if cfg!(windows) {
+        venv.join("Scripts").join("python.exe")
+    } else {
+        venv.join("bin").join("python")
+    }
+}
+
+/// The Python to build the throwaway environment with.
+///
+/// `python3` first. A bare `python` is still Python 2 on a few systems, and on
+/// Windows it may be the App Execution Alias stub that opens the Store.
+fn which_python() -> Option<PathBuf> {
+    which("python3").or_else(|| which("python"))
+}
+
+// ---------------------------------------------------------------------------
+// licences
+// ---------------------------------------------------------------------------
+
+/// The licence texts the wheel ships must be texts, not paths.
+///
+/// `crates/tepsim-py/{LICENSE,LICENSE-NCSA,NOTICE.md}` are stored in git as
+/// symlinks (mode 120000) to the ones at the repository root, so there is one
+/// copy of each text and nothing can drift. That is fine everywhere git can
+/// create a symlink.
+///
+/// Where it cannot -- a Windows checkout without `core.symlinks=true`, which is
+/// the default when the installer could not enable them -- git writes the
+/// *target path* as the file's content. `crates/tepsim-py/LICENSE` becomes a
+/// 13-byte file reading `../../LICENSE`, `maturin build` copies it into the
+/// wheel because `pyproject.toml` names it in `license-files`, and the wheel
+/// ships with `../../LICENSE` where the NCSA licence should be. Nothing else in
+/// the build would notice: the wheel is well-formed, the metadata is valid, and
+/// the attribution the NCSA licence requires is simply gone.
+///
+/// So the check is: every text `license-files` declares must be the text, and
+/// where the repository root holds the same name, the two must be byte for
+/// byte the same file.
+fn check_wheel_licences(root: &Path) -> Result<(), String> {
+    let crate_dir = root.join(PY_CRATE_DIR);
+    let manifest = crate_dir.join("pyproject.toml");
+    let text = fs::read_to_string(&manifest)
+        .map_err(|e| format!("reading {}: {e}", manifest.display()))?;
+    // Read from pyproject rather than hard-coded here, so that a fourth licence
+    // text added to the wheel cannot silently escape the check.
+    let names = parse_license_files(&text).ok_or_else(|| {
+        format!(
+            "{} declares no `license-files`. The wheel is derived from the \
+             original Tennessee Eastman Fortran, whose NCSA licence requires \
+             attribution in binary distributions, so the texts have to ship \
+             inside it.",
+            manifest.display()
+        )
+    })?;
+
+    verify_license_texts(&crate_dir, root, &names)?;
+    println!(
+        "[ok] licences: {} text(s) in {PY_CRATE_DIR} are texts and match the root",
+        names.len()
+    );
+    Ok(())
+}
+
+/// The check itself, over explicit directories so a test can point it at one.
+fn verify_license_texts(crate_dir: &Path, root: &Path, names: &[String]) -> Result<(), String> {
+    for name in names {
+        let path = crate_dir.join(name);
+        let content = fs::read(&path).map_err(|e| {
+            format!(
+                "{} is declared in license-files but cannot be read: {e}",
+                path.display()
+            )
+        })?;
+        if content.is_empty() {
+            return Err(format!("{} is empty", path.display()));
+        }
+
+        // The signature of a symlink written as text: one line, no newline, and
+        // it names a file that is actually there. A licence is never that.
+        let body = String::from_utf8_lossy(&content);
+        let trimmed = body.trim();
+        if !trimmed.contains('\n') && crate_dir.join(trimmed).exists() {
+            return Err(format!(
+                "{} is not a licence text. It holds the single line `{trimmed}`, \
+                 which is the\n  *target* of a symlink rather than its contents.\n\n  \
+                 git stores this file as a symlink (mode 120000) so there is one \
+                 copy of the\n  text. A checkout that cannot create symlinks -- \
+                 Windows without\n  `core.symlinks=true` -- writes the target path \
+                 as the file body instead, and\n  a wheel built here would ship \
+                 `{trimmed}` as its licence. The NCSA terms the\n  original Fortran \
+                 comes under require that attribution in binary\n  distributions, so \
+                 that is not cosmetic.\n\n  Fix the checkout, not the file. Replacing \
+                 it with a copy of the text would\n  pass this check and reintroduce \
+                 the drift the symlinks exist to prevent:\n    \
+                 git config --global core.symlinks true\n    \
+                 git checkout-index -f -a     # rewrite the working tree from the \
+                 index\n  On Windows that needs Developer Mode or an elevated shell. \
+                 A fresh clone\n  made after setting the config works too.",
+                path.display(),
+            ));
+        }
+
+        // One copy of each text is the whole point of the symlinks, so where
+        // the root has the same name the bytes must agree. This is what catches
+        // someone "fixing" a broken checkout by pasting in a stale copy.
+        let counterpart = root.join(name);
+        if counterpart.exists() {
+            let expected = fs::read(&counterpart)
+                .map_err(|e| format!("reading {}: {e}", counterpart.display()))?;
+            if expected != content {
+                return Err(format!(
+                    "{} and {} differ ({} bytes against {}).\n  They are meant to \
+                     be the same file: the one in the crate is a symlink to the \
+                     one at\n  the root, so that there is a single copy of the \
+                     text. Two copies drift.",
+                    path.display(),
+                    counterpart.display(),
+                    content.len(),
+                    expected.len(),
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The `license-files` array from a `pyproject.toml`.
+///
+/// A deliberately small reader rather than a TOML dependency: xtask compiles at
+/// the top of every session, and this is one flat array of strings.
+fn parse_license_files(text: &str) -> Option<Vec<String>> {
+    let mut lines = text
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.starts_with('#'));
+
+    let mut body = lines.find_map(|line| {
+        let rest = line.strip_prefix("license-files")?;
+        let rest = rest.trim_start().strip_prefix('=')?;
+        Some(rest.trim_start().strip_prefix('[')?.to_string())
+    })?;
+    // Multi-line arrays are legal TOML. Truncating one silently would leave the
+    // later entries unchecked, which is the failure this whole function exists
+    // to prevent, so keep reading until the array closes.
+    while !body.contains(']') {
+        let line = lines.next()?;
+        body.push(' ');
+        body.push_str(line);
+    }
+    let body = body.split(']').next()?;
+
+    let mut out = Vec::new();
+    for piece in body.split(',') {
+        let piece = piece.trim();
+        if piece.is_empty() {
+            continue;
+        }
+        let quote = piece.chars().next()?;
+        if quote != '"' && quote != '\'' {
+            return None;
+        }
+        let value = piece.strip_prefix(quote)?.strip_suffix(quote)?;
+        if value.is_empty() {
+            return None;
+        }
+        out.push(value.to_string());
+    }
+    (!out.is_empty()).then_some(out)
 }
 
 /// The running compiler must be the one `rust-toolchain.toml` pins.
@@ -643,8 +1017,20 @@ fn step_with_env(
 
 fn which(program: &str) -> Option<PathBuf> {
     let path = std::env::var_os("PATH")?;
+    // On Windows an executable on PATH is `maturin.exe` or `maturin.bat`, never
+    // a bare `maturin`. Probing only the plain name reports every tool as
+    // absent, which for a job that *skips* when a tool is missing means it
+    // skips forever and says so convincingly.
+    let names: Vec<String> = if cfg!(windows) {
+        [".exe", ".cmd", ".bat", ""]
+            .iter()
+            .map(|extension| format!("{program}{extension}"))
+            .collect()
+    } else {
+        vec![program.to_string()]
+    };
     std::env::split_paths(&path)
-        .map(|dir| dir.join(program))
+        .flat_map(|dir| names.iter().map(move |name| dir.join(name)))
         .find(|candidate| candidate.is_file())
 }
 
@@ -1358,5 +1744,150 @@ mod tests {
     fn percent_is_a_plain_ratio() {
         let p = percent(1, 4);
         assert_eq!(p.to_bits(), 25.0_f64.to_bits());
+    }
+
+    // -----------------------------------------------------------------------
+    // licences
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn reads_the_license_files_array() {
+        let text = "[project]\nname = \"tepsim\"\n\
+                    license-files = [\"LICENSE\", \"LICENSE-NCSA\", \"NOTICE.md\"]\n";
+        assert_eq!(
+            parse_license_files(text),
+            Some(vec![
+                "LICENSE".to_string(),
+                "LICENSE-NCSA".to_string(),
+                "NOTICE.md".to_string(),
+            ])
+        );
+    }
+
+    /// A multi-line array must not be read as its first line only: the entries
+    /// past the truncation would go unchecked, which is the exact failure the
+    /// guard exists to prevent.
+    #[test]
+    fn reads_an_array_spread_over_lines() {
+        let text = "license-files = [\n  \"LICENSE\",\n  \"NOTICE.md\",\n]\n";
+        assert_eq!(
+            parse_license_files(text),
+            Some(vec!["LICENSE".to_string(), "NOTICE.md".to_string()])
+        );
+        // Unterminated is not "everything up to here", it is unreadable.
+        assert_eq!(
+            parse_license_files("license-files = [\n  \"LICENSE\",\n"),
+            None
+        );
+    }
+
+    #[test]
+    fn a_pyproject_with_no_license_files_yields_nothing() {
+        assert_eq!(parse_license_files("[project]\nname = \"tepsim\"\n"), None);
+        assert_eq!(parse_license_files("license-files = []\n"), None);
+        // A bare word is not a string, and guessing at what was meant would be
+        // worse than saying so.
+        assert_eq!(parse_license_files("license-files = [LICENSE]\n"), None);
+    }
+
+    /// A scratch tree shaped like the repository: a root, and a crate under it.
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("xtask-licence-{}-{name}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join(PY_CRATE_DIR)).expect("scratch tree");
+        fs::write(dir.join("LICENSE"), "MIT License\n\nCopyright ...\n").expect("root licence");
+        dir
+    }
+
+    fn names() -> Vec<String> {
+        vec!["LICENSE".to_string()]
+    }
+
+    #[test]
+    fn a_real_licence_text_passes() {
+        let dir = scratch("good");
+        let crate_dir = dir.join(PY_CRATE_DIR);
+        fs::copy(dir.join("LICENSE"), crate_dir.join("LICENSE")).expect("copy");
+
+        verify_license_texts(&crate_dir, &dir, &names()).expect("the texts agree");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// The hazard itself, reproduced without a Windows machine: git writing the
+    /// symlink target as the file body.
+    #[test]
+    fn a_symlink_written_as_text_is_caught() {
+        let dir = scratch("symlink-as-text");
+        let crate_dir = dir.join(PY_CRATE_DIR);
+        fs::write(crate_dir.join("LICENSE"), "../../LICENSE").expect("write");
+
+        let error = verify_license_texts(&crate_dir, &dir, &names())
+            .expect_err("a path is not a licence text");
+        assert!(error.contains("../../LICENSE"), "{error}");
+        // The message has to name the fix, because the file looks fine in an
+        // editor and the wheel that ships it is well-formed.
+        assert!(error.contains("core.symlinks"), "{error}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Only when it really is a path. A licence whose first line happens to be
+    /// short must not trip the check.
+    #[test]
+    fn a_short_first_line_is_not_a_symlink() {
+        let dir = scratch("short-line");
+        let crate_dir = dir.join(PY_CRATE_DIR);
+        let text = "LICENSE\n\nThe text of a licence that opens with its own name.\n";
+        fs::write(dir.join("LICENSE"), text).expect("root");
+        fs::write(crate_dir.join("LICENSE"), text).expect("crate");
+
+        verify_license_texts(&crate_dir, &dir, &names()).expect("multi-line text is a text");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Two copies drift. Replacing the symlink with a stale paste is the
+    /// obvious wrong fix for the failure above, so it is caught too.
+    #[test]
+    fn a_second_copy_that_drifted_is_caught() {
+        let dir = scratch("drift");
+        let crate_dir = dir.join(PY_CRATE_DIR);
+        fs::write(crate_dir.join("LICENSE"), "MIT License\n\nCopyright 1993\n").expect("write");
+
+        let error =
+            verify_license_texts(&crate_dir, &dir, &names()).expect_err("the copies disagree");
+        assert!(error.contains("differ"), "{error}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_missing_or_empty_licence_is_caught() {
+        let dir = scratch("missing");
+        let crate_dir = dir.join(PY_CRATE_DIR);
+
+        let error = verify_license_texts(&crate_dir, &dir, &names()).expect_err("nothing to ship");
+        assert!(error.contains("cannot be read"), "{error}");
+
+        fs::write(crate_dir.join("LICENSE"), "").expect("write");
+        let error = verify_license_texts(&crate_dir, &dir, &names()).expect_err("empty");
+        assert!(error.contains("is empty"), "{error}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// And the real checkout this session is running in.
+    #[test]
+    fn this_checkout_ships_the_licence_texts() {
+        check_wheel_licences(&workspace_root()).expect("licence texts");
+    }
+
+    #[test]
+    fn a_virtualenv_puts_python_where_the_platform_does() {
+        let venv = Path::new("/tmp/venv");
+        let python = venv_python(venv);
+        assert!(python.starts_with(venv));
+        let tail = if cfg!(windows) {
+            "Scripts/python.exe"
+        } else {
+            "bin/python"
+        };
+        assert!(python.ends_with(tail), "{}", python.display());
     }
 }
