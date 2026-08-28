@@ -1548,7 +1548,7 @@ which is exactly the override's reset threshold) and never invoked.
       covers it at 0 ULP, which is the only evidence anywhere that the
       subroutine is correct
 
-** TODO B-0038 The nineteen-loop Braatz preset
+** NEXT B-0038 The nineteen-loop Braatz preset
 :PROPERTIES:
 :ID:    B-0038
 :PHASE: 4
