@@ -1137,6 +1137,12 @@ pub struct Driver {
     valves: [f64; 12],
     /// One-based, as `I` is. Incremented by [`Driver::step`].
     step: usize,
+    /// The scenario as asked for, before the driver forces `IDV(12)` on.
+    requested: [f64; 20],
+    /// What the plant is actually handed. See [`DriverQuirks`].
+    disturbances: [f64; 20],
+    /// Which Class C driver quirks are fixed rather than reproduced.
+    pub quirks: DriverQuirks,
 }
 
 impl Default for Driver {
@@ -1145,8 +1151,36 @@ impl Default for Driver {
             scheme: Scheme::new(),
             valves: DRIVER_INITIAL_VALVES,
             step: 0,
+            requested: [0.0; 20],
+            disturbances: [0.0; 20],
+            quirks: DriverQuirks::default(),
         }
     }
+}
+
+/// After how many steps the driver forces `IDV(12)` on: `SSPTS = 3600 * 8`,
+/// eight simulated hours at a one-second step.
+///
+/// `temain_mod.f:226`. The comparison is `I .GE. SSPTS` with `I` one-based, so
+/// the disturbance is live for the integration of step 28,800 itself, which
+/// happens at `TIME = 28799/3600 = 7.99972 h`.
+pub const STEADY_STATE_STEPS: usize = 3600 * 8;
+
+/// Which Class C quirks of the *driver* are fixed rather than reproduced.
+///
+/// All off by default, so the default driver reproduces `temain_mod.f`. This
+/// mirrors [`tepsim_core::QuirkFixes`], which does the same job for the plant.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct DriverQuirks {
+    /// When `false` (the default), the driver switches `IDV(12)` on at step
+    /// [`STEADY_STATE_STEPS`] whatever scenario was asked for, exactly as
+    /// `temain_mod.f:366-368` does.
+    ///
+    /// When `true`, the requested scenario is the scenario. That is a genuine
+    /// behaviour change and it is **blocked on sign-off**; see B-0040a and
+    /// delta D-011.
+    pub only_the_requested_disturbances: bool,
 }
 
 impl Driver {
@@ -1179,6 +1213,39 @@ impl Driver {
         self.step
     }
 
+    /// The scenario as asked for, one-based as `IDV(n)` is.
+    ///
+    /// This is what the caller set, not what the plant is handed. See
+    /// [`Driver::disturbances`].
+    pub fn request_disturbance(&mut self, n: usize, on: bool) {
+        self.requested[n - 1] = f64::from(u8::from(on));
+        self.disturbances[n - 1] = self.requested[n - 1];
+    }
+
+    /// Set the whole scenario at once.
+    pub fn request(&mut self, idv: &[f64; 20]) {
+        self.requested = *idv;
+        self.disturbances = *idv;
+    }
+
+    /// What the plant is actually handed on this step.
+    ///
+    /// Equal to the requested scenario except for `IDV(12)`, which the driver
+    /// forces on at [`STEADY_STATE_STEPS`] unless
+    /// [`DriverQuirks::only_the_requested_disturbances`] is set.
+    #[must_use]
+    pub const fn disturbances(&self) -> &[f64; 20] {
+        &self.disturbances
+    }
+
+    /// Whether the driver has forced `IDV(12)` on beyond what was requested.
+    #[must_use]
+    pub fn scenario_is_overridden(&self) -> bool {
+        // Bit comparison, not an epsilon: both are exactly 0.0 or exactly
+        // 1.0, and the question is which.
+        self.disturbances[11].to_bits() != self.requested[11].to_bits()
+    }
+
     /// Run the controllers due on the next step, given the measurements the
     /// *previous* step produced.
     ///
@@ -1189,6 +1256,11 @@ impl Driver {
     // @port temain_mod.f:366-394
     pub fn control(&mut self, previous: &[f64], dt: f64) -> &[f64; 12] {
         self.step += 1;
+        // temain_mod.f:366-368. Unconditional, and ahead of the controllers.
+        // @delta D-011 class=C temain_mod.f:366-368
+        if !self.quirks.only_the_requested_disturbances && self.step >= STEADY_STATE_STEPS {
+            self.disturbances[11] = 1.0;
+        }
         self.scheme.step(self.step, previous, &mut self.valves, dt);
         &self.valves
     }

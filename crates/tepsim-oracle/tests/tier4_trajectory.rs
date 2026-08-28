@@ -43,7 +43,7 @@ struct Divergence {
 
 /// Run both from the nominal state and report where they part.
 fn run(oracle: &mut Oracle, hours: usize, fault: usize) -> Divergence {
-    let (_, mut fortran) = oracle.init();
+    let (_, mut fortran) = oracle.init_cold();
     oracle.set_disturbances(&core::array::from_fn(|i| i32::from(i + 1 == fault)));
     oracle.set_rng(tepsim_oracle::golden::SEED);
 

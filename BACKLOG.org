@@ -1623,14 +1623,23 @@ Done when:
       recorded as a delta (D-009)
 - [X] Closed-loop Tier 4 against the oracle, both libm configurations
 
-** NEXT B-0040 Class C: the driver's hard-coded IDV(12)
+** DONE B-0040 Class C: the driver's hard-coded IDV(12)
 :PROPERTIES:
 :ID:    B-0040
 :PHASE: 4
 :TIER:  10
 :DEPS:  B-0039
 :PLAN:  Quirk and delta register
-:END:
+:COMMIT: pending
+:RESULT: Reproduced by default; fix behind
+         =DriverQuirks::only_the_requested_disturbances=. Delta D-011: the
+         two part at step 29,390, not 28,800, because IDV(12) only reaches
+         the plant at channel 6's next TNEXT; worst 1.092e-1 at XMEAS(37)
+         over 10 h, 3.262e-2 at XMEAS(38) at the end; bit identical before
+         the split, and the Fortran parts at the same step. Sign-off is
+         B-0040a. Also found that TEINIT never resets the Newton warm starts,
+         which made every Tier 4 run order-dependent; added
+         =Oracle::init_cold=.
 
 =temain_mod.f:366-368= switches =IDV(12)= on unconditionally at step 28,800,
 eight simulated hours in, regardless of what scenario was asked for. Every
@@ -1641,9 +1650,38 @@ the faithful path is what reproduces the published data, and the fix needs
 sign-off.
 
 Done when:
-- [ ] Reproduced by default, with the fix behind a flag
-- [ ] A =BLOCKED= item for the sign-off, with the measured delta
-- [ ] Delta register entry
+- [X] Reproduced by default, with the fix behind a flag
+- [X] A =BLOCKED= item for the sign-off, with the measured delta (B-0040a)
+- [X] Delta register entry (D-011)
+
+** BLOCKED B-0040a Sign-off: should the driver's IDV(12) stay the default?
+:PROPERTIES:
+:ID:    B-0040a
+:PHASE: 6
+:TIER:  10
+:DEPS:  B-0040
+:PLAN:  Quirk and delta register
+:QUESTION: Should =DriverQuirks::only_the_requested_disturbances= default to
+           =true=, so a scenario means what it says, or stay =false=, so the
+           driver reproduces =temain_mod.f= and the published datasets?
+:END:
+
+Class C, delta D-011. =temain_mod.f:366-368= switches =IDV(12)= on at step
+28,800 whatever scenario was asked for. Implemented and reproduced by default;
+the fix exists behind a flag.
+
+Measured at Tier 4, 10 h nominal, faithful against fixed: the two part at step
+*29,390* (not 28,800: the walk is only redrawn at =TNEXT(6)=), worst 1.092e-1
+relative at =XMEAS(37)= over the run, 3.262e-2 at =XMEAS(38)= at the end. Bit
+identical before the split.
+
+The Tier 5 half of the measurement is *not* done, because Tier 5 does not
+exist. This item is what runs it.
+
+Done when:
+- [ ] Tier 5 battery run on both settings, numbers recorded
+- [ ] A decision, recorded in =PLAN.org=
+- [ ] The default set accordingly
 
 ** TODO B-0041 Phase 4 acceptance
 :PROPERTIES:

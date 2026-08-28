@@ -240,3 +240,67 @@ fn manipulated_variables_round_trip() {
     oracle.set_manipulated(&original);
     assert_eq!(oracle.manipulated(), original);
 }
+
+/// `TEINIT` does not reset the Newton warm starts, so two identical runs in
+/// one process disagree in the last bits.
+///
+/// `TCR`, `TCS`, `TCC` and `TCV` are read as guesses and written as answers by
+/// `TESUB2` (`teprob.f:460`, `465`, and the stripper and mixing-zone calls
+/// beside them). Nothing in `teprob.f` ever assigns them otherwise. That makes
+/// them process-global mutable state that survives `TEINIT`, and it makes any
+/// test that starts from the nominal state order-dependent.
+///
+/// [`Oracle::init_cold`] is the fix. This pins both halves: that the problem
+/// is real, and that the fix removes it.
+#[test]
+fn teinit_does_not_reset_the_newton_warm_starts() {
+    let mut oracle = Oracle::lock();
+
+    let temperatures = |o: &mut Oracle| {
+        let c = o.teproc();
+        [
+            c.tcr.to_bits(),
+            c.tcs.to_bits(),
+            c.tcc.to_bits(),
+            c.tcv.to_bits(),
+        ]
+    };
+    let run = |o: &mut Oracle, steps: usize| {
+        let (_, mut yy) = o.init_cold();
+        o.set_disturbances(&[0; 20]);
+        let mut t = 0.0;
+        for _ in 0..steps {
+            let yp = o.derivatives(t, &yy);
+            for (slot, rate) in yy.iter_mut().zip(yp) {
+                *slot += rate / 3600.0;
+            }
+            t += 1.0 / 3600.0;
+        }
+    };
+
+    let reference = {
+        let (_, _) = oracle.init_cold();
+        temperatures(&mut oracle)
+    };
+
+    // A plain `TEINIT` after a run does *not* come back to it.
+    run(&mut oracle, 2_000);
+    let (_, _) = oracle.init();
+    assert_ne!(
+        temperatures(&mut oracle),
+        reference,
+        "TEINIT restored the warm starts, so init_cold is unnecessary and this \
+         test is wrong about teprob.f"
+    );
+
+    // `init_cold` does, from any history.
+    for steps in [1, 137, 5_000] {
+        run(&mut oracle, steps);
+        let (_, _) = oracle.init_cold();
+        assert_eq!(
+            temperatures(&mut oracle),
+            reference,
+            "init_cold gave a different warm start after {steps} steps"
+        );
+    }
+}

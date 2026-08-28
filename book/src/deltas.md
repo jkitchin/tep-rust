@@ -723,3 +723,103 @@ With the two orderings otherwise identical, the first `CONTRL7` fire gives
 `the_controllers_read_the_previous_steps_measurements` in
 `crates/tepsim-oracle/tests/tier4_closed_loop.rs`, which requires the two
 orderings to give *different* answers before checking which one is right.
+
+## D-011 — the driver switches `IDV(12)` on eight hours in, whatever you asked for
+
+**Class C. Reproduced by default; the fix is behind a flag and blocked on
+sign-off (B-0040a).** `temain_mod.f:366-368`, with `SSPTS` at line 226.
+
+### What the original does
+
+The first statement in the simulation loop body, before any controller:
+
+```fortran
+        DO 1000 I = 1, NPTS
+         IF (I.GE.SSPTS) THEN
+                 IDV(12)=1
+          ENDIF
+```
+
+with
+
+```fortran
+      SSPTS = 3600 * 8
+```
+
+At a one-second step that is eight simulated hours. `IDV(12)` is the condenser
+cooling water inlet temperature random variation. The assignment is
+unconditional: it does not consult the scenario, and there is no way to run
+this driver past eight hours without it.
+
+The header comment at line 98 explains `SSPTS` as "the number of data points to
+simulate in steady state operation before implementing the disturbance", so a
+disturbance was clearly meant. But which disturbance is not a parameter; it is
+`IDV(12)`, written into the loop.
+
+### Why it matters
+
+Every published closed-loop dataset generated with this driver and longer than
+eight hours carries `IDV(12)`, including the runs nominally labelled
+fault-free. Anyone comparing against published data needs the quirk; anyone
+running a controlled experiment on some *other* disturbance needs it gone,
+because after hour eight they are running two disturbances and reporting one.
+
+It also interacts with the fault the caller asked for. If the scenario is
+`IDV(4)` (a step in reactor cooling water inlet temperature), then from hour
+eight the run is `IDV(4)` **and** `IDV(12)`, and both act on cooling water.
+
+### The effect does not begin at hour eight
+
+`IDV(12)` reaches the plant through `IDVWLK(6)` (`teprob.f:351`), and the walk
+that gates is only redrawn when `TIME` passes that channel's `TNEXT`
+(`teprob.f:359-360`). So switching the flag on at step 28,800 changes nothing
+until channel 6's next segment boundary, which for the nominal seed is step
+**29,390**, about ten minutes later. Both the port and the Fortran part from
+their fixed counterparts at exactly that step.
+
+That matters for anyone trying to locate the quirk in a dataset by eye: the
+visible onset is not at the eight-hour mark, and it moves with the seed.
+
+### What this port does
+
+Reproduces it. [`tepsim_control::Driver`] forces `IDV(12)` on at
+[`tepsim_control::STEADY_STATE_STEPS`], and
+[`tepsim_control::DriverQuirks::only_the_requested_disturbances`] turns that
+off. The flag defaults to `false`, so the default driver is the published one.
+[`tepsim_control::Driver::scenario_is_overridden`] reports when the driver has
+gone beyond what was asked for, so a caller never has to infer it.
+
+### Measured effect
+
+Ten simulated hours, nominal scenario, one-second Euler, faithful against
+fixed, everything else identical:
+
+| | |
+|---|---|
+| first difference | step 29,390, `XMEAS(22)` (condenser cooling water outlet temperature) |
+| identical before that | every bit of all 41 measurements, all 29,389 steps |
+| worst over the run | 1.092e-1 relative, at `XMEAS(37)` |
+| worst at hour ten | 3.262e-2 relative, at `XMEAS(38)` |
+
+Ten percent on a product-composition measurement is not a rounding difference.
+It is a different experiment.
+
+### What the sign-off has to answer
+
+Whether the shipped default should be `temain_mod.f`'s behaviour or the
+caller's scenario. The two arguments are that reproducing published data
+requires the quirk, and that a simulator that silently adds a disturbance the
+caller did not ask for is a trap. `PLAN.org` resolves the analogous case
+(D-007) in favour of fidelity, and this item follows it pending a decision.
+
+The numbers above are Tier 4. The Tier 5 battery, which is what `PLAN.org`
+asks for on a Class C delta, does not exist yet, so the statistical half of
+this measurement is deferred to B-0040a rather than claimed.
+
+### Measured by
+
+`the_driver_forces_idv12_at_the_eight_hour_mark` and
+`the_forced_disturbance_changes_the_plant_measurably` in
+`crates/tepsim-oracle/tests/tier4_closed_loop.rs`. The second cross-checks the
+onset step against two Fortran runs that differ in the same way, so 29,390 is
+ground truth rather than an artifact of the port.

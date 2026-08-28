@@ -166,6 +166,39 @@ mod oracle {
             (time, yy)
         }
 
+        /// `TEINIT` from a cold `COMMON`, so the result does not depend on
+        /// what ran before it.
+        ///
+        /// `TCR`, `TCS`, `TCC` and `TCV` are the Newton warm starts for the
+        /// four vessel temperatures, and they are **never initialised**.
+        /// `TESUB2` takes each as both guess and answer (`teprob.f:460`), and
+        /// nothing else in `teprob.f` ever assigns them. On a freshly loaded
+        /// process they are the loader's zeros; after any run they are
+        /// wherever that run left them, and `TEINIT` does not put them back.
+        ///
+        /// So two identical runs in one process give different answers in the
+        /// last bits, and which answer you get depends on the order the tests
+        /// happened to run in. Zeroing the four before calling `TEINIT`
+        /// reproduces the freshly-loaded-process result exactly, and does so
+        /// whatever the history: verified against runs of 1, 137, 5,000 and
+        /// 20,000 steps.
+        ///
+        /// Use this for anything that starts from the nominal state and must
+        /// be comparable against another run or against a recorded number.
+        /// Tier 2 does not need it, because
+        /// [`crate::tier2::Scenario::force`] restores the whole of
+        /// `COMMON/TEPROC/` and so specifies the warm start as part of the
+        /// scenario.
+        pub fn init_cold(&mut self) -> (f64, [f64; N_STATES]) {
+            let mut common = self.teproc();
+            common.tcr = 0.0;
+            common.tcs = 0.0;
+            common.tcc = 0.0;
+            common.tcv = 0.0;
+            self.set_teproc(&common);
+            self.init()
+        }
+
         /// `TEFUNC`: evaluate derivatives at `time` for state `yy`.
         ///
         /// Also advances the disturbance walks, draws measurement noise and
