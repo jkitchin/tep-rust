@@ -14,21 +14,26 @@ allow = ["MIT", "NCSA"]
 confidence-threshold = 0.93
 
 # Per-crate exceptions rather than a wider `allow`, so each one names what it
-# is for and a fourth licence cannot slip in behind it. All three arrived with
-# the PyO3 bindings in phase 7.
+# is for and a fourth licence cannot slip in behind it. Scoping by name is the
+# point: a second crate arriving under the same licence still fails the gate
+# and gets looked at.
 exceptions = [
-    # rust-numpy, the only one of the three that is linked into a shipped
-    # artifact. It is the standard NumPy interop crate, and the Python package
-    # already depends on NumPy itself, which is BSD-3-Clause: refusing
-    # BSD-2-Clause here while shipping a wheel that requires NumPy would be a
-    # distinction without a difference.
+    # rust-numpy, the only one of the three linked into a shipped artifact. It
+    # is the standard NumPy interop crate, and the Python package already
+    # depends on NumPy itself, which is BSD-3-Clause: refusing BSD-2-Clause
+    # here while shipping a wheel that requires NumPy would be a distinction
+    # without a difference.
     { name = "numpy", allow = ["BSD-2-Clause"] },
     # Build-time only, both of them: they run on the build machine and no part
     # of either reaches the wheel or the wasm bundle.
+    #
     # `pyo3-build-config` uses target-lexicon to parse target triples.
     { name = "target-lexicon", allow = ["Apache-2.0 WITH LLVM-exception"] },
-    # `proc-macro2` and `syn` use unicode-ident to classify identifier
-    # characters, which needs the Unicode character database's own licence.
+    # `unicode-ident` is `(MIT OR Apache-2.0) AND Unicode-3.0`. The MIT half is
+    # already allowed and the Unicode half cannot be chosen away, because the
+    # crate embeds the Unicode character tables that decide what a Rust
+    # identifier is. It arrives through `proc-macro2` and `syn`, which both the
+    # PyO3 and the wasm-bindgen derive macros need.
     { name = "unicode-ident", allow = ["Unicode-3.0"] },
 ]
 

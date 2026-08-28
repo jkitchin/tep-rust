@@ -10,5 +10,16 @@ repository.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
+# `cdylib` is the artifact the browser loads. `rlib` exists so the host-side
+# integration tests in `tests/` can link the crate and exercise the runner, the
+# digest and the column tables without a JavaScript runtime.
+[lib]
+crate-type = ["cdylib", "rlib"]
+
 [lints]
 workspace = true
+
+[dependencies]
+tepsim.workspace = true
+wasm-bindgen.workspace = true
+js-sys.workspace = true
