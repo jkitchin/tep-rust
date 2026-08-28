@@ -167,6 +167,361 @@ impl Loop {
     }
 }
 
+/// A loop's tuning together with the setpoint the driver starts it at.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Preset {
+    /// The loop's constants.
+    pub tuning: Tuning,
+    /// Which `SETPT(n)` it reads, one-based.
+    pub setpoint_index: usize,
+    /// The value the driver initialises that setpoint to.
+    pub setpoint: f64,
+}
+
+/// The twenty loops as `temain_mod.f` tunes them: the Braatz closed-loop
+/// preset.
+///
+/// # The gains are written as arithmetic, and are transcribed that way
+///
+/// Four of them are expressions rather than numbers:
+///
+/// ```fortran
+///       GAIN10= -0.156     * 10.
+///       GAIN19=-83.2    / 5. /3.
+///       GAIN20=-16.3   / 5.
+///       GAIN22=-1.0    * 5.
+/// ```
+///
+/// These look like tuning that was adjusted by a factor and left showing its
+/// working. They are transcribed as written, not folded by hand, for the
+/// reason `crate::single`'s documentation gives and that B-0019 measured: a
+/// quotient of single-precision literals is evaluated at *single* precision by
+/// Fortran's typing rules, and `-83.2 / 5. / 3.` is exactly that shape.
+///
+/// Every literal here carries no `D` suffix, so every one is single precision.
+///
+/// # Slot 12 belongs to the loop that never runs
+///
+/// `SETPT(12)` is `CONTRL22`'s, and the driver initialises it to 2633.7 --
+/// exactly `CONTRL6`'s override release threshold. See delta D-008.
+//
+// @port temain_mod.f:246-317
+pub const PRESET: [Preset; 20] = [
+    // CONTRL1. temain_mod.f:246-247.
+    Preset {
+        tuning: Tuning {
+            number: 1,
+            measurement: 2,
+            output: Output::Valve(1),
+            gain: single(1.0),
+            reset: None,
+            span: Some(single(5811.0)),
+            period: Period::Fast,
+        },
+        setpoint_index: 1,
+        setpoint: single(3664.0),
+    },
+    // CONTRL2. temain_mod.f:249-250.
+    Preset {
+        tuning: Tuning {
+            number: 2,
+            measurement: 3,
+            output: Output::Valve(2),
+            gain: single(1.0),
+            reset: None,
+            span: Some(single(8354.0)),
+            period: Period::Fast,
+        },
+        setpoint_index: 2,
+        setpoint: single(4509.3),
+    },
+    // CONTRL3. temain_mod.f:252-253.
+    Preset {
+        tuning: Tuning {
+            number: 3,
+            measurement: 1,
+            output: Output::Valve(3),
+            gain: single(1.0),
+            reset: None,
+            span: Some(single(1.017)),
+            period: Period::Fast,
+        },
+        setpoint_index: 3,
+        setpoint: single(0.25052),
+    },
+    // CONTRL4. temain_mod.f:255-256.
+    Preset {
+        tuning: Tuning {
+            number: 4,
+            measurement: 4,
+            output: Output::Valve(4),
+            gain: single(1.0),
+            reset: None,
+            span: Some(single(15.25)),
+            period: Period::Fast,
+        },
+        setpoint_index: 4,
+        setpoint: single(9.3477),
+    },
+    // CONTRL5. temain_mod.f:258-260.
+    Preset {
+        tuning: Tuning {
+            number: 5,
+            measurement: 5,
+            output: Output::Valve(5),
+            gain: single(-0.083),
+            reset: Some(single(1.0 / 3600.0)),
+            span: Some(single(53.0)),
+            period: Period::Fast,
+        },
+        setpoint_index: 5,
+        setpoint: single(26.902),
+    },
+    // CONTRL6. temain_mod.f:262-263.
+    Preset {
+        tuning: Tuning {
+            number: 6,
+            measurement: 10,
+            output: Output::Valve(6),
+            gain: single(1.22),
+            reset: None,
+            span: Some(single(1.0)),
+            period: Period::Fast,
+        },
+        setpoint_index: 6,
+        setpoint: single(0.33712),
+    },
+    // CONTRL7. temain_mod.f:265-266.
+    Preset {
+        tuning: Tuning {
+            number: 7,
+            measurement: 12,
+            output: Output::Valve(7),
+            gain: single(-2.06),
+            reset: None,
+            span: Some(single(70.0)),
+            period: Period::Fast,
+        },
+        setpoint_index: 7,
+        setpoint: single(50.0),
+    },
+    // CONTRL8. temain_mod.f:268-269.
+    Preset {
+        tuning: Tuning {
+            number: 8,
+            measurement: 15,
+            output: Output::Valve(8),
+            gain: single(-1.62),
+            reset: None,
+            span: Some(single(70.0)),
+            period: Period::Fast,
+        },
+        setpoint_index: 8,
+        setpoint: single(50.0),
+    },
+    // CONTRL9. temain_mod.f:271-272.
+    Preset {
+        tuning: Tuning {
+            number: 9,
+            measurement: 19,
+            output: Output::Valve(9),
+            gain: single(0.41),
+            reset: None,
+            span: Some(single(460.0)),
+            period: Period::Fast,
+        },
+        setpoint_index: 9,
+        setpoint: single(230.31),
+    },
+    // CONTRL10. temain_mod.f:274-276.
+    Preset {
+        tuning: Tuning {
+            number: 10,
+            measurement: 21,
+            output: Output::Valve(10),
+            gain: single(-0.156 * 10.0),
+            reset: Some(single(1452.0 / 3600.0)),
+            span: Some(single(150.0)),
+            period: Period::Fast,
+        },
+        setpoint_index: 10,
+        setpoint: single(94.599),
+    },
+    // CONTRL11. temain_mod.f:278-280.
+    Preset {
+        tuning: Tuning {
+            number: 11,
+            measurement: 17,
+            output: Output::Valve(11),
+            gain: single(1.09),
+            reset: Some(single(2600.0 / 3600.0)),
+            span: Some(single(46.0)),
+            period: Period::Fast,
+        },
+        setpoint_index: 11,
+        setpoint: single(22.949),
+    },
+    // CONTRL13. temain_mod.f:282-284. Cascades onto CONTRL3.
+    Preset {
+        tuning: Tuning {
+            number: 13,
+            measurement: 23,
+            output: Output::Setpoint {
+                index: 3,
+                span: single(1.017),
+            },
+            gain: single(18.0),
+            reset: Some(single(3168.0 / 3600.0)),
+            span: Some(single(100.0)),
+            period: Period::Composition,
+        },
+        setpoint_index: 13,
+        setpoint: single(32.188),
+    },
+    // CONTRL14. temain_mod.f:286-288. Cascades onto CONTRL1.
+    Preset {
+        tuning: Tuning {
+            number: 14,
+            measurement: 26,
+            output: Output::Setpoint {
+                index: 1,
+                span: single(5811.0),
+            },
+            gain: single(8.3),
+            reset: Some(single(3168.0 / 3600.0)),
+            span: Some(single(100.0)),
+            period: Period::Composition,
+        },
+        setpoint_index: 14,
+        setpoint: single(6.8820),
+    },
+    // CONTRL15. temain_mod.f:290-292. Cascades onto CONTRL2.
+    Preset {
+        tuning: Tuning {
+            number: 15,
+            measurement: 27,
+            output: Output::Setpoint {
+                index: 2,
+                span: single(8354.0),
+            },
+            gain: single(2.37),
+            reset: Some(single(5069.0 / 3600.0)),
+            span: Some(single(100.0)),
+            period: Period::Composition,
+        },
+        setpoint_index: 15,
+        setpoint: single(18.776),
+    },
+    // CONTRL16. temain_mod.f:294-296. Cascades onto CONTRL9.
+    Preset {
+        tuning: Tuning {
+            number: 16,
+            measurement: 18,
+            output: Output::Setpoint {
+                index: 9,
+                span: single(460.0),
+            },
+            gain: single(1.69 / 10.0),
+            reset: Some(single(236.0 / 3600.0)),
+            span: Some(single(130.0)),
+            period: Period::Fast,
+        },
+        setpoint_index: 16,
+        setpoint: single(65.731),
+    },
+    // CONTRL17. temain_mod.f:298-300. Cascades onto CONTRL4.
+    Preset {
+        tuning: Tuning {
+            number: 17,
+            measurement: 8,
+            output: Output::Setpoint {
+                index: 4,
+                span: single(15.25),
+            },
+            gain: single(11.1 / 10.0),
+            reset: Some(single(3168.0 / 3600.0)),
+            span: Some(single(50.0)),
+            period: Period::Fast,
+        },
+        setpoint_index: 17,
+        setpoint: single(75.000),
+    },
+    // CONTRL18. temain_mod.f:302-304. Cascades onto CONTRL10.
+    Preset {
+        tuning: Tuning {
+            number: 18,
+            measurement: 9,
+            output: Output::Setpoint {
+                index: 10,
+                span: single(150.0),
+            },
+            gain: single(2.83 * 10.0),
+            reset: Some(single(982.0 / 3600.0)),
+            span: Some(single(150.0)),
+            period: Period::Fast,
+        },
+        setpoint_index: 18,
+        setpoint: single(120.40),
+    },
+    // CONTRL19. temain_mod.f:306-308. Cascades onto CONTRL6.
+    Preset {
+        tuning: Tuning {
+            number: 19,
+            measurement: 30,
+            output: Output::Setpoint {
+                index: 6,
+                span: single(1.0),
+            },
+            gain: single(-83.2 / 5.0 / 3.0),
+            reset: Some(single(6336.0 / 3600.0)),
+            span: Some(single(26.0)),
+            period: Period::Composition,
+        },
+        setpoint_index: 19,
+        setpoint: single(13.823),
+    },
+    // CONTRL20. temain_mod.f:310-312. Cascades onto CONTRL16.
+    Preset {
+        tuning: Tuning {
+            number: 20,
+            measurement: 38,
+            output: Output::Setpoint {
+                index: 16,
+                span: single(130.0),
+            },
+            gain: single(-16.3 / 5.0),
+            reset: Some(single(12408.0 / 3600.0)),
+            span: Some(single(1.6)),
+            period: Period::Quality,
+        },
+        setpoint_index: 20,
+        setpoint: single(0.83570),
+    },
+    // CONTRL22. temain_mod.f:314-316.
+    Preset {
+        tuning: Tuning {
+            number: 22,
+            measurement: 13,
+            output: Output::Valve(6),
+            // `-1.0 * 5.` at temain_mod.f:315, transcribed as written; see the
+            // note on `PRESET`.
+            #[allow(clippy::neg_multiply, reason = "transcribed from temain_mod.f:315")]
+            gain: single(-1.0 * 5.0),
+            reset: Some(single(1000.0 / 3600.0)),
+            span: None,
+            period: Period::Fast,
+        },
+        setpoint_index: 12,
+        setpoint: single(2633.7),
+    },
+];
+
+/// Look up a loop's preset by its `CONTRLn` number.
+#[must_use]
+pub fn preset(number: usize) -> Option<&'static Preset> {
+    PRESET.iter().find(|p| p.tuning.number == number)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
