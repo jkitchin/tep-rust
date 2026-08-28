@@ -37,6 +37,8 @@ required-features = ["oracle"]
 # vocabulary. The dependency runs this way only: nothing shipped may depend on
 # the oracle, and `cargo xtask ci` asserts it.
 tepsim-core.workspace = true
+# The control layer, for the Phase 4 differentials.
+tepsim-control.workspace = true
 
 [dev-dependencies]
 # Only for verifying the vendored reference material has not been edited.

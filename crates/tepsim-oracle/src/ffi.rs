@@ -54,7 +54,9 @@ pub(crate) struct Randsd {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Ctrlall {
+    /// `SETPT(1..20)`, one-based in the Fortran.
     pub setpt: [f64; 20],
+    /// `DELTAT`: the plant step, in hours.
     pub deltat: f64,
 }
 
@@ -65,6 +67,7 @@ pub struct Ctrlall {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Flag6 {
+    /// `FLAG`: 0 running, 1 latched open, 2 latched shut.
     pub flag: i32,
 }
 
@@ -74,7 +77,9 @@ pub struct Flag6 {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Ctrl1 {
+    /// `GAINn`: controller gain, in output units per percent of span.
     pub gain: f64,
+    /// `ERROLDn`: the error at the previous call.
     pub errold: f64,
 }
 
@@ -84,7 +89,9 @@ pub struct Ctrl1 {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Ctrl2 {
+    /// `GAINn`: controller gain, in output units per percent of span.
     pub gain: f64,
+    /// `ERROLDn`: the error at the previous call.
     pub errold: f64,
 }
 
@@ -94,7 +101,9 @@ pub struct Ctrl2 {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Ctrl3 {
+    /// `GAINn`: controller gain, in output units per percent of span.
     pub gain: f64,
+    /// `ERROLDn`: the error at the previous call.
     pub errold: f64,
 }
 
@@ -104,7 +113,9 @@ pub struct Ctrl3 {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Ctrl4 {
+    /// `GAINn`: controller gain, in output units per percent of span.
     pub gain: f64,
+    /// `ERROLDn`: the error at the previous call.
     pub errold: f64,
 }
 
@@ -114,8 +125,11 @@ pub struct Ctrl4 {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Ctrl5 {
+    /// `GAINn`: controller gain, in output units per percent of span.
     pub gain: f64,
+    /// `TAUIn`: reset time, in hours.
     pub taui: f64,
+    /// `ERROLDn`: the error at the previous call.
     pub errold: f64,
 }
 
@@ -125,7 +139,9 @@ pub struct Ctrl5 {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Ctrl6 {
+    /// `GAINn`: controller gain, in output units per percent of span.
     pub gain: f64,
+    /// `ERROLDn`: the error at the previous call.
     pub errold: f64,
 }
 
@@ -135,7 +151,9 @@ pub struct Ctrl6 {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Ctrl7 {
+    /// `GAINn`: controller gain, in output units per percent of span.
     pub gain: f64,
+    /// `ERROLDn`: the error at the previous call.
     pub errold: f64,
 }
 
@@ -145,7 +163,9 @@ pub struct Ctrl7 {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Ctrl8 {
+    /// `GAINn`: controller gain, in output units per percent of span.
     pub gain: f64,
+    /// `ERROLDn`: the error at the previous call.
     pub errold: f64,
 }
 
@@ -155,7 +175,9 @@ pub struct Ctrl8 {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Ctrl9 {
+    /// `GAINn`: controller gain, in output units per percent of span.
     pub gain: f64,
+    /// `ERROLDn`: the error at the previous call.
     pub errold: f64,
 }
 
@@ -165,8 +187,11 @@ pub struct Ctrl9 {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Ctrl10 {
+    /// `GAINn`: controller gain, in output units per percent of span.
     pub gain: f64,
+    /// `TAUIn`: reset time, in hours.
     pub taui: f64,
+    /// `ERROLDn`: the error at the previous call.
     pub errold: f64,
 }
 
@@ -176,8 +201,11 @@ pub struct Ctrl10 {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Ctrl11 {
+    /// `GAINn`: controller gain, in output units per percent of span.
     pub gain: f64,
+    /// `TAUIn`: reset time, in hours.
     pub taui: f64,
+    /// `ERROLDn`: the error at the previous call.
     pub errold: f64,
 }
 
@@ -187,8 +215,11 @@ pub struct Ctrl11 {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Ctrl13 {
+    /// `GAINn`: controller gain, in output units per percent of span.
     pub gain: f64,
+    /// `TAUIn`: reset time, in hours.
     pub taui: f64,
+    /// `ERROLDn`: the error at the previous call.
     pub errold: f64,
 }
 
@@ -198,8 +229,11 @@ pub struct Ctrl13 {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Ctrl14 {
+    /// `GAINn`: controller gain, in output units per percent of span.
     pub gain: f64,
+    /// `TAUIn`: reset time, in hours.
     pub taui: f64,
+    /// `ERROLDn`: the error at the previous call.
     pub errold: f64,
 }
 
@@ -209,8 +243,11 @@ pub struct Ctrl14 {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Ctrl15 {
+    /// `GAINn`: controller gain, in output units per percent of span.
     pub gain: f64,
+    /// `TAUIn`: reset time, in hours.
     pub taui: f64,
+    /// `ERROLDn`: the error at the previous call.
     pub errold: f64,
 }
 
@@ -220,8 +257,11 @@ pub struct Ctrl15 {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Ctrl16 {
+    /// `GAINn`: controller gain, in output units per percent of span.
     pub gain: f64,
+    /// `TAUIn`: reset time, in hours.
     pub taui: f64,
+    /// `ERROLDn`: the error at the previous call.
     pub errold: f64,
 }
 
@@ -231,8 +271,11 @@ pub struct Ctrl16 {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Ctrl17 {
+    /// `GAINn`: controller gain, in output units per percent of span.
     pub gain: f64,
+    /// `TAUIn`: reset time, in hours.
     pub taui: f64,
+    /// `ERROLDn`: the error at the previous call.
     pub errold: f64,
 }
 
@@ -242,8 +285,11 @@ pub struct Ctrl17 {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Ctrl18 {
+    /// `GAINn`: controller gain, in output units per percent of span.
     pub gain: f64,
+    /// `TAUIn`: reset time, in hours.
     pub taui: f64,
+    /// `ERROLDn`: the error at the previous call.
     pub errold: f64,
 }
 
@@ -253,8 +299,11 @@ pub struct Ctrl18 {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Ctrl19 {
+    /// `GAINn`: controller gain, in output units per percent of span.
     pub gain: f64,
+    /// `TAUIn`: reset time, in hours.
     pub taui: f64,
+    /// `ERROLDn`: the error at the previous call.
     pub errold: f64,
 }
 
@@ -264,8 +313,11 @@ pub struct Ctrl19 {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Ctrl20 {
+    /// `GAINn`: controller gain, in output units per percent of span.
     pub gain: f64,
+    /// `TAUIn`: reset time, in hours.
     pub taui: f64,
+    /// `ERROLDn`: the error at the previous call.
     pub errold: f64,
 }
 
@@ -275,8 +327,11 @@ pub struct Ctrl20 {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Ctrl22 {
+    /// `GAINn`: controller gain, in output units per percent of span.
     pub gain: f64,
+    /// `TAUIn`: reset time, in hours.
     pub taui: f64,
+    /// `ERROLDn`: the error at the previous call.
     pub errold: f64,
 }
 

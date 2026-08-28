@@ -69,7 +69,7 @@ pub use oracle::{N_STATES, Oracle, WalkSegment, WalkSegmentStart, WalkSpans};
 mod oracle {
     use std::sync::{Mutex, MutexGuard, OnceLock};
 
-    use crate::ffi::{self, Const, Ctrlall, Flag6, Teproc, Wlk};
+    use crate::ffi::{self, Const, Ctrlall, Teproc, Wlk};
     use crate::ffi::{
         Ctrl1, Ctrl2, Ctrl3, Ctrl4, Ctrl5, Ctrl6, Ctrl7, Ctrl8, Ctrl9, Ctrl10, Ctrl11, Ctrl13,
         Ctrl14, Ctrl15, Ctrl16, Ctrl17, Ctrl18, Ctrl19, Ctrl20, Ctrl22,
