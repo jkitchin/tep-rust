@@ -57,6 +57,11 @@ pub mod tier3;
 #[cfg(feature = "oracle")]
 pub mod tier5;
 
+// Tier 6 sits on Tier 5's runs and on the Fortran side of them, so it carries
+// the same gate.
+#[cfg(feature = "oracle")]
+pub mod tier6;
+
 #[cfg(feature = "oracle")]
 mod ffi;
 
