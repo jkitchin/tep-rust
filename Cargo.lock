@@ -113,9 +113,11 @@ dependencies = [
 name = "tepsim-oracle"
 version = "0.0.0"
 dependencies = [
+ "libm",
  "sha2",
  "tepsim-control",
  "tepsim-core",
+ "tepsim-stats",
 ]
 
 [[package]]

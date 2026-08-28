@@ -32,6 +32,8 @@
 //! which is why the size is selected by an environment variable in the same
 //! way Tier 1's sweep and Tier 4's horizon are.
 
+pub mod battery;
+
 use tepsim_control::{DRIVER_INITIAL_VALVES, Driver, PRESET, STEADY_STATE_STEPS};
 use tepsim_core::{Inputs, Plant, SimTime, State, TemperatureSeeds, constants};
 
@@ -444,17 +446,25 @@ pub fn run_fortran(
         if oracle.shutdown_flag() != 0 && tripped.is_none() {
             tripped = Some(step);
         }
-        let measurements = oracle.measurements();
+        // Read out only on a sample step. `XMEAS` and `XMV` are read from
+        // `COMMON` across the FFI boundary, and at 172,800 steps per run that
+        // is 1.7 million array copies of which 959 in 960 are discarded.
+        // `CONSHAND` still runs every step, because it *writes*.
+        let sampling = step % SAMPLE_EVERY == 0;
+        let measurements = if sampling {
+            oracle.measurements()
+        } else {
+            [0.0; 41]
+        };
         conshand(oracle);
-        let valves = oracle.manipulated();
 
         for (slot, rate) in yy.iter_mut().zip(yp) {
             *slot += DT * rate;
         }
         t += DT;
 
-        if step % SAMPLE_EVERY == 0 {
-            samples.push(row(&measurements, &valves));
+        if sampling {
+            samples.push(row(&measurements, &oracle.manipulated()));
         }
     }
 

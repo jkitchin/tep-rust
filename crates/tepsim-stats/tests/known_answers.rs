@@ -538,6 +538,36 @@ fn welch_matches_a_hand_computed_case() {
     );
 }
 
+/// A sample too small to have a variance makes the whole test undefined, and
+/// says so rather than computing `n - 1` on zero.
+///
+/// In release that underflow wraps to `usize::MAX` and yields a degrees-of-
+/// freedom figure that looks like a number. This is the case that produces it:
+/// an ensemble where every member has zero variance contributes no
+/// observations at all.
+#[test]
+fn a_sample_too_small_for_a_variance_gives_nan_rather_than_nonsense() {
+    let empty = Summary::new();
+    let one = Summary::of(&[1.0]);
+    let two = Summary::of(&[1.0, 2.0]);
+
+    for (a, b) in [(&empty, &two), (&two, &empty), (&one, &two), (&two, &one)] {
+        let w = welch_t(a, b);
+        assert!(w.t.is_nan(), "t = {}", w.t);
+        assert!(w.df.is_nan(), "df = {}", w.df);
+        assert!(w.p.is_nan(), "p = {}", w.p);
+        assert!(w.difference.is_nan());
+        assert!(w.standard_error.is_nan());
+    }
+
+    // And TOST built on it does not declare equivalence.
+    let result = tost(&empty, &two, 1.0, 0.05);
+    assert!(!result.equivalent, "{result}");
+
+    // Two observations is enough.
+    assert!(welch_t(&two, &two).df.is_finite());
+}
+
 #[test]
 fn welch_is_antisymmetric_and_the_p_value_is_not() {
     let a = Summary::of(&[1.0, 2.0, 3.0, 4.0, 5.0]);

@@ -52,8 +52,27 @@ pub struct WelchT {
 /// matters here: the failure mode Tier 5 exists to catch is the port's variance
 /// collapsing relative to the Fortran's, and a test that assumes them equal is
 /// the wrong instrument for it.
+///
+/// # Degenerate samples
+///
+/// Either sample having fewer than two observations makes every field `NaN`.
+/// Not a panic, because a battery that dies part way through loses every
+/// number it had computed; and emphatically not a silent answer, because
+/// `n - 1` on an empty summary underflows to `usize::MAX` and produces a
+/// degrees-of-freedom figure that looks plausible and is nonsense. B-0047b
+/// found that the hard way: it panicked in debug and returned a number in
+/// release.
 #[must_use]
 pub fn welch_t(a: &Summary, b: &Summary) -> WelchT {
+    if a.n() < 2 || b.n() < 2 {
+        return WelchT {
+            difference: f64::NAN,
+            standard_error: f64::NAN,
+            t: f64::NAN,
+            df: f64::NAN,
+            p: f64::NAN,
+        };
+    }
     let va = a.variance() / a.n() as f64;
     let vb = b.variance() / b.n() as f64;
     let standard_error = sqrt(va + vb);

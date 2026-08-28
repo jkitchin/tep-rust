@@ -513,8 +513,61 @@ fn cmd_validate(root: &Path, flags: &[String]) -> Result<(), String> {
                     }
                 }
             }
+            5 => {
+                if which("gfortran").is_none() {
+                    return Err(
+                        "tier 5 needs gfortran, which is not on PATH. Per CLAUDE.md, \
+                         a session without it must not do model work."
+                            .to_string(),
+                    );
+                }
+                // 21 scenarios by 100 seeds by 48 h, on both sources: about
+                // an hour of simulation. `ci` runs a smoke battery of twelve
+                // runs over the same code.
+                println!("\n=== tier 5: statistical equivalence ===");
+                step_with_env(
+                    root,
+                    "cargo",
+                    &[
+                        "test",
+                        "-p",
+                        "tepsim-oracle",
+                        "--features",
+                        "oracle",
+                        "--release",
+                        "--test",
+                        "tier5_battery",
+                        "--",
+                        "--nocapture",
+                        "--test-threads",
+                        "1",
+                    ],
+                    &[(TIER5_ENV, "full")],
+                )?;
+                // The invariants are Tier 5 too, and they are cheap.
+                for features in ["oracle", "oracle,libm-system"] {
+                    step(
+                        root,
+                        "cargo",
+                        &[
+                            "test",
+                            "-p",
+                            "tepsim-oracle",
+                            "--features",
+                            features,
+                            "--release",
+                            "--test",
+                            "tier5_invariants",
+                            "--",
+                            "--nocapture",
+                            "--test-threads",
+                            "1",
+                        ],
+                    )?;
+                }
+            }
             other => println!(
-                "\n[skip] tier {other}: not implemented yet. Tiers 5-10 land \
+                "\n[skip] tier {other}: not implemented yet. Tiers 6-10 land \
                  with their phases; see BACKLOG.org."
             ),
         }
@@ -529,6 +582,9 @@ const TIER1_TESTS: [&str; 2] = ["tier1_enthalpy", "tier1_temperature"];
 
 /// Selects Tier 4's horizon, as `TEP_TIER1_SWEEP` selects Tier 1's volume.
 const TIER4_HOURS_ENV: &str = "TEP_TIER4_HOURS";
+
+/// Selects Tier 5's battery size, likewise.
+const TIER5_ENV: &str = "TEP_TIER5";
 
 /// Tier 4. The open-loop trajectory is diagnostic; the closed-loop one is not
 /// quite, because the controllers hold the plant at a setpoint and so remove

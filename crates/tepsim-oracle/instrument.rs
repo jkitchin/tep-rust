@@ -76,13 +76,23 @@ const EDITS: &[Edit] = &[
     // overflow is visible to the reader as a count past the capacity rather
     // than as a silently truncated trace.
     //
+    // It *saturates* at `TRCCAP+1` rather than counting on. `TRCN` is a
+    // Fortran `INTEGER`, which is 32 bits, and nothing clears it between the
+    // evaluations of a long run: Tier 5's battery makes about 264 draws per
+    // step over 172,800 steps per run, so it passes 2^31 after roughly fifty
+    // runs. The counter then goes *negative*, `TRCN.LE.TRCCAP` becomes true
+    // again, and `TRCVAL(TRCN)` writes outside the array. That is a segfault
+    // deep inside the Fortran, tens of millions of steps into a battery, with
+    // nothing in the immediate vicinity to suggest why. B-0047b found it that
+    // way. Saturating costs one comparison and makes the failure impossible.
+    //
     // The sign flag is recorded as well as the value, because `TESUB7` returns
     // two different scalings depending on it (`teprob.f:1552-1553`), and a
     // port could call the wrong one the right number of times.
     Edit {
         what: "record every TESUB7 draw into COMMON/RNGTRC/ for Tier 3",
         from: "      COMMON/RANDSD/G\n      G=DMOD(G*9228907.D0,4294967296.D0)\n      IF(I.GE.0)TESUB7=G/4294967296.D0\n      IF(I.LT.0)TESUB7=2.D0*G/4294967296.D0-1.D0\n",
-        to: "      COMMON/RANDSD/G\n      INTEGER TRCN,TRCSGN,TRCCAP\n      PARAMETER (TRCCAP=4096)\n      DOUBLE PRECISION TRCVAL\n      COMMON/RNGTRC/TRCVAL(TRCCAP),TRCSGN(TRCCAP),TRCN\n      G=DMOD(G*9228907.D0,4294967296.D0)\n      IF(I.GE.0)TESUB7=G/4294967296.D0\n      IF(I.LT.0)TESUB7=2.D0*G/4294967296.D0-1.D0\n      TRCN=TRCN+1\n      IF(TRCN.LE.TRCCAP)THEN\n      TRCVAL(TRCN)=TESUB7\n      TRCSGN(TRCN)=1\n      IF(I.LT.0)TRCSGN(TRCN)=-1\n      ENDIF\n",
+        to: "      COMMON/RANDSD/G\n      INTEGER TRCN,TRCSGN,TRCCAP\n      PARAMETER (TRCCAP=4096)\n      DOUBLE PRECISION TRCVAL\n      COMMON/RNGTRC/TRCVAL(TRCCAP),TRCSGN(TRCCAP),TRCN\n      G=DMOD(G*9228907.D0,4294967296.D0)\n      IF(I.GE.0)TESUB7=G/4294967296.D0\n      IF(I.LT.0)TESUB7=2.D0*G/4294967296.D0-1.D0\n      TRCN=TRCN+1\n      IF(TRCN.LE.TRCCAP)THEN\n      TRCVAL(TRCN)=TESUB7\n      TRCSGN(TRCN)=1\n      IF(I.LT.0)TRCSGN(TRCN)=-1\n      ELSE\n      TRCN=TRCCAP+1\n      ENDIF\n",
     },
 ];
 
