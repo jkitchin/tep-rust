@@ -4385,3 +4385,81 @@ when a quotient of single-precision literals is folded in double, and
 
 This is also the first item that will claim lines in =temain_mod.f=, so
 provenance on that file stops being zero.
+
+* 2026-08-28 B-0038 The Braatz preset, and twelve reset times that are all inexact
+:PROPERTIES:
+:ITEM:     B-0038
+:PHASE:    4
+:TIER:     none
+:COMMIT:   9050513
+:GFORTRAN: 15.2.0
+:STATUS:   DONE
+:END:
+** Preflight
+Clean and green. gfortran 15.2.0. =xtask fidelity= 100 of 100.
+
+** What changed
+=tepsim_control::PRESET= transcribes =temain_mod.f:246-317=. Provenance on that
+file goes from *0* to *107 lines (7.6%)*; combined coverage is 41.0%.
+
+** Validation numbers
+Every setpoint, gain and reset time for all twenty loops, bit-identical to the
+Fortran expressions evaluated the way Fortran evaluates them.
+
+*Reset times: 12 of 12 differ between single and double folding.*
+
+*Arithmetic gains: 4, of which at least 2 discriminate*, asserted so the test
+cannot become vacuous.
+
+** Surprises and decisions
+*Every one of the twelve reset times is inexact.* They are all =N./3600.=, and
+that form reads like a plain number rather than like arithmetic, which is
+exactly why it is dangerous. B-0019's =40000.0/1.987= was visibly an
+expression; =1452./3600.= looks like someone writing "1452 seconds" and it is a
+single-precision division whose result differs from the double one in every
+single case.
+
+*The verification is weaker than B-0030's, and the log says so.* The walk spans
+could be asserted against =COMMON/WLK/= because =TEINIT= runs and fills it. The
+preset lives in the main program, which =instrument.rs= turned into a
+subroutine nothing calls, so =COMMON/CTRLALL/= never receives it and there is
+nothing to read back.
+
+What is checked instead is that two independent transcriptions of the same
+Fortran expressions agree bit for bit: one in the constant table and one in the
+test, written from the listing separately. That still catches a hand-folded
+expression, a missing =D= suffix or a transposed digit, which is the whole
+class of error this project keeps finding. It does not catch both
+transcriptions being wrong the same way, and that limitation is real.
+
+*The tests assert their own discriminating power.* Requiring "single folding
+matches" is worthless if single and double happen to agree, so both tests also
+require that they *differ*, on at least half the cases. A test that cannot fail
+is not evidence, and this one would have quietly become vacuous if the tuning
+ever changed to round numbers.
+
+*Three structural facts fall out of having the table at all.* Every setpoint
+slot is owned by exactly one loop; every cascade target is a slot some loop
+actually reads; and the eight proportional-only loops are exactly the eight
+whose =COMMON= blocks declare no =TAUI=. None of those is checkable from a
+single subroutine, and all three would be broken by a plausible transcription
+slip.
+
+** Next
+B-0039: the multi-rate scheduler and the closed-loop driver,
+=temain_mod.f:365-412=.
+
+Three things to reproduce rather than tidy, all found in B-0035. The loops run
+in *source order* within a period and share =XMV= through =COMMON=, so the
+order is load-bearing wherever two touch the same valve. =CONSHAND= clamps
+=XMV(1..11)= and *not* =XMV(12)=. And the driver overrides =XMV(1..11)= after
+=TEINIT= with *rounded* values, =63.053= against =TEINIT='s =63.05263039=,
+leaving =XMV(12)= alone.
+
+That last one deserves a delta. A closed-loop run does not start where an
+open-loop one does, and the difference is in the fourth decimal place of eleven
+valve positions.
+
+Also pin the *phase* of each period: =MOD(I,3)= with =I= starting at 1 fires
+first on step 3, not step 1, and an off-by-one there shifts every controller
+action by two seconds for the whole run.

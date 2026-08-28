@@ -14,16 +14,16 @@ earlier phases will change what the right decomposition is.
 
 Rewrite this block at the end of every iteration. Keep it to five lines.
 
-- Phase: 4, three of eight done. Phases 2 and 3 are closed
-- Last completed: B-0037b. The override state machine, exact over a 108-step
-  pressure walk
+- Phase: 4, four of eight done. Phases 2 and 3 are closed
+- Last completed: B-0038. The preset, and twelve reset times that are all
+  inexact in single precision
 - In flight: (none)
-- Baseline: =cargo xtask ci= green; 270 tests default, 419 with =oracle=;
+- Baseline: =cargo xtask ci= green; 270 tests default, 425 with =oracle=;
   =validate --tiers 1,2,3,4= green; provenance *1123/1589* on =teprob.f=,
-  =temain_mod.f= claims land with B-0038
+  *107/1408* on =temain_mod.f=, 41.0% combined
 - Toolchain: rustup, pinned to rustc 1.97.1, wasm32 installed, libm 0.2.16
 - Remote: private jkitchin/tep-rust, CI green on all 7 jobs
-- Blocked on: nothing. Next is B-0038, the nineteen-loop Braatz preset.
+- Blocked on: nothing. Next is B-0039, the scheduler and the closed-loop driver.
 
 * Phase 0: foundations
 
@@ -1548,13 +1548,24 @@ which is exactly the override's reset threshold) and never invoked.
       covers it at 0 ULP, which is the only evidence anywhere that the
       subroutine is correct
 
-** NEXT B-0038 The nineteen-loop Braatz preset
+** DONE B-0038 The nineteen-loop Braatz preset
 :PROPERTIES:
 :ID:    B-0038
 :PHASE: 4
 :TIER:  none
 :DEPS:  B-0037b
 :PLAN:  Anatomy > Control layer
+:COMMIT: 9050513
+:RESULT: All twenty loops' setpoints, gains and reset times, with B-0035's
+         wiring. Provenance on =temain_mod.f= goes 0 to *107 lines (7.6%)*.
+         *All twelve reset times are inexact*: every one is =N./3600.=, which
+         reads like a number rather than arithmetic, and every one differs
+         between single and double folding. Four gains are written as
+         expressions and are transcribed as such. Three structural checks fall
+         out: every setpoint slot has exactly one owner, every cascade target
+         is a slot some loop reads, and the eight proportional-only loops are
+         exactly the eight with no =TAUI=. The period assignment is asserted
+         against the driver's scheduler, group by group.
 :END:
 
 =temain_mod.f:246-317=. Twenty setpoints, gains and reset times, asserted
@@ -1566,10 +1577,14 @@ Several gains are written as arithmetic rather than as a number:
 =GAIN22 = -1.0 * 5.=. Transcribe the expression, not its value: B-0019 measured
 what happens when a quotient of single-precision literals is folded in double.
 
-Done when:
-- [ ] All twenty loops' constants, verified two ways as B-0030's were
-- [ ] Each loop's measurement and valve named, from the source
-- [ ] The tuning arithmetic transcribed as written, with its precision checked
+- [X] All twenty loops' constants. *Not* verified against =COMMON= as B-0030's
+      were, and the reason is recorded: the preset lives in a program unit that
+      must never run, so there is nothing to read back. Two independent
+      transcriptions of the expressions instead
+- [X] Each loop's measurement and output named, from the source
+- [X] The tuning arithmetic transcribed as written, with its precision checked
+      in both directions: the folding must be single, and the test requires
+      single and double to actually differ or it discriminates nothing
 
 ** TODO B-0039 The multi-rate scheduler and the closed-loop driver
 :PROPERTIES:
