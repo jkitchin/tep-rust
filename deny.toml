@@ -13,6 +13,25 @@ all-features = false
 allow = ["MIT", "NCSA"]
 confidence-threshold = 0.93
 
+# Per-crate exceptions rather than a wider `allow`, so each one names what it
+# is for and a fourth licence cannot slip in behind it. All three arrived with
+# the PyO3 bindings in phase 7.
+exceptions = [
+    # rust-numpy, the only one of the three that is linked into a shipped
+    # artifact. It is the standard NumPy interop crate, and the Python package
+    # already depends on NumPy itself, which is BSD-3-Clause: refusing
+    # BSD-2-Clause here while shipping a wheel that requires NumPy would be a
+    # distinction without a difference.
+    { name = "numpy", allow = ["BSD-2-Clause"] },
+    # Build-time only, both of them: they run on the build machine and no part
+    # of either reaches the wheel or the wasm bundle.
+    # `pyo3-build-config` uses target-lexicon to parse target triples.
+    { name = "target-lexicon", allow = ["Apache-2.0 WITH LLVM-exception"] },
+    # `proc-macro2` and `syn` use unicode-ident to classify identifier
+    # characters, which needs the Unicode character database's own licence.
+    { name = "unicode-ident", allow = ["Unicode-3.0"] },
+]
+
 [advisories]
 yanked = "deny"
 ignore = []

@@ -1,0 +1,51 @@
+[build-system]
+requires = ["maturin>=1.9,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "tepsim"
+description = "Tennessee Eastman Process simulator: a pure-Rust port of the original Fortran, validated against it"
+readme = "README.md"
+# abi3-py39, so one wheel covers every GIL-enabled CPython from 3.9 up.
+requires-python = ">=3.9"
+authors = [{ name = "John Kitchin" }]
+# The same expression Cargo.toml carries. MIT covers new work; NCSA covers the
+# portions derived from the original Tennessee Eastman Fortran and cannot be
+# dropped.
+license = "MIT AND NCSA"
+# The upstream Fortran is under the NCSA licence, whose attribution conditions
+# survive into binary distributions: committing the text is not enough, it has
+# to ship inside the wheel. `LICENSE`, `LICENSE-NCSA` and `NOTICE.md` beside
+# this file are symlinks to the ones at the repository root, so there is one
+# copy of each text and nothing to drift.
+license-files = ["LICENSE", "LICENSE-NCSA", "NOTICE.md"]
+keywords = ["tennessee-eastman", "simulation", "process-control", "chemical"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Topic :: Scientific/Engineering",
+]
+dependencies = ["numpy>=1.21"]
+# maturin reads it from Cargo.toml, so the crate version and the wheel version
+# cannot drift apart.
+dynamic = ["version"]
+
+[project.urls]
+Homepage = "https://github.com/jkitchin/tep-rust"
+Repository = "https://github.com/jkitchin/tep-rust"
+
+[project.optional-dependencies]
+test = ["pytest>=7"]
+
+[tool.maturin]
+# Mixed layout: the compiled extension is installed as `tepsim._tepsim`, beside
+# the hand-written `python/tepsim/__init__.py` that re-exports it. That package
+# is what carries `__init__.pyi` and `py.typed`, which a compiled module cannot.
+python-source = "python"
+module-name = "tepsim._tepsim"
+# Set here rather than in Cargo.toml on purpose. `extension-module` tells pyo3
+# to leave libpython unresolved, which is right for a wheel and wrong for
+# `cargo test`, where it fails to link on Linux.
+features = ["pyo3/extension-module"]
