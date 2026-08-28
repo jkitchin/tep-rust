@@ -17,13 +17,28 @@ categories.workspace = true
 name = "_tepsim"
 crate-type = ["cdylib"]
 
+[features]
+# One `cp39-abi3` wheel covers every GIL-enabled CPython from 3.9 up, so abi3 is
+# on by default and a plain `cargo build` is exactly what it was before this
+# switch existed.
+#
+# The switch exists for the free-threaded interpreters, which have no stable ABI
+# to target (`PLAN.org`, "Python bindings": cp313t and cp314t are version
+# specific, and abi3t arrives with 3.15). Their wheels are built with
+# `--no-default-features`, which is the only way to *remove* pyo3's `abi3-py39`
+# once a dependency has enabled it: cargo features are additive, so it cannot be
+# turned off from the command line if it is named in `[dependencies]`.
+default = ["abi3"]
+abi3 = ["pyo3/abi3-py39"]
+
 [dependencies]
 tepsim.workspace = true
 # `extension-module` is deliberately *not* set here. It tells pyo3 to leave
 # libpython unresolved, which is right for a wheel and wrong for `cargo test`:
 # a test binary built with it fails to link on Linux. maturin turns it on, via
-# `[tool.maturin] features` in `pyproject.toml`.
-pyo3 = { version = "0.29", features = ["abi3-py39"] }
+# `[tool.maturin] features` in `pyproject.toml`. `abi3-py39` is likewise not set
+# here; it arrives through the default `abi3` feature above.
+pyo3 = { version = "0.29" }
 # Not below 0.25. `numpy` 0.23 and 0.24 carry deprecated `*_bound` aliases whose
 # doc links make rustdoc 1.97.1 abort with an internal compiler error while
 # documenting *this* crate, which fails the `cargo doc` job in `xtask ci`. It

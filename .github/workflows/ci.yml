@@ -26,6 +26,16 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
+      # Before checkout, and it has to be: crates/tepsim-py/{LICENSE,
+      # LICENSE-NCSA,NOTICE.md} are symlinks to the repository root, and Git for
+      # Windows ships with core.symlinks=false in its system config. Without
+      # this, git writes the target *path* as the file body and the licence
+      # texts become the 13-byte string "../../LICENSE". `xtask ci` checks for
+      # exactly that and fails, which is the point, but the fix belongs here.
+      - name: Let git create symlinks (Windows)
+        if: runner.os == 'Windows'
+        run: git config --global core.symlinks true
+
       - uses: actions/checkout@v4
 
       # No @stable: rust-toolchain.toml pins the version, and an action that
@@ -38,6 +48,18 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-deny
+
+      # The pytest suite for the bindings only exists once a wheel is built and
+      # installed, so `cargo test` cannot reach it. `xtask ci` builds one and
+      # runs the suite against it when maturin is here, and says it is skipping
+      # when it is not. Installing maturin is what makes those tests part of the
+      # gate on all three platforms rather than a thing someone runs by hand.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install maturin
+        run: pipx install maturin
 
       - name: cargo xtask ci
         run: cargo xtask ci --fast

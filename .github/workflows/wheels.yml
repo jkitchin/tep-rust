@@ -1,0 +1,381 @@
+name: wheels
+
+# The Python distribution. `ci.yml` says the code is right; this says it can be
+# shipped, on every interpreter and platform `PLAN.org` commits to.
+#
+# READ THIS BEFORE TRUSTING A GREEN TICK. As of B-0058a not one job in this file
+# has ever run. The only wheel this repository has ever produced is a local
+# macOS arm64 `cp39-abi3` one, built by `cargo xtask python`, which is also the
+# only thing here whose behaviour is measured rather than inferred from the
+# maturin documentation. Each job below carries a note saying which part of it
+# is guesswork. Treat the first run as the experiment it is.
+#
+# What is proven locally and holds everywhere:
+#   - the default build is abi3 and tags `cp39-abi3`
+#   - `--no-default-features` removes abi3 and tags a specific interpreter
+#     (measured: it produced `cp313-cp313` against a GIL-enabled 3.13)
+#   - the wheel carries the three licence texts, 1069, 1788 and 4116 bytes
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    paths:
+      - 'crates/tepsim-py/**'
+      - 'crates/tepsim/**'
+      - 'crates/tepsim-core/**'
+      - 'crates/tepsim-control/**'
+      - 'crates/tepsim-scenario/**'
+      - 'Cargo.lock'
+      - '.github/workflows/wheels.yml'
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  # Named once: eight jobs pass it to maturin, and a typo in one of them would
+  # look like a build failure rather than a wrong path.
+  MANIFEST: crates/tepsim-py/Cargo.toml
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # The licence texts, before anything is packaged.
+  #
+  # `crates/tepsim-py/{LICENSE,LICENSE-NCSA,NOTICE.md}` are git symlinks (mode
+  # 120000) to the ones at the repository root, so there is one copy of each
+  # text. A checkout that cannot create symlinks writes the target *path* as the
+  # file body, and `pyproject.toml` names all three in `license-files`, so the
+  # wheel would ship `../../LICENSE` where the NCSA licence should be. The
+  # original Fortran's NCSA terms require that attribution in binary
+  # distributions, so this is a licence violation packaged into an artifact that
+  # is otherwise perfectly well-formed. Nothing else in the build would notice.
+  #
+  # Per OS, not per target, because it is a property of the *checkout*: the
+  # wheel jobs below run `actions/checkout` on the same runner images with the
+  # same git configuration, so one probe per operating system covers them.
+  licences:
+    name: licences (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      # Before checkout, and it has to be. Git for Windows ships with
+      # core.symlinks=false in its system config, and global beats system.
+      # UNVERIFIED: that this makes actions/checkout write real symlinks. If it
+      # does not, this job goes red on Windows, which is the correct outcome and
+      # is why the guard exists.
+      - name: Let git create symlinks (Windows)
+        if: runner.os == 'Windows'
+        run: git config --global core.symlinks true
+
+      - uses: actions/checkout@v4
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: cargo xtask licences
+        run: cargo xtask licences
+
+  # One `cp39-abi3` wheel per platform, covering every GIL-enabled CPython from
+  # 3.9 up. The core is pure Rust with no C dependencies, which is what makes
+  # this a matrix of targets rather than a matrix of toolchains.
+  #
+  # UNVERIFIED: the cross-compiled rows. aarch64 Linux and aarch64 Windows are
+  # built on x86_64 runners, and maturin-action is being trusted to install the
+  # target and pick the right linker. The native rows (manylinux x86_64,
+  # macOS both, Windows x86_64) are the ones most likely to work first time.
+  abi3:
+    name: abi3 ${{ matrix.name }}
+    needs: licences
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: manylinux-x86_64
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            manylinux: auto
+          - name: manylinux-aarch64
+            os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            manylinux: auto
+          - name: musllinux-x86_64
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            manylinux: musllinux_1_2
+          - name: musllinux-aarch64
+            os: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            manylinux: musllinux_1_2
+          - name: macos-x86_64
+            os: macos-13
+            target: x86_64-apple-darwin
+          - name: macos-aarch64
+            os: macos-14
+            target: aarch64-apple-darwin
+          - name: windows-x86_64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+          - name: windows-aarch64
+            os: windows-latest
+            target: aarch64-pc-windows-msvc
+    steps:
+      - name: Let git create symlinks (Windows)
+        if: runner.os == 'Windows'
+        run: git config --global core.symlinks true
+
+      - uses: actions/checkout@v4
+
+      # No --interpreter: an abi3 build does not need one, and on the
+      # cross-compiled rows there is no interpreter for the target to find.
+      - uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
+          manylinux: ${{ matrix.manylinux || 'auto' }}
+          sccache: 'true'
+          args: --release --out dist --manifest-path ${{ env.MANIFEST }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-abi3-${{ matrix.name }}
+          path: dist
+
+  # The free-threaded interpreters, which have no stable ABI to target, so their
+  # wheels are version specific: cp313t and cp314t, one per interpreter per
+  # platform. `--no-default-features` is what removes `pyo3/abi3-py39`; see the
+  # comment on `[features]` in crates/tepsim-py/Cargo.toml for why it cannot be
+  # done any other way. `PLAN.org` adds abi3t when 3.15 makes it available, at
+  # which point this whole job collapses back into the one above.
+  #
+  # UNVERIFIED, and the least certain part of this file:
+  #   - that `-i python3.13t` resolves inside the manylinux container. The host
+  #     interpreter that actions/setup-python installs is not visible in there;
+  #     maturin is being trusted to find the container's own /opt/python builds.
+  #   - that pyo3 0.29 builds cleanly against a free-threaded interpreter with
+  #     abi3 off. It should, but nothing here has compiled it.
+  # If the container resolution is the problem, the fix is `container: off` plus
+  # a separate manylinux repair step, not weakening the tag.
+  freethreaded:
+    name: ${{ matrix.python }} ${{ matrix.platform.name }}
+    needs: licences
+    runs-on: ${{ matrix.platform.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.13t', '3.14t']
+        platform:
+          - name: manylinux-x86_64
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            manylinux: auto
+          - name: macos-aarch64
+            os: macos-14
+            target: aarch64-apple-darwin
+          - name: windows-x86_64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+    steps:
+      - name: Let git create symlinks (Windows)
+        if: runner.os == 'Windows'
+        run: git config --global core.symlinks true
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.platform.target }}
+          manylinux: ${{ matrix.platform.manylinux || 'auto' }}
+          sccache: 'true'
+          args: >-
+            --release --out dist
+            --manifest-path ${{ env.MANIFEST }}
+            --no-default-features
+            --interpreter python${{ matrix.python }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-ft-${{ matrix.python }}-${{ matrix.platform.name }}
+          path: dist
+
+  sdist:
+    name: sdist
+    needs: licences
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: PyO3/maturin-action@v1
+        with:
+          command: sdist
+          args: --out dist --manifest-path ${{ env.MANIFEST }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-sdist
+          path: dist
+
+  # A wheel that builds is not a wheel that works. Install the built artifact,
+  # from the artifact and with the index switched off so nothing else can
+  # satisfy the requirement, and run the same pytest suite `cargo xtask python`
+  # runs locally.
+  #
+  # 3.9 as well as 3.13 because that is the abi3 floor the wheel filename
+  # claims. `cp39-abi3` asserts an interpreter nobody here has ever run it on,
+  # and installing on 3.9 is the cheapest way to stop that being a promise.
+  smoke:
+    name: smoke ${{ matrix.name }} py${{ matrix.python }}
+    needs: abi3
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      # Written out rather than crossed, because the combinations are not a
+      # rectangle: actions/setup-python has no arm64 macOS build of 3.9 in its
+      # tool cache. The abi3 floor is still exercised, on Linux and Windows.
+      matrix:
+        include:
+          - name: linux-x86_64
+            os: ubuntu-latest
+            artifact: wheels-abi3-manylinux-x86_64
+            python: '3.9'
+          - name: linux-x86_64
+            os: ubuntu-latest
+            artifact: wheels-abi3-manylinux-x86_64
+            python: '3.13'
+          - name: macos-aarch64
+            os: macos-14
+            artifact: wheels-abi3-macos-aarch64
+            python: '3.13'
+          - name: windows-x86_64
+            os: windows-latest
+            artifact: wheels-abi3-windows-x86_64
+            python: '3.9'
+          - name: windows-x86_64
+            os: windows-latest
+            artifact: wheels-abi3-windows-x86_64
+            python: '3.13'
+    steps:
+      - name: Let git create symlinks (Windows)
+        if: runner.os == 'Windows'
+        run: git config --global core.symlinks true
+
+      # For crates/tepsim-py/tests, which is the suite being run. The package
+      # itself comes from the artifact, never from this checkout.
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: wheelhouse
+
+      # bash on all three, so the same three lines mean the same thing.
+      - name: Install the wheel and run its tests
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest numpy
+          # --no-index: the only place tepsim may come from is the artifact.
+          python -m pip install --no-index --find-links wheelhouse tepsim
+          python -c "import tepsim; print(tepsim.__version__, tepsim.__file__)"
+          python -m pytest crates/tepsim-py/tests -q -p no:cacheprovider
+
+  # An Emscripten wheel for Pyodide, so the package works in JupyterLite.
+  #
+  # Off on pull requests deliberately. This is the job with the most moving
+  # parts and none of them have been exercised: the emsdk version has to match
+  # the one Pyodide was built with, the interpreter version has to match
+  # Pyodide's CPython, and abi3 has to be off because Emscripten has no stable
+  # ABI. Run it by hand with workflow_dispatch and fix it there rather than
+  # having it red on every pull request from the day it lands. It is also not in
+  # `publish`'s `needs`: PyPI does not accept Emscripten wheels, they go to a
+  # Pyodide index of their own.
+  pyodide:
+    name: pyodide (emscripten)
+    needs: licences
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          target: wasm32-unknown-emscripten
+
+      - name: Install pyodide-build and maturin
+        run: pip install pyodide-build maturin
+
+      # The emsdk version is not a choice: a Pyodide wheel has to be built with
+      # the Emscripten that Pyodide itself was built with, or it will not load.
+      # Ask pyodide-build rather than pinning a number that goes stale.
+      - name: Read the Emscripten version Pyodide wants
+        run: echo "EMSCRIPTEN_VERSION=$(pyodide config get emscripten_version)" >> "$GITHUB_ENV"
+
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: ${{ env.EMSCRIPTEN_VERSION }}
+
+      - name: Build the Emscripten wheel
+        run: |
+          maturin build --release --out dist \
+            --target wasm32-unknown-emscripten \
+            --manifest-path "$MANIFEST" \
+            --no-default-features \
+            --interpreter python3.13
+
+      # Not `wheels-*`: the publish job collects that pattern, and PyPI rejects
+      # Emscripten wheels. Naming it out of the pattern is what keeps a tagged
+      # run from failing at the last step.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pyodide-wheel
+          path: dist
+
+  # Tagged releases only, by trusted publishing: no API token exists anywhere in
+  # this repository, and none should be added. `needs` names every job whose
+  # artifact goes into the release, so a wheel that failed to build or failed
+  # its smoke test cannot be published by a partially green run.
+  publish:
+    name: publish to PyPI
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [abi3, freethreaded, sdist, smoke]
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/tepsim
+    permissions:
+      # Trusted publishing exchanges this for a short-lived PyPI credential.
+      id-token: write
+      attestations: write
+      contents: read
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wheels-*
+          path: dist
+          merge-multiple: true
+
+      - name: What is about to be published
+        run: ls -l dist
+
+      - uses: pypa/gh-action-pypi-publish@release/v1
