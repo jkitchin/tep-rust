@@ -26,8 +26,8 @@
 
 use tepsim_stats::distribution::{normal_cdf, student_t_two_sided_p};
 use tepsim_stats::{
-    Summary, ln_gamma, regularized_incomplete_beta, student_t_cdf, student_t_quantile, tost,
-    welch_t,
+    Summary, f_cdf, f_quantile, ln_gamma, normal_quantile, regularized_incomplete_beta,
+    student_t_cdf, student_t_quantile, tost, welch_t,
 };
 
 /// How close two `f64`s have to be for these tests. The routines claim about
@@ -385,6 +385,388 @@ fn the_two_sided_p_is_the_symmetric_tail() {
             );
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// The standard normal quantile, against published percentage points
+// ---------------------------------------------------------------------------
+
+#[test]
+fn the_normal_quantile_reproduces_the_published_percentage_points() {
+    // The standard normal deviates every table of critical values prints, to
+    // the digits they print. The Jackson-Mudholkar SPE limit calls this with
+    // the first of them.
+    for (p, expected) in [
+        (0.9, 1.281_551_565_545),
+        (0.95, 1.644_853_626_951),
+        (0.975, 1.959_963_984_540),
+        (0.99, 2.326_347_874_041),
+        (0.995, 2.575_829_303_549),
+        (0.999, 3.090_232_306_168),
+        (0.9995, 3.290_526_731_492),
+    ] {
+        close(
+            normal_quantile(p),
+            expected,
+            1e-11,
+            &format!("normal quantile at {p}"),
+        );
+        // And the lower tail by symmetry, which is exact for the distribution
+        // and so should be near exact for the routine.
+        close(
+            normal_quantile(1.0 - p),
+            -expected,
+            1e-11,
+            &format!("normal quantile at {}", 1.0 - p),
+        );
+    }
+    assert_eq!(normal_quantile(0.5), 0.0);
+    assert!(normal_quantile(0.0).is_nan());
+    assert!(normal_quantile(1.0).is_nan());
+}
+
+// ---------------------------------------------------------------------------
+// Snedecor's F, against closed forms and a published table
+// ---------------------------------------------------------------------------
+
+/// Published upper 5% critical values of the F distribution.
+///
+/// `(df1, df2, F)` such that `P(F <= x) = 0.95`. These are the numbers printed
+/// in the `alpha = 0.05` table in the back of any statistics text, to the two or
+/// three significant figures such tables carry.
+const F_TABLE_95: &[(f64, f64, f64)] = &[
+    (1.0, 1.0, 161.4),
+    (2.0, 10.0, 4.10),
+    (5.0, 20.0, 2.71),
+    (10.0, 10.0, 2.98),
+    (1.0, 10.0, 4.96),
+    (3.0, 15.0, 3.29),
+    (4.0, 30.0, 2.69),
+    (6.0, 24.0, 2.51),
+    (12.0, 12.0, 2.69),
+    (20.0, 20.0, 2.12),
+];
+
+/// Every published value in `F_TABLE_95`, checked and none dropped.
+///
+/// The tolerance is half a unit in the table's last printed digit, which is the
+/// most a printed table can support. `F(1, 1)` is the tightest of them: the
+/// table says 161.4, the routine says 161.4476, and half a unit in the last
+/// place is 0.05, so it passes with 0.0476 of the 0.05 used up.
+///
+/// That one is worth checking against something better than a table, and it can
+/// be: `F(1, nu)` is the square of a `t` with `nu` degrees of freedom, so
+/// `F(1, 1)` is a squared standard Cauchy and
+///
+/// ```text
+/// P(F <= x) = (2 / pi) arctan(sqrt x)  =>  F_p(1, 1) = tan(p pi / 2)^2
+/// ```
+///
+/// which gives 161.44763... exactly. The table is the rounded one, not the
+/// routine. That closed form is asserted below.
+#[test]
+fn the_f_quantile_reproduces_the_published_table() {
+    for &(df1, df2, table) in F_TABLE_95 {
+        let actual = f_quantile(0.95, df1, df2);
+        // Half a unit in the last digit the table prints.
+        let printed_ulp = if table >= 100.0 { 0.05 } else { 0.005 };
+        println!(
+            "F_0.95({df1}, {df2}): table {table}, computed {actual:.6}, \
+             difference {:+.4} against an allowance of {printed_ulp}",
+            actual - table
+        );
+        assert!(
+            (actual - table).abs() < printed_ulp,
+            "F_0.95({df1}, {df2}) = {actual:.6}, the table says {table}"
+        );
+        // Round trip: the quantile is where the CDF reaches 0.95.
+        close(
+            f_cdf(actual, df1, df2),
+            0.95,
+            1e-12,
+            &format!("F cdf round trip at ({df1}, {df2})"),
+        );
+    }
+}
+
+/// The exact closed forms the F **CDF** has, over a sweep of arguments.
+///
+/// ```text
+/// P(F <= x | 1, 1)  = (2 / pi) arctan(sqrt x)     (F(1,1) is a squared Cauchy)
+/// P(F <= x | d1, 2) = (d1 x / (d1 x + 2))^(d1/2)  (I_y(a, 1) = y^a)
+/// P(F <= x | 2, d2) = 1 - (d2 / (2x + d2))^(d2/2) (I_y(1, b) = 1 - (1-y)^b)
+/// ```
+///
+/// Checked on the CDF rather than the quantile because this is the direction
+/// that is well conditioned everywhere: the `F(1, 1)` quantile has a derivative
+/// of `4052` at `p = 0.99` and `4.05e5` at `p = 0.999`, so an ulp on the
+/// probability becomes a large relative error on `x`, in the *reference* as much
+/// as in the routine. The CDF has the reciprocal of that derivative and loses
+/// nothing.
+#[test]
+fn the_f_cdf_matches_its_closed_forms() {
+    let mut worst = 0.0_f64;
+    // The sweep stops at 4052, where the CDF is 0.99. Past that the routine
+    // loses accuracy for a reason worth naming, and
+    // `the_f_cdf_saturates_in_the_far_upper_tail` measures it rather than this
+    // test quietly absorbing it into a wider tolerance.
+    for x in [1e-6_f64, 0.01, 0.5, 1.0, 2.5, 17.0, 4052.0] {
+        let cauchy = 2.0 / std::f64::consts::PI * x.sqrt().atan();
+        let got = f_cdf(x, 1.0, 1.0);
+        worst = worst.max((got - cauchy).abs() / cauchy);
+        close(got, cauchy, 1e-13, &format!("F cdf({x} | 1, 1)"));
+
+        for df in [1.0_f64, 2.0, 5.0, 10.0, 30.0, 200.0] {
+            let y = df * x / (df * x + 2.0);
+            let exact = y.powf(0.5 * df);
+            let got = f_cdf(x, df, 2.0);
+            worst = worst.max((got - exact).abs() / exact);
+            close(got, exact, 1e-13, &format!("F cdf({x} | {df}, 2)"));
+
+            // `1 - (1 + 2x/df)^(-df/2)`, written through `ln_1p` and `exp_m1`
+            // so that neither end cancels. Both are needed and it took two
+            // tries to see it. `1.0 - w.powf(df/2)` loses six digits at
+            // `x = 1e-6`, where the power is 0.999999. Replacing only the outer
+            // subtraction with `exp_m1` still leaves `ln(0.999998000004)`, whose
+            // argument carries half an ulp on a result of `-2e-6`, a relative
+            // error of 5e-11. The reference, not the routine, was wrong both
+            // times: it reported 3.9e-12 and then 1.3e-11 against a routine
+            // accurate to 1e-15 here.
+            let exact = -(-0.5 * df * (2.0 * x / df).ln_1p()).exp_m1();
+            let got = f_cdf(x, 2.0, df);
+            worst = worst.max((got - exact).abs() / exact);
+            close(got, exact, 1e-13, &format!("F cdf({x} | 2, {df})"));
+        }
+    }
+    println!("F cdf against its closed forms: worst relative error {worst:.3e}");
+}
+
+/// `P(F <= t^2 | 1, nu) + P(|T| >= t | nu) = 1`, exactly.
+///
+/// `F(1, nu)` is the square of a `t` with `nu` degrees of freedom, so the F CDF
+/// at `t^2` and the two-sided t p-value at `t` are complementary. This is an
+/// identity between two distributions rather than two implementations of one,
+/// and it is the check that would catch `df1` and `df2` being swapped inside
+/// `f_cdf`, which a table with equal arguments cannot see.
+///
+/// Written as a sum rather than as `left == 1 - right`, and checked with an
+/// absolute tolerance, for the reason
+/// `the_incomplete_beta_obeys_its_symmetry` gives: at `t = 30` the p-value is
+/// 2e-2 for `nu = 1` and 1e-13 for `nu = 30`, and forming `1 - that` throws away
+/// the digits the comparison is supposed to be about.
+#[test]
+fn the_f_distribution_is_the_square_of_a_t() {
+    let mut worst = 0.0_f64;
+    for nu in [1.0_f64, 2.0, 3.7, 10.0, 30.0, 200.0] {
+        // The sweep starts at t = 0.3. Below it, `student_t_two_sided_p` hits
+        // the saturation `the_f_cdf_saturates_in_the_far_upper_tail` describes,
+        // in its own parameterisation: it evaluates `I_x(nu/2, 1/2)` at
+        // `x = nu / (nu + t^2)`, which is within an ulp of 1 for small `t`, so
+        // `1 - x` carries a relative error of `eps nu / t^2`. At `t = 0.01` and
+        // `nu = 3.7` that is 4e-12, and it puts 1.5e-14 into the sum below. The
+        // identity is fine; the representation runs out. Four orders of the
+        // p-value are still covered from t = 0.3 up.
+        for t in [0.3_f64, 1.0, 2.0, 5.0, 12.706, 30.0] {
+            let sum = f_cdf(t * t, 1.0, nu) + student_t_two_sided_p(t, nu);
+            worst = worst.max((sum - 1.0).abs());
+            assert!(
+                (sum - 1.0).abs() < 1e-14,
+                "F cdf({}, 1, {nu}) + two-sided p({t}, {nu}) = {sum:.17e}, not 1",
+                t * t
+            );
+        }
+    }
+    println!("F(1, nu) = t^2 identity: worst absolute departure from 1 is {worst:.3e}");
+}
+
+/// The far upper tail, measured rather than assumed.
+///
+/// `f_cdf` goes through `I_y(df1/2, df2/2)` with `y = df1 x / (df1 x + df2)`,
+/// and that parameterisation saturates: once `y` is within an ulp or two of 1
+/// there is no room left in an `f64` to say how far up the tail `x` is. At
+/// `x = 1e8` with one and one degrees of freedom, `1 - y` is 1e-8 and carries a
+/// relative error of `eps / (1 - y) = 2.2e-8`; the upper tail is
+/// `(2 / pi) arcsin(sqrt(1 - y))`, so half of that reaches the answer, giving an
+/// absolute error near `0.5 * 6.4e-5 * 2.2e-8 = 7e-13`.
+///
+/// Measured, it is 1.2e-13, inside that. This is a property of the
+/// representation and not a defect to fix: computing the upper tail accurately
+/// there needs a separate entry point taking the tail directly, the way
+/// `student_t_two_sided_p` does for `t`. Nothing in this crate needs one. The
+/// T-squared control limit calls `f_quantile(0.95, k, n - k)`, where `y` is
+/// 0.4 for a small model and 1e-5 for a large one, both nowhere near saturation.
+#[test]
+fn the_f_cdf_saturates_in_the_far_upper_tail() {
+    let x = 1e8_f64;
+    let closed_form = 2.0 / std::f64::consts::PI * x.sqrt().atan();
+    let got = f_cdf(x, 1.0, 1.0);
+    let error = (got - closed_form).abs();
+    println!(
+        "F cdf({x} | 1, 1) = {got:.17e}, closed form {closed_form:.17e}, \
+         absolute error {error:.3e} against the 7e-13 the saturation of y allows"
+    );
+    assert!(error < 7e-13, "{error:.3e}");
+    // And it is still much better than the tolerance the sweep uses at
+    // moderate x would suggest is the general case: this is a tail effect, so
+    // it must vanish as x comes back down.
+    let near = 4052.0_f64;
+    let near_error =
+        (f_cdf(near, 1.0, 1.0) - 2.0 / std::f64::consts::PI * near.sqrt().atan()).abs();
+    println!("F cdf({near} | 1, 1): absolute error {near_error:.3e}");
+    assert!(
+        near_error < 1e-15,
+        "the effect does not shrink as x falls, so it is not tail saturation: \
+         {near_error:.3e}"
+    );
+}
+
+/// The exact closed forms the F **quantile** has, at every `p`.
+///
+/// A table gives three digits. These give sixteen, and they cover the two
+/// degrees-of-freedom arguments independently, so a formula that mixed `df1`
+/// and `df2` up would fail one of them.
+///
+/// ```text
+/// F_p(1, nu)  = t_{(1+p)/2, nu}^2                       (F(1, nu) is t^2)
+/// F_p(d1, 2)  = 2 y / (d1 (1 - y)),      y = p^(2/d1)   (I_y(a, 1) = y^a)
+/// F_p(2, d2)  = (d2/2) ((1-p)^(-2/d2) - 1)              (I_y(1, b) closed)
+/// ```
+///
+/// # Every one of them is checked in the CDF direction, and that is deliberate
+///
+/// Comparing two `x` values in a heavy tail measures the tail, not the routine.
+/// `F_0.999(1, 1)` is 405284, where `x f(x)` is 5e-4, so an ulp on the
+/// probability moves `x` by two thousand ulps; and the closed form is no better
+/// off, because `tan(p pi / 2)` amplifies the ulp on its own argument by
+/// `sec^2 = 1 + tan^2 = 4e5`. Both sides are noisy, in different ways, and a
+/// direct comparison reports their combined noise as if it were the routine's
+/// error: the first version of this test did exactly that and demanded an
+/// explanation for 9.5e-12.
+///
+/// Putting the computed quantile back through the closed-form CDF divides by
+/// that factor instead of multiplying by it, and the answer it has to reproduce,
+/// `p`, is exact. `the_incomplete_beta_obeys_its_symmetry` avoids the same trap
+/// for the same reason.
+///
+/// The direct value comparison is still printed, so the number is on the record
+/// and a reader can see how much of it is conditioning. It is asserted only
+/// where the table already asserts it: `the_f_quantile_reproduces_the_published_table`
+/// pins `F_0.95(1, 1)` to 161.4 directly, and 0.95 is far enough from the tail
+/// for that to mean something.
+#[test]
+fn the_f_quantile_matches_its_closed_forms() {
+    let mut worst = 0.0_f64;
+    for p in [0.5_f64, 0.9, 0.95, 0.975, 0.99, 0.999] {
+        // F(1, 1) is a squared standard Cauchy, so its CDF is
+        // (2 / pi) arctan(sqrt x) and its quantile is tan(p pi / 2)^2.
+        let tangent = (p * std::f64::consts::PI / 2.0).tan();
+        let cauchy = tangent * tangent;
+        let got = f_quantile(p, 1.0, 1.0);
+        let round_trip = 2.0 / std::f64::consts::PI * got.sqrt().atan();
+        println!(
+            "F_{p}(1,1): closed form {cauchy:.12e}, computed {got:.12e}, direct \
+             relative difference {:.3e}; the closed-form CDF of the computed \
+             value recovers p to {:.3e}",
+            (got - cauchy).abs() / cauchy,
+            (round_trip - p).abs() / p
+        );
+        worst = worst.max((round_trip - p).abs() / p);
+        close(
+            round_trip,
+            p,
+            1e-13,
+            &format!("closed-form cdf of F_{p}(1,1)"),
+        );
+
+        for df2 in [1.0_f64, 2.0, 5.0, 10.0, 30.0, 200.0] {
+            // df1 = 2. Checked by putting the computed quantile back through
+            // the *closed-form* CDF, not by comparing the two `x` values. In a
+            // heavy tail those are not the same test: `F_0.99(2, 1)` is 4999.5,
+            // where `x f(x)` is only 5e-3, so the quantile inherits two hundred
+            // times whatever relative error the CDF carries and a direct
+            // comparison measures the tail's conditioning rather than the
+            // routine. The CDF direction divides by that factor instead of
+            // multiplying by it. `the_incomplete_beta_obeys_its_symmetry` makes
+            // the same argument about the same trap.
+            let got = f_quantile(p, 2.0, df2);
+            let round_trip = -(-0.5 * df2 * (2.0 * got / df2).ln_1p()).exp_m1();
+            worst = worst.max((round_trip - p).abs() / p);
+            close(
+                round_trip,
+                p,
+                1e-13,
+                &format!("closed-form cdf of F_{p}(2,{df2})"),
+            );
+
+            // The `F(1, nu) = t^2` identity is not checked here. It belongs in
+            // `the_f_distribution_is_the_square_of_a_t`, which states it on the
+            // CDFs. Comparing the two *quantiles* fails for the reason this
+            // test's preamble gives: both bisect their own CDF, the two CDFs
+            // reach the same probability through different arguments of the
+            // incomplete beta, and at `p = 0.999` with `df2 = 1` the tail
+            // multiplies the ulp between them by two thousand. The observed
+            // 9.5e-12 there is the tail, not either routine.
+        }
+
+        for df1 in [1.0_f64, 2.0, 5.0, 10.0, 30.0] {
+            // df2 = 2, the same way.
+            let got = f_quantile(p, df1, 2.0);
+            let round_trip = (df1 * got / (df1 * got + 2.0)).powf(0.5 * df1);
+            worst = worst.max((round_trip - p).abs() / p);
+            close(
+                round_trip,
+                p,
+                1e-13,
+                &format!("closed-form cdf of F_{p}({df1},2)"),
+            );
+        }
+    }
+    println!(
+        "F quantile through its closed-form CDF: worst relative error in the \
+         recovered probability {worst:.3e}"
+    );
+}
+
+/// `F_p(d1, d2) = 1 / F_{1-p}(d2, d1)`, exactly, for every `p`.
+///
+/// The reciprocal of an F variate is an F variate with the degrees of freedom
+/// swapped. This is the identity that would catch the two arguments being
+/// exchanged somewhere inside, which no table with `df1 = df2` can see.
+#[test]
+fn the_f_distribution_obeys_the_reciprocal_identity() {
+    let mut worst = 0.0_f64;
+    for (df1, df2) in [(1.0, 1.0), (2.0, 7.0), (7.0, 2.0), (5.0, 20.0), (30.0, 3.0)] {
+        for p in [0.01_f64, 0.1, 0.5, 0.9, 0.95, 0.99] {
+            let direct = f_quantile(p, df1, df2);
+            let mirrored = 1.0 / f_quantile(1.0 - p, df2, df1);
+            worst = worst.max((direct - mirrored).abs() / direct);
+            close(
+                direct,
+                mirrored,
+                1e-12,
+                &format!("F_{p}({df1},{df2}) vs 1/F_{}({df2},{df1})", 1.0 - p),
+            );
+        }
+    }
+    println!("F reciprocal identity: worst relative error {worst:.3e}");
+}
+
+#[test]
+fn the_f_distribution_rejects_bad_arguments_instead_of_panicking() {
+    for (df1, df2) in [(0.0, 1.0), (1.0, 0.0), (-1.0, 1.0)] {
+        assert!(f_cdf(1.0, df1, df2).is_nan(), "cdf({df1},{df2})");
+        assert!(f_quantile(0.95, df1, df2).is_nan(), "quantile({df1},{df2})");
+    }
+    for p in [0.0, 1.0, -0.1, 1.1] {
+        assert!(f_quantile(p, 2.0, 3.0).is_nan(), "quantile at p={p}");
+    }
+    // The support is [0, infinity).
+    assert_eq!(f_cdf(0.0, 3.0, 4.0), 0.0);
+    assert_eq!(f_cdf(-1.0, 3.0, 4.0), 0.0);
+    assert_eq!(f_cdf(f64::INFINITY, 3.0, 4.0), 1.0);
+    // And a value so large the numerator would overflow before the ratio is
+    // formed. `f64::MAX * 3` is infinite; the answer is still 1.
+    assert_eq!(f_cdf(f64::MAX, 3.0, 4.0), 1.0);
 }
 
 // ---------------------------------------------------------------------------
