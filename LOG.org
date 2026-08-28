@@ -5347,3 +5347,107 @@ written down *before* the numbers are seen, or they are not margins.
 margin is a =BLOCKED= item with the numbers, never a widened margin. The battery
 should make that easy: the natural output is a table of every statistic for
 every scenario with its margin beside it.
+
+* 2026-08-28 B-0047a The Tier 5 run harness
+:PROPERTIES:
+:ITEM:     B-0047a
+:PHASE:    5
+:TIER:     5
+:COMMIT:   d7acdd7
+:GFORTRAN: 15.2.0
+:STATUS:   DONE
+:END:
+** Preflight
+Clean and green. Fidelity 100 of 100, worst 3.521e-14 at =YP(12)= step 77, a
+ninth iteration unchanged. Provenance 1306/2997. gfortran 15.2.0.
+
+** The split
+B-0047 asked for the whole battery in one iteration, and the sizing rule says
+not to start what cannot be finished. Measured cost decided it: 766 ms per
+48-hour port run, 2100 runs per source, so about an hour of simulation before
+any statistic is computed, and the margins for four of the six statistics have
+to be *calibrated* rather than chosen.
+
+Split into B-0047a, which produces runs, and B-0047b, which judges them.
+
+** What changed
+=tepsim_oracle::tier5=. A run is a scenario at a seed, closed loop, sampled
+every 180 steps as =temain_mod.f:401= samples: 960 rows of 53 variables over
+48 hours.
+
+The closed-loop driving that lived inside =tier4_closed_loop.rs= moved into the
+library. Both tiers now drive the Fortran through one transcription of
+=temain_mod.f='s loop instead of two, which is one fewer place for the two to
+drift apart.
+
+** Validation numbers
+9 new tests, 0 failures. 366 default (unchanged, the harness is oracle-gated),
+549 with =oracle= (up from 540).
+
+| check                                    | result             |
+|------------------------------------------+--------------------|
+| samples per 48 h run                     | 960 x 53 variables |
+| port run, 48 h, release                  | 766 ms             |
+| full battery, 2100 runs, per source      | about 27 min       |
+| sources agree, platform libm, 3 scenarios | 0, bit-identical   |
+| sources agree, vendored libm             | 2.056e-13          |
+| five nominal seeds, worst spread         | 1.366e1            |
+
+All twenty disturbances move the plant within two hours. Smallest departures:
+=IDV(3)= 4.076e-3, =IDV(9)= 3.531e-3, =IDV(15)= 9.839e-3. Largest: =IDV(6)=
+3.467e0, =IDV(1)= 2.456e0.
+
+** Surprises and decisions
+*Twenty-one scenarios, not twenty-two.* =PLAN.org= says twenty-two. The
+vendored =teprob.f= has twenty disturbances: =teprob.f:340= is =DO 500 I=1,20=
+and =tepsim_core::FAULTS= has twenty entries. The extra one comes from later
+versions of the model, which add =IDV(21)=, and the number in the plan was
+written from that literature rather than from this source. Settled against the
+source, as the protocol requires, and asserted so it cannot drift back.
+
+*The published seed table, and three things wrong with it.* =teprob.f:1187-1256=
+carries fifty-four generator words in comments, one per published dataset, plus
+the compiled-in one and two others. It is the only statement anywhere of how
+=d00= through =d26= were made, so B-0051 depends on it entirely and it is now
+transcribed and asserted.
+
+Thirty-four of the fifty-four exceed 2^32. That is not a transcription error:
+=TESUB7= computes =DMOD(G * 9228907, 2^32)=, so the first draw reduces any seed.
+
+Twenty-seven of the fifty-four are *even*. A multiplicative generator modulo a
+power of two keeps the factors of two its seed has, so those runs have a
+shorter period and low bits that never move. That is what the original did, and
+reproducing the published files means doing the same rather than fixing it.
+
+And =d19_te= is written =G=9090909232.DO=, with the letter O in place of the
+zero. Inside a comment, so nothing ever caught it. Recorded as =9090909232= on
+the assumption the digit was meant, and flagged, so that a Tier 7 failure on
+=d19= has an obvious first suspect rather than a mystery.
+
+*The tests that matter here are about the harness, not the plant.* A harness
+whose seed did nothing would produce a hundred identical runs, every statistic
+would have zero variance, and every equivalence test in B-0047b would pass
+trivially. So: seeds are asserted distinct and odd; runs are asserted
+reproducible *with another run interleaved*, which is what catches =COMMON=
+leaking between Fortran runs; and different seeds are asserted to give a spread
+of 1.4e1 rather than a rounding difference.
+
+** Next
+B-0047b, the battery.
+
+The design question it must answer first, before running anything: *what is the
+margin?* =PLAN.org= gives one only for the means, a tenth of the Fortran
+standard deviation. For the variance ratio, the KS statistic, the energy
+distance and the Frobenius norm there is no absolute scale at all: those are
+two-sample statistics whose value depends on the sample size and the process,
+so "less than 0.05" is not a claim about equivalence.
+
+The reference has to be the Fortran's own run-to-run variability. Split its
+hundred seeds into two halves of fifty, compute each statistic
+Fortran-against-Fortran, and require the cross-source value to sit inside that
+distribution. That is Tier 6's argument applied one tier early, and it makes
+every margin a measurement rather than a choice.
+
+Write the margins down before looking at the cross-source numbers. And note
+=CLAUDE.md=: a statistic outside its margin is a =BLOCKED= item with the
+numbers, never a widened margin.

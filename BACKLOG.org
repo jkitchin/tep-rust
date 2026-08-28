@@ -14,17 +14,17 @@ earlier phases will change what the right decomposition is.
 
 Rewrite this block at the end of every iteration. Keep it to five lines.
 
-- Phase: 5, five of ten done. Phases 1-4 are closed
-- Last completed: B-0046. The correlation matrix and four physics invariants,
-  the only tests here that can catch an error the port faithfully inherited
+- Phase: 5, six of eleven done (B-0047 split in two). Phases 1-4 are closed
+- Last completed: B-0047a. The Tier 5 run harness: 960 samples of 53 variables
+  per 48 h run, bit-identical between sources under =libm-system=
 - In flight: (none)
-- Baseline: =cargo xtask ci= green; 366 tests default, 540 with =oracle=;
+- Baseline: =cargo xtask ci= green; 366 tests default, 549 with =oracle=;
   =validate --tiers 1,2,3,4= green; provenance *1123/1589* on =teprob.f=,
   *183/1408* on =temain_mod.f=, 43.6% combined
 - Toolchain: rustup, pinned to rustc 1.97.1, wasm32 installed, libm 0.2.16
 - Remote: private jkitchin/tep-rust, CI green on all 7 jobs
 - Blocked on: B-0025b and B-0040a await sign-off; neither blocks progress.
-  Next is B-0047, the Tier 5 battery: both sources, every statistic.
+  Next is B-0047b, the battery itself, with calibrated margins.
 
 * Phase 0: foundations
 
@@ -1880,13 +1880,21 @@ Done when:
 - [X] The invariants run against the *oracle* as well as the port, and any
       failure is attributed to one or the other explicitly
 
-** NEXT B-0047a The Tier 5 run harness: both sources, one scenario at a time
+** DONE B-0047a The Tier 5 run harness: both sources, one scenario at a time
 :PROPERTIES:
 :ID:    B-0047a
 :PHASE: 5
 :TIER:  5
 :DEPS:  B-0043 B-0045 B-0046
 :PLAN:  Validation > Tier 5
+:COMMIT: d7acdd7
+:RESULT: =tier5::run_port= and =run_fortran=, sampled every 180 steps, 960
+         rows of 53 variables per 48 h run. 766 ms per port run, so the full
+         battery is ~27 min per source. 21 scenarios, not 22: this Fortran
+         has 20 IDVs. Bit-identical between sources under =libm-system=
+         including under faults; 2.1e-13 under the vendored libm. All 20
+         disturbances move the plant within 2 h, smallest IDV(3) at 4.1e-3.
+         Also captured =teprob.f='s commented seed table for B-0051.
 :END:
 
 Split out of B-0047, which was too large for one iteration. This half produces
@@ -1898,13 +1906,14 @@ plus 12 =XMV=). Measured cost: 766 ms per port run in release, so 21 scenarios
 by 100 seeds is about 27 minutes per source.
 
 Done when:
-- [ ] =tier5::run_port= and =tier5::run_fortran= produce identical sample
+- [X] =tier5::run_port= and =tier5::run_fortran= produce identical sample
       counts from the same scenario and seed
-- [ ] A run is bit-for-bit reproducible from its scenario and seed
-- [ ] Different seeds give different runs, asserted rather than assumed
-- [ ] Under =libm-system= the two sources agree bit for bit over a whole run
-- [ ] The scenario count is settled against the vendored Fortran rather than
-      against =PLAN.org='s prose
+- [X] A run is bit-for-bit reproducible from its scenario and seed, even with
+      another run interleaved
+- [X] Different seeds give different runs, asserted rather than assumed
+- [X] Under =libm-system= the two sources agree bit for bit over a whole run
+- [X] The scenario count is settled against the vendored Fortran rather than
+      against =PLAN.org='s prose: twenty-one, not twenty-two
 
 ** TODO B-0047b The Tier 5 battery: every statistic, with calibrated margins
 :PROPERTIES:
