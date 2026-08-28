@@ -52,6 +52,11 @@ pub mod tier2;
 /// Tier 3: the generator draw trace and its differ.
 pub mod tier3;
 
+// Gated for the same reason `tier2` is: driving the Fortran's controllers
+// needs the Fortran.
+#[cfg(feature = "oracle")]
+pub mod tier5;
+
 #[cfg(feature = "oracle")]
 mod ffi;
 

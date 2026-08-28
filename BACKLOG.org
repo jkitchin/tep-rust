@@ -1880,23 +1880,58 @@ Done when:
 - [X] The invariants run against the *oracle* as well as the port, and any
       failure is attributed to one or the other explicitly
 
-** NEXT B-0047 The Tier 5 battery: run both sources and apply everything
+** NEXT B-0047a The Tier 5 run harness: both sources, one scenario at a time
 :PROPERTIES:
-:ID:    B-0047
+:ID:    B-0047a
 :PHASE: 5
 :TIER:  5
 :DEPS:  B-0043 B-0045 B-0046
 :PLAN:  Validation > Tier 5
 :END:
 
-Twenty-two scenarios, one hundred seeds, 48 hours, both sources. B-0041
-measured the cost: about six seconds per 172,800-step run in release, so the
-whole battery is minutes rather than hours and can be a gate rather than a
-nightly.
+Split out of B-0047, which was too large for one iteration. This half produces
+the *data*; B-0047b judges it.
+
+A run is a scenario and a seed, closed loop for 48 h, sampled every 180 steps
+as =temain_mod.f:401= samples it, giving 960 rows of 53 variables (41 =XMEAS=
+plus 12 =XMV=). Measured cost: 766 ms per port run in release, so 21 scenarios
+by 100 seeds is about 27 minutes per source.
 
 Done when:
-- [ ] The battery runs and records every statistic for every scenario
+- [ ] =tier5::run_port= and =tier5::run_fortran= produce identical sample
+      counts from the same scenario and seed
+- [ ] A run is bit-for-bit reproducible from its scenario and seed
+- [ ] Different seeds give different runs, asserted rather than assumed
+- [ ] Under =libm-system= the two sources agree bit for bit over a whole run
+- [ ] The scenario count is settled against the vendored Fortran rather than
+      against =PLAN.org='s prose
+
+** TODO B-0047b The Tier 5 battery: every statistic, with calibrated margins
+:PROPERTIES:
+:ID:    B-0047b
+:PHASE: 5
+:TIER:  5
+:DEPS:  B-0047a
+:PLAN:  Validation > Tier 5
+:END:
+
+Apply TOST, KS, energy distance, ACF, Welch spectra and the correlation matrix
+to the runs B-0047a produces.
+
+*The margins have to be calibrated, not invented.* TOST on the means has one
+from =PLAN.org= (a tenth of the Fortran standard deviation). The others do
+not, and for KS, energy distance and the Frobenius norm there is no meaningful
+absolute scale at all. The reference is the Fortran's own run-to-run
+variability: split its 100 seeds in half, compute the same statistic
+Fortran-against-Fortran, and require the cross-source value to sit inside that
+distribution. Tier 6's logic, applied a tier early.
+
+Every margin is written down *before* the cross-source numbers are looked at.
+
+Done when:
+- [ ] Within-source distributions computed first, and recorded
 - [ ] Equivalence margins stated per statistic, and *not* tuned to pass
+- [ ] The battery runs and records every statistic for every scenario
 - [ ] Any scenario outside its margin is a =BLOCKED= item with the numbers,
       not a relaxed margin
 
@@ -1905,7 +1940,7 @@ Done when:
 :ID:    B-0048
 :PHASE: 5
 :TIER:  5
-:DEPS:  B-0047
+:DEPS:  B-0047b
 :PLAN:  Validation > Tier 5
 :END:
 
@@ -1961,7 +1996,7 @@ Done when:
 :ID:    B-0051
 :PHASE: 5
 :TIER:  7
-:DEPS:  B-0047
+:DEPS:  B-0047b
 :PLAN:  Validation > Tier 7
 :END:
 
