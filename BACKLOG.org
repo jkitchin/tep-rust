@@ -2179,7 +2179,7 @@ Done when:
       asserted rather than assumed
 - [X] Euler still reproduces the Fortran bit for bit
 
-** TODO B-0054 The scenario engine
+** NEXT B-0054 The scenario engine
 :PROPERTIES:
 :ID:    B-0054
 :PHASE: 6
