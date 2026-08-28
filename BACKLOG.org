@@ -2002,13 +2002,27 @@ Done when:
       which rustc produced it
 - [ ] =--compare-to-log= finally does something
 
-** TODO B-0049 Tier 6 detectors: PCA, DPCA, CVA
+** DONE B-0049 Tier 6 detectors: PCA and DPCA
 :PROPERTIES:
 :ID:    B-0049
 :PHASE: 5
 :TIER:  6
 :DEPS:  B-0046
 :PLAN:  Validation > Tier 6
+:COMMIT: 6586067
+:RESULT: Cyclic Jacobi eigensolver, correlation-matrix PCA, Hotelling's
+         T-squared and SPE with their limits, dynamic PCA, and the detection
+         metrics. 138 tests. Eigensolver reconstructs to 8.2e-15 at n=30 and
+         recovers the 1-D Laplacian's published spectrum to 8.0e-15. F
+         quantile matches all ten published table entries; the tightest,
+         F_0.95(1,1), computes 161.447639 against a table's 161.4, and the
+         exact closed form tan(0.95 pi/2)^2 confirms the routine and not the
+         table. T-squared calibration: 4936 exceedances in 100,000 at a
+         nominal 0.05, 0.6 standard errors out. 32 mutations, 30 caught
+         immediately and 2 real gaps found and closed.
+:RESIDUE: Canonical variate analysis is *not* implemented, and no detector has
+          been checked against a published TEP detection rate. Both move to
+          B-0049a.
 :END:
 
 T-squared and SPE from PCA, dynamic PCA with a lag-augmented matrix, and
@@ -2016,10 +2030,24 @@ canonical variate analysis. Needs an eigensolver: symmetric Jacobi is enough
 and is deterministic.
 
 Done when:
-- [ ] Jacobi eigensolver checked against hand-computed eigenpairs
-- [ ] Each detector checked against a published TEP result for fault detection
-      rate on Fortran =d00=/=d01=, within the spread those papers report
-- [ ] Detection delay and false alarm rate defined precisely, in the log
+- [X] Jacobi eigensolver checked against hand-computed eigenpairs
+- [ ] Each detector checked against a published TEP result: *not done*, needs
+      B-0050's plumbing. Moved to B-0049a
+- [X] Detection delay and false alarm rate defined precisely
+
+** TODO B-0049a Canonical variate analysis, and detectors against published rates
+:PROPERTIES:
+:ID:    B-0049a
+:PHASE: 5
+:TIER:  6
+:DEPS:  B-0049 B-0047c
+:PLAN:  Validation > Tier 6
+:END:
+
+The two halves of B-0049 that were not done. CVA needs a generalised
+eigenproblem, which the Jacobi solver does not do directly. Checking detection
+rates against the literature needs runs of =d00= and =d01= length, which is
+B-0050's plumbing.
 
 ** TODO B-0050 Tier 6: the cross-source experiment
 :PROPERTIES:
@@ -2268,6 +2296,34 @@ Two things found in B-0058 that this item must handle:
   this before the Windows job lands.
 
 * Phase 8: TEP Studio (browser app)
+
+** DONE B-0060 WebAssembly bindings
+:PROPERTIES:
+:ID:    B-0060
+:PHASE: 8
+:TIER:  9
+:DEPS:  B-0052
+:PLAN:  The browser application
+:COMMIT: 80eda18
+:RESULT: =wasm-bindgen= bindings over the facade, with a chunked API for a Web
+         Worker and a Node-driven harness (82 checks over the JS surface, 23
+         over the worker protocol). Deployable total *45,015 bytes gzipped*
+         against =PLAN.org='s 1.5 MB budget: the raw cargo artifact is 450 KB
+         but wasm-bindgen strips its describe scaffolding to 87 KB.
+         Determinism digest c8a26889992f1719 identical on aarch64 and on
+         wasm32 across three profiles, exported without glue as
+         =tepsim_wasm_self_check_digest= so any runtime can check it. 23 tests.
+         Found three real bugs by breaking things: the run digest did not
+         cover the packed buffer, the worker swallowed invalid scenarios into
+         an unhandled rejection, and handles leaked on every restart.
+:END:
+
+*Finding that belongs to =tepsim=, not here.* A mid-run fault toggle cannot
+reach a running simulation: =Simulation= takes its scenario at construction and
+hands the disturbance vector to the driver there, and there is no seam. The
+agent declined to invent one, on the grounds that a run reachable only through
+the browser is a run nobody can reproduce. If Phase 8 wants live fault
+injection, that seam belongs in the facade and is part of B-0054.
 
 Leptos client, simulation in a Web Worker, uPlot charts, SVG process flow
 diagram, fault panel, custom fault builder, Rhai controller editor, scenario
