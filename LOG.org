@@ -4252,3 +4252,75 @@ the older loop the override replaced.
 Bind the sweep to the *published* tuning as well as to random values: B-0038
 transcribes it, but a differential that only ever sees random gains would miss
 a constant that is wrong in the fourth digit.
+
+* 2026-08-28 B-0037 The velocity-form PI controller, one implementation for twenty
+:PROPERTIES:
+:ITEM:     B-0037
+:PHASE:    4
+:TIER:     1
+:COMMIT:   b0f7995
+:GFORTRAN: 15.2.0
+:STATUS:   DONE
+:END:
+** Preflight
+Clean and green. gfortran 15.2.0. =xtask fidelity= 100 of 100, worst
+3.521e-14. Provenance unchanged.
+
+** What changed
+=tepsim-control= holds =Loop::increment=, =Tuning=, =Output= and =Period=.
+=tier1_control.rs= compares it against nineteen =CONTRLn= bodies.
+
+** Validation numbers
+*9,500 cases*, 500 random tunings for each of nineteen loops:
+
+| field | cases | max rel err | max ulp |
+|-------+-------+-------------+---------|
+| the increment applied | 9,500 | 0.000e0 | 0 |
+| the error stored | 9,500 | 0.000e0 | 0 |
+
+=CONTRL6= is excluded: it is an override state machine, and B-0037b covers it.
+
+** Surprises and decisions
+*Two of the eighteen spans are not exactly representable.* Every span is a
+single-precision literal, and sixteen of them are integers or exact binary
+fractions so it makes no difference. =1.017= is stored as 1.0169999599456787
+and =1.6= as 1.600000023841858. Writing them as =f64= costs *5.4e-8* on
+=CONTRL3=, five orders past the Tier 1 gate, and the first version of the test
+did exactly that.
+
+*The shape is an =Option=, not a flag.* Eight loops have no =TAUI= in their
+=COMMON= block at all. Representing that as =taui: 0.0= with a boolean beside
+it would put a division by zero one mistake away; =reset: Option<f64>= makes
+the proportional form unable to reach the integral term.
+
+*The integral multiplier is asserted equal to the schedule.* =Period= carries
+both =steps()= and =seconds()=, and a test requires them to be the same number.
+They are two independent facts in the original -- one in the scheduler at
+=temain_mod.f:369-394= and one inside each subroutine -- and nothing there
+connects them, so a port can get one right and the other wrong.
+
+*The cascade rescaling uses the inner loop's span.* An outer loop converts
+percent back into engineering units, and the plausible mistake is to use its
+own span rather than the one it is writing into. A test walks the wiring: for
+each cascade output it finds the loop that *owns* that setpoint and requires
+the scale factor to be that loop's span. =CONTRL13= scales by 1.017, which is
+=CONTRL3='s and not its own 100.
+
+*One failure was my measurement, not the port.* The differential recovers the
+increment as the output's change, and starting the output at 50 loses most of
+the precision when the increment is small. That showed as 1.2e-11 with 24 cases
+past 16 ULP, which looks exactly like a real error. Zeroing the output first
+makes the recovery exact and the number became zero. Worth remembering: a
+differential's own arithmetic is part of what it measures.
+
+** Next
+B-0037b: the cascade as a type, and the purge override.
+
+The override is the harder half and B-0036 already pinned its behaviour against
+the oracle: it latches in both directions, and while latched =ERROLD6= does not
+advance. What remains is to port it, with =FLAG= as carried state, and to
+record =CONTRL22= as a delta.
+
+=XMV(6)=40.060= and =SETPT(6)=0.33712= are single precision, and the
+thresholds are mixed: 2950 and 2300 exact, 2633.7 not. That is now three
+separate places in this file where the precision has to be read off the line.

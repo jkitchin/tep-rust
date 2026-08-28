@@ -14,15 +14,15 @@ earlier phases will change what the right decomposition is.
 
 Rewrite this block at the end of every iteration. Keep it to five lines.
 
-- Phase: 4, one of eight done. Phases 2 and 3 are closed
-- Last completed: B-0036. Two-file provenance, and all twenty controllers bound
+- Phase: 4, two of eight done. Phases 2 and 3 are closed
+- Last completed: B-0037. One controller implementation for twenty, 0 ULP
 - In flight: (none)
-- Baseline: =cargo xtask ci= green; 258 tests default, 408 with =oracle=;
-  =validate --tiers 1,2,3,4= green; provenance *1123/1589 (70.7%)* on
-  =teprob.f=, *0/1408* on =temain_mod.f=, 37.5% combined
+- Baseline: =cargo xtask ci= green; 264 tests default, 416 with =oracle=;
+  =validate --tiers 1,2,3,4= green; provenance *1123/1589* on =teprob.f=,
+  *0/1408* on =temain_mod.f=, 37.5% combined
 - Toolchain: rustup, pinned to rustc 1.97.1, wasm32 installed, libm 0.2.16
 - Remote: private jkitchin/tep-rust, CI green on all 7 jobs
-- Blocked on: nothing. Next is B-0037, the velocity-form PI controller.
+- Blocked on: nothing. Next is B-0037b, the cascade and the purge override.
 
 * Phase 0: foundations
 
@@ -1441,13 +1441,24 @@ than =TESUB5= was, not harder.
       the directory and requires every file to be listed, so nothing was
       needed. Worth checking rather than assuming
 
-** NEXT B-0037 The velocity-form PI controller
+** DONE B-0037 The velocity-form PI controller
 :PROPERTIES:
 :ID:    B-0037
 :PHASE: 4
 :TIER:  1
 :DEPS:  B-0036
 :PLAN:  Anatomy > Control layer
+:COMMIT: b0f7995
+:RESULT: One =Loop::increment= and a =Tuning= table replace twenty subroutines.
+         *0 ULP on 9,500 cases*, 500 random tunings per loop, on both the
+         increment applied and the error stored. The shape is an =Option=, not
+         a flag: eight loops have no =TAUI= and a zero reset is a division by
+         zero. A test requires the integral multiplier to equal the schedule
+         the loop runs on, so the two cannot drift. The cascade rescaling is
+         checked against the wiring: an outer loop uses the *inner* loop's
+         span, and using its own is the plausible mistake. *Two of eighteen
+         spans are not exactly representable*: =1.017= and =1.6=, worth 5.4e-8
+         on =CONTRL3= if written as =f64=.
 :END:
 
 One type, and a Tier 1-style differential against all twenty =CONTRLn= bodies.
@@ -1468,12 +1479,11 @@ integral action of the slow loops by 120 and 300.
 is in percent-of-span. =CONTRL22= is the exception and has no normalisation at
 all -- and it is dead code, which may be why.
 
-Done when:
-- [ ] Both shapes, with the choice made by the type rather than by a flag
-- [ ] Differential against each =CONTRLn=, over a sweep of measurement and
-      setpoint values
-- [ ] The per-loop period taken from the loop, and shown to agree with the
-      scheduler that calls it
+- [X] Both shapes, with the choice made by the type rather than by a flag
+- [X] Differential against nineteen of the twenty, 500 tunings each, 0 ULP.
+      =CONTRL6= is excluded because it is an override state machine; B-0037b
+- [X] The per-loop period taken from the loop and *asserted* equal to the
+      schedule
 
 ** TODO B-0037b The cascade, and the purge pressure override
 :PROPERTIES:
