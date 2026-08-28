@@ -1848,7 +1848,7 @@ Done when:
 - [X] The window and overlap are stated and justified, not defaults
 - [X] Band comparison reports per-band ratios, not one scalar
 
-** TODO B-0046 The correlation matrix and physics invariants
+** NEXT B-0046 The correlation matrix and physics invariants
 :PROPERTIES:
 :ID:    B-0046
 :PHASE: 5
