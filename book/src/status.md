@@ -51,14 +51,33 @@ which covers seed, duration, step, sampling cadence, the twenty disturbance
 flags and the quirk switches, and nothing more. Arbitrary user-defined faults,
 scheduled onsets and scenario files are backlog item B-0054.
 
-**There are no recorder sinks beyond the CLI's CSV writer.** The `Recorder`
-trait the plan calls for is B-0055.
+**Recorder sinks exist** as of B-0055: `Columnar` for analysis, `Csv` for
+reading by eye, `Ring` for a bounded live display, and `Decimating` and
+`Selecting` as composable wrappers. `Simulation::run_into` streams into one
+rather than collecting, which matters because a 48-hour run sampled at every
+step is 172,800 rows of 53 channels. Apache Arrow and Parquet are not
+implemented; whether their dependency cost is acceptable is still an open
+question.
 
-**There is one integrator, and it is the original's.** Fixed-step explicit
-Euler at one second, as `temain_mod.f` uses. RK4 and Dormand-Prince are B-0053.
+**Three integrators exist** as of B-0053: fixed-step explicit Euler, classical
+RK4, and Dormand-Prince 5(4) with an embedded error estimate. **Only Euler
+reproduces the original**, and it is the default; the validation ladder's every
+claim is a claim about Euler. The step size is not yet adapted, because a
+variable step changes when the discrete phases run and that is a decision about
+fidelity rather than about numerics.
+
 The three-phase split of the right-hand side described in [The right-hand
-side](process/rhs.md) exists precisely so that a multi-stage integrator can be
-correct, and nothing has yet demonstrated one.
+side](process/rhs.md) exists precisely so a multi-stage method can be correct,
+and B-0053 is where that was finally demonstrated: all three methods advance
+the disturbance walks once per outer step and update the gas analyser the same
+number of times, which a naive four-stage method built on `TEFUNC` would not.
+
+That comparison also produced a result about the original rather than about the
+port. RK4 and Dormand-Prince agree with each other to 1.5e-6 while both differ
+from Euler by about 1.1e-2, so the published Tennessee Eastman data carries
+roughly one percent of integration error against an accurate solution of the
+same equations. Reproducing that is the point, but it means "the TEP" names a
+particular discretisation and not only a set of differential equations.
 
 **Tier 5 is partial and Tiers 6 through 10 have not run.** The Tier 5 battery
 exists and passes, but the full run covers **3 of the 21 scenarios**, stopped by
