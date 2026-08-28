@@ -32,6 +32,7 @@
 //! | [`ks`] | the two-sample Kolmogorov-Smirnov test |
 //! | [`energy`] | the energy distance between two samples |
 //! | [`fft`] | a deterministic radix-2 transform, for Welch spectra |
+//! | [`serial`] | autocorrelation and Welch power spectra |
 //!
 //! # Reporting
 //!
@@ -52,6 +53,7 @@ pub mod energy;
 pub mod equivalence;
 pub mod fft;
 pub mod ks;
+pub mod serial;
 pub mod special;
 pub mod summary;
 
@@ -60,5 +62,9 @@ pub use energy::{energy_distance, energy_distance_naive};
 pub use equivalence::{Tost, WelchT, tost, welch_t};
 pub use fft::{Complex, Fft, dft_naive};
 pub use ks::{kolmogorov_q, ks_statistic, ks_two_sample_p};
+pub use serial::{
+    BandComparison, Spectrum, Window, autocorrelation, autocorrelation_direct, band_comparison,
+    bartlett_standard_error, log_band_edges, welch,
+};
 pub use special::{ln_gamma, regularized_incomplete_beta};
 pub use summary::Summary;
