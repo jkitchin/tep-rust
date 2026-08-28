@@ -2118,7 +2118,7 @@ Done when:
 - [X] Ground-truth labels are recorded alongside the measurements
 - [X] A doc example that runs, and =tep --help= that does something
 
-** TODO B-0053 Integrators: RK4 and Dormand-Prince
+** NEXT B-0053 Integrators: RK4 and Dormand-Prince
 :PROPERTIES:
 :ID:    B-0053
 :PHASE: 6
