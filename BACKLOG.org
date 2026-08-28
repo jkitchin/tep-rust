@@ -1880,7 +1880,7 @@ Done when:
 - [X] The invariants run against the *oracle* as well as the port, and any
       failure is attributed to one or the other explicitly
 
-** TODO B-0047 The Tier 5 battery: run both sources and apply everything
+** NEXT B-0047 The Tier 5 battery: run both sources and apply everything
 :PROPERTIES:
 :ID:    B-0047
 :PHASE: 5
