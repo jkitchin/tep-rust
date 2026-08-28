@@ -4678,3 +4678,104 @@ run behind =validate --tiers 4= and leave =ci= on the ten-hour version.
 After that, Phase 5, which needs its decomposition written as the first action
 of its first iteration. Everything in it (TOST, KS, ACF, Welch) has to be
 implemented in Rust: no numpy, no scipy.
+
+* 2026-08-28 B-0041 Phase 4 acceptance: the driver's full 48-hour run
+:PROPERTIES:
+:ITEM:     B-0041
+:PHASE:    4
+:TIER:     4
+:COMMIT:   ecbbcfb
+:GFORTRAN: 15.2.0
+:STATUS:   DONE
+:END:
+** Preflight
+Clean and green. =xtask fidelity= 100 of 100 steps, worst 3.521e-14 at =YP(12)=
+step 77, third iteration running at exactly that number. Provenance 1306/2997,
+no new unclaimed ranges. gfortran 15.2.0.
+
+** What changed
+The closed-loop differential runs =NPTS= steps: 172,800 at one second, the run
+=temain_mod.f= was written to do. The horizon follows =TEP_TIER4_HOURS=, the
+idiom =TEP_TIER1_SWEEP= already established, so =ci= runs ten hours and
+=validate --tiers 4= runs all 48. The differential also reports error over
+=XNS(i)=, which is the criterion =PLAN.org= states, instead of relative error
+alone.
+
+** Validation numbers
+Closed loop, 48 h, 172,800 steps, nominal scenario with the driver's forced
+=IDV(12)= from hour eight:
+
+| libm     | worst XMEAS      | worst XMV (%range) | within XNS | at the end          |
+|----------+------------------+--------------------+------------+---------------------|
+| platform | 0                | 0                  | 48.000 h   | 0                   |
+| vendored | 1.705e-10 @ (1)  | 1.246e-11 @ (10)   | 48.000 h   | 7.882e-11 x XNS(13) |
+
+Bit-identical for all 172,800 closed-loop steps under the platform libm. Not
+one measurement, not one valve, not one step.
+
+Under the vendored libm the error never reaches a tenth of a billionth of any
+instrument's noise, over two simulated days. Compare the *open*-loop figures
+from B-0034: nominal 8 h ends at 5.149e-5 of =XNS=, six orders of magnitude
+worse. Closing the loop suppresses the amplification, which is what a
+controller pulling toward a setpoint should do and is worth having measured
+rather than assumed.
+
+Open loop from the same start, same forced =IDV(12)=, valves held: *trips at
+step 11,017 (3.060 h) on =ReactorPressureHigh=*. So "48 hours without tripping"
+is a statement about the control layer, not about a placid plant.
+
+Tier 4 open loop, unchanged from B-0034: all 21 faults plus nominal stay within
+=XNS= for the full 4 h, worst 2.45e-5 (nominal, and =IDV(14)=, =IDV(15)=,
+=IDV(19)=, which are the valve-sticking faults and so are the nominal
+trajectory until a valve sticks).
+
+Tests: 277 default, 442 with =oracle=. Provenance unchanged at 43.6%.
+
+** Surprises and decisions
+*The open-loop trip is the interesting number.* The backlog asserted that the
+plant runs 48 hours closed-loop "which open-loop it cannot", and it would have
+been easy to record that as a verdict. Measuring it gives a much better fact:
+three hours and four minutes, on reactor pressure. That is the actual size of
+the claim the control layer is making, and it is now printed by the test rather
+than asserted in prose.
+
+*The D-011 delta test stays at ten hours* even under =TEP_TIER4_HOURS=48=. It
+holds four complete measurement traces at once so it can compare them step by
+step, and at 48 h that is 226 MB. Two hours past the mark is enough to measure
+the delta. The sign-off item B-0040a is what runs it long, with Tier 5
+statistics instead of stored traces.
+
+*=cargo clippy --features oracle= is not clean*, and =ci= does not run it: the
+gate runs =clippy --workspace --all-targets= with default features, so
+=tepsim-oracle='s feature-gated modules are never linted. The failures are all
+=suboptimal_flops= on expressions that must round exactly as the Fortran does,
+so they are the lint being wrong rather than the code, but the gap itself is
+real and nobody chose it. Not fixed here; it is a =ci= change, not a Phase 4
+one.
+
+** Next
+*Phase 4 is closed.* Phase 5 is next, and =BACKLOG.org= deliberately leaves it
+coarse: the first action of its first iteration is to decompose it, which is
+that iteration's whole job.
+
+The decomposition has one hard constraint that is not in =BACKLOG.org= and must
+not be lost: *every statistic ships in Rust*. No numpy, no scipy, no calling
+out to Python for a KS test. That means implementing, and testing against known
+values, at minimum: Welch's t and the TOST wrapper around it, an F or Levene
+test for variances, the two-sample Kolmogorov-Smirnov statistic and its
+asymptotic p-value, the autocorrelation function, Welch's method for power
+spectra, and the Pearson correlation matrix. Each of those is small; the risk
+is that six small numerical routines with no reference to check against is
+exactly the situation that produces a subtly wrong validation suite that passes
+everything.
+
+So the decomposition should put a *statistics kernel with its own known-answer
+tests* first, before any of it is pointed at the plant. Check the routines
+against published worked examples and against the oracle where one exists, not
+against the plant data they are meant to judge.
+
+Note also that Tier 5 needs long runs of both sources, and B-0041 just
+established what that costs: 172,800 steps is about six seconds per source per
+libm configuration in release. A Tier 5 battery over 21 faults and two sources
+is therefore minutes, not hours, which means it can be a real gate rather than
+a nightly.

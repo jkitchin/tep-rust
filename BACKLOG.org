@@ -14,9 +14,9 @@ earlier phases will change what the right decomposition is.
 
 Rewrite this block at the end of every iteration. Keep it to five lines.
 
-- Phase: 4, six of eight done. Phases 2 and 3 are closed
-- Last completed: B-0040. IDV(12) reproduced behind a flag, and TEINIT's
-  unreset Newton warm starts found
+- Phase: *4 is closed.* Phases 1, 2, 3 and 4 are done; Phase 5 is next
+- Last completed: B-0041. The driver's full 48-hour run, 172,800 steps,
+  bit-identical to the Fortran under =libm-system=
 - In flight: (none)
 - Baseline: =cargo xtask ci= green; 277 tests default, 442 with =oracle=;
   =validate --tiers 1,2,3,4= green; provenance *1123/1589* on =teprob.f=,
@@ -24,7 +24,7 @@ Rewrite this block at the end of every iteration. Keep it to five lines.
 - Toolchain: rustup, pinned to rustc 1.97.1, wasm32 installed, libm 0.2.16
 - Remote: private jkitchin/tep-rust, CI green on all 7 jobs
 - Blocked on: B-0025b and B-0040a await sign-off; neither blocks progress.
-  Next is B-0041, Phase 4 acceptance.
+  Next is Phase 5, whose first iteration decomposes it.
 
 * Phase 0: foundations
 
@@ -1684,21 +1684,28 @@ Done when:
 - [ ] A decision, recorded in =PLAN.org=
 - [ ] The default set accordingly
 
-** NEXT B-0041 Phase 4 acceptance
+** DONE B-0041 Phase 4 acceptance
 :PROPERTIES:
 :ID:    B-0041
 :PHASE: 4
 :TIER:  4
 :DEPS:  B-0040
 :PLAN:  Validation > Tier 4
+:COMMIT: ecbbcfb
+:RESULT: 48 h closed loop, 172,800 steps: bit-identical to the Fortran under
+         =libm-system=; under the vendored libm inside XNS for all 48 h,
+         ending at 7.882e-11 x XNS(13), worst relative 1.705e-10 at XMEAS(1).
+         Open loop from the same start trips at step 11,017 (3.06 h) on
+         ReactorPressureHigh. Horizon selected by =TEP_TIER4_HOURS=; ci runs
+         10 h, validate runs 48.
 :END:
 
 Done when:
-- [ ] A closed-loop run matches the oracle: bit-identical under =libm-system=,
+- [X] A closed-loop run matches the oracle: bit-identical under =libm-system=,
       within =XNS(i)= for the first hours under the vendored one, as B-0034
       established for open loop
-- [ ] =xtask validate= covers the closed-loop case
-- [ ] The plant runs 48 hours without tripping, which open-loop it cannot
+- [X] =xtask validate= covers the closed-loop case
+- [X] The plant runs 48 hours without tripping, which open-loop it cannot
 
 * Phase 5: statistical validation
 
