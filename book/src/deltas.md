@@ -807,10 +807,36 @@ It is a different experiment.
 ### What the sign-off has to answer
 
 Whether the shipped default should be `temain_mod.f`'s behaviour or the
-caller's scenario. The two arguments are that reproducing published data
-requires the quirk, and that a simulator that silently adds a disturbance the
-caller did not ask for is a trap. `PLAN.org` resolves the analogous case
-(D-007) in favour of fidelity, and this item follows it pending a decision.
+caller's scenario.
+
+**One of the two original arguments has since been shown to be false.** The
+case for keeping the quirk was that reproducing published data requires it.
+Tier 7 (B-0051) established that the published `d00` through `d21` files carry
+`IDV(12)` only in `d12` and `d12_te`: they were generated with
+`temain_mod.f:367` *replaced*, not kept.
+
+Two independent predictions support that. `d12_te`'s spread jumps at row 160,
+where `IDV(12)` would arrive, by at least 5.3 times what `d00_te`'s does on
+every channel the disturbance drives. And keeping the line inflates the port's
+spread against `d00` by up to 9.9 times, against 1.55 times for replacing it.
+Removing it roughly triples the agreement across the whole comparison table,
+for example `d17_te` from a Kolmogorov-Smirnov median of 0.658 to 0.044.
+
+So the decision is now between two different goals rather than between fidelity
+and convenience:
+
+- **Reproduce the source.** `temain_mod.f` as shipped does force `IDV(12)`, and
+  this project is a port of that source. Keeping the default means the port
+  does what the code it was ported from does.
+- **Reproduce the data.** Most people who use the Tennessee Eastman problem use
+  the published datasets, not the driver. Matching them means turning it off.
+
+The port currently does the first. The second is one field away
+(`Scenario::driver_forces_idv12`), and Tier 7's test uses it.
+
+Whichever is chosen, the other must stay reachable and documented, because both
+are things a user legitimately wants. The remaining question is only which one
+a caller gets without asking.
 
 The numbers above are Tier 4. The Tier 5 battery, which is what `PLAN.org`
 asks for on a Class C delta, does not exist yet, so the statistical half of
@@ -823,3 +849,7 @@ this measurement is deferred to B-0040a rather than claimed.
 `crates/tepsim-oracle/tests/tier4_closed_loop.rs`. The second cross-checks the
 onset step against two Fortran runs that differ in the same way, so 29,390 is
 ground truth rather than an artifact of the port.
+
+`the_published_files_were_not_generated_with_the_forced_idv12` in
+`crates/tepsim-oracle/tests/tier7_published.rs` is what established that the
+published datasets do not contain it.
