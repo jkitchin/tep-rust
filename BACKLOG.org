@@ -1714,6 +1714,223 @@ Tiers 5, 6 and 7, plus =cargo xtask validate= generating the report chapter.
 Exit: a published validation report supporting the equivalence claim, including
 the cross-source detector experiment.
 
+Decomposed in B-0042. Every statistic is implemented *in Rust*, in
+=crates/tepsim-stats=, and checked against published worked examples before it
+is ever pointed at plant data. Six small numerical routines with nothing to
+check them against is exactly how a validation suite ends up confidently wrong.
+
+** NEXT B-0042 Decompose Phase 5, and the statistics kernel
+:PROPERTIES:
+:ID:    B-0042
+:PHASE: 5
+:TIER:  5
+:DEPS:  B-0041
+:PLAN:  Validation > Tier 5
+:END:
+
+Split Phase 5 into iteration-sized items (this heading and the ones below it),
+then stand up =crates/tepsim-stats= with the first-and-second-moment half of
+the Tier 5 battery.
+
+The crate is *validation-only*, like =tepsim-oracle=: no shipped crate may
+depend on it, and =xtask ci= asserts that. Unlike the oracle it needs no
+gfortran, so it builds and tests everywhere.
+
+Contents of this item: the crate, =Summary= (n, mean, variance, sd, computed
+by a numerically stable one-pass method rather than the textbook formula),
+Welch's t-test with the Welch-Satterthwaite degrees of freedom, the incomplete
+beta function needed for its p-value, and the TOST wrapper reporting the
+confidence interval alongside the verdict.
+
+Done when:
+- [ ] Phase 5 decomposed in place, and the split recorded in =LOG.org=
+- [ ] =crates/tepsim-stats= exists, =no_std + alloc=, =forbid(unsafe_code)=
+- [ ] =xtask ci= asserts no shipped crate depends on it
+- [ ] Every routine has a *known-answer* test against a published worked
+      example, cited by source, not against a number this project produced
+- [ ] TOST reports the interval, not just the verdict
+
+** TODO B-0043 Distribution comparison: Kolmogorov-Smirnov and energy distance
+:PROPERTIES:
+:ID:    B-0043
+:PHASE: 5
+:TIER:  5
+:DEPS:  B-0042
+:PLAN:  Validation > Tier 5
+:END:
+
+The two-sample KS statistic, its asymptotic p-value (the Kolmogorov
+distribution), and the energy distance between two samples.
+
+Done when:
+- [ ] KS statistic exact on small hand-checkable samples
+- [ ] The asymptotic p-value checked against published critical values
+- [ ] Energy distance checked against a worked example
+- [ ] The cost of the naive energy distance is measured and stated; it is
+      O(n*m) and Tier 5 runs it on 100 seeds
+
+** TODO B-0044 A real FFT, with known-answer tests
+:PROPERTIES:
+:ID:    B-0044
+:PHASE: 5
+:TIER:  5
+:DEPS:  B-0042
+:PLAN:  Validation > Tier 5
+:END:
+
+Welch power spectra need a DFT. Radix-2 Cooley-Tukey for power-of-two lengths
+is enough if the segment length is chosen, and it must be deterministic: fixed
+summation order, no threading.
+
+Done when:
+- [ ] Forward transform checked against hand-computed DFTs for n = 2, 4, 8
+- [ ] Checked against a naive O(n^2) DFT over random inputs to 1e-12
+- [ ] Parseval's identity holds to a stated tolerance
+- [ ] Round-trip forward-inverse to a stated tolerance
+
+** TODO B-0045 Serial structure: autocorrelation and Welch spectra
+:PROPERTIES:
+:ID:    B-0045
+:PHASE: 5
+:TIER:  5
+:DEPS:  B-0044
+:PLAN:  Validation > Tier 5
+:END:
+
+The autocorrelation function to lag 200, and Welch's method: segment, window,
+periodogram, average. Band-by-band comparison of two spectra.
+
+This is the test that catches "the Fortran limit-cycles and the port damps",
+which no moment comparison sees.
+
+Done when:
+- [ ] ACF checked against a known AR(1) process
+- [ ] Welch spectrum of a pure sinusoid puts the power in the right bin
+- [ ] The window and overlap are stated and justified, not defaults
+- [ ] Band comparison reports per-band ratios, not one scalar
+
+** TODO B-0046 The correlation matrix and physics invariants
+:PROPERTIES:
+:ID:    B-0046
+:PHASE: 5
+:TIER:  5
+:DEPS:  B-0042
+:PLAN:  Validation > Tier 5
+:END:
+
+The 53-by-53 cross-correlation matrix and its Frobenius norm, which is what
+PCA detectors actually consume. Plus the half of Tier 5 that does not involve
+the Fortran at all: total mass closure, per-atom closure, and energy closure.
+
+The invariants are the only test in the whole ladder that can catch an error
+the port *faithfully inherited*, so they are worth more than their size
+suggests.
+
+Done when:
+- [ ] Correlation matrix against a hand-checkable example
+- [ ] Each invariant stated as an equation with its tolerance and its source
+      line range in =teprob.f=
+- [ ] The invariants run against the *oracle* as well as the port, and any
+      failure is attributed to one or the other explicitly
+
+** TODO B-0047 The Tier 5 battery: run both sources and apply everything
+:PROPERTIES:
+:ID:    B-0047
+:PHASE: 5
+:TIER:  5
+:DEPS:  B-0043 B-0045 B-0046
+:PLAN:  Validation > Tier 5
+:END:
+
+Twenty-two scenarios, one hundred seeds, 48 hours, both sources. B-0041
+measured the cost: about six seconds per 172,800-step run in release, so the
+whole battery is minutes rather than hours and can be a gate rather than a
+nightly.
+
+Done when:
+- [ ] The battery runs and records every statistic for every scenario
+- [ ] Equivalence margins stated per statistic, and *not* tuned to pass
+- [ ] Any scenario outside its margin is a =BLOCKED= item with the numbers,
+      not a relaxed margin
+
+** TODO B-0048 xtask validate --tiers 5 and the report chapter
+:PROPERTIES:
+:ID:    B-0048
+:PHASE: 5
+:TIER:  5
+:DEPS:  B-0047
+:PLAN:  Validation > Tier 5
+:END:
+
+Wire the battery into =xtask validate= and generate =book/src/validation/=
+from it. The report is the deliverable Phase 5 exits on.
+
+Done when:
+- [ ] =cargo xtask validate --tiers 5= runs the battery
+- [ ] The chapter is generated, not hand-written, and says which gfortran and
+      which rustc produced it
+- [ ] =--compare-to-log= finally does something
+
+** TODO B-0049 Tier 6 detectors: PCA, DPCA, CVA
+:PROPERTIES:
+:ID:    B-0049
+:PHASE: 5
+:TIER:  6
+:DEPS:  B-0046
+:PLAN:  Validation > Tier 6
+:END:
+
+T-squared and SPE from PCA, dynamic PCA with a lag-augmented matrix, and
+canonical variate analysis. Needs an eigensolver: symmetric Jacobi is enough
+and is deterministic.
+
+Done when:
+- [ ] Jacobi eigensolver checked against hand-computed eigenpairs
+- [ ] Each detector checked against a published TEP result for fault detection
+      rate on Fortran =d00=/=d01=, within the spread those papers report
+- [ ] Detection delay and false alarm rate defined precisely, in the log
+
+** TODO B-0050 Tier 6: the cross-source experiment
+:PROPERTIES:
+:ID:    B-0050
+:PHASE: 5
+:TIER:  6
+:DEPS:  B-0049
+:PLAN:  Validation > Tier 6
+:END:
+
+Train on Fortran, test on both. Train on Rust, test on both. The claim is that
+cross-source performance sits inside within-source run-to-run variability.
+
+Done when:
+- [ ] All four train/test combinations, per fault
+- [ ] Within-source variability estimated from seeds, so "inside it" is a
+      measured band and not an impression
+- [ ] The claim stated as a number, or the item is =BLOCKED= with the number
+      that failed
+
+** TODO B-0051 Tier 7: reproduce d00 through d21
+:PROPERTIES:
+:ID:    B-0051
+:PHASE: 5
+:TIER:  7
+:DEPS:  B-0047
+:PLAN:  Validation > Tier 7
+:END:
+
+The Fortran carries four seed values in comments. Attempt direct reproduction
+of the bundled files under the documented protocol, and report per-file
+agreement with the Tier 5 machinery.
+
+Where reproduction is imperfect, *document which protocol detail is unknown*.
+Do not tune until the numbers match: that converts a known unknown into a
+hidden one.
+
+Done when:
+- [ ] Per-file Tier 5 report for =d00= through =d21=
+- [ ] Every unreproduced file has a named, specific unknown
+- [ ] No parameter was fitted to the data
+
 * Phase 6: modernization
 
 RK4 and adaptive Dormand-Prince, continuous-magnitude disturbances, the scenario
