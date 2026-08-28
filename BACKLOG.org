@@ -14,17 +14,17 @@ earlier phases will change what the right decomposition is.
 
 Rewrite this block at the end of every iteration. Keep it to five lines.
 
-- Phase: *4 is closed.* Phases 1, 2, 3 and 4 are done; Phase 5 is next
-- Last completed: B-0041. The driver's full 48-hour run, 172,800 steps,
-  bit-identical to the Fortran under =libm-system=
+- Phase: 5, one of ten done. Phases 1-4 are closed
+- Last completed: B-0042. Phase 5 decomposed, and =tepsim-stats= stood up with
+  26 known-answer tests
 - In flight: (none)
-- Baseline: =cargo xtask ci= green; 277 tests default, 442 with =oracle=;
+- Baseline: =cargo xtask ci= green; 303 tests default, 468 with =oracle=;
   =validate --tiers 1,2,3,4= green; provenance *1123/1589* on =teprob.f=,
   *183/1408* on =temain_mod.f=, 43.6% combined
 - Toolchain: rustup, pinned to rustc 1.97.1, wasm32 installed, libm 0.2.16
 - Remote: private jkitchin/tep-rust, CI green on all 7 jobs
 - Blocked on: B-0025b and B-0040a await sign-off; neither blocks progress.
-  Next is Phase 5, whose first iteration decomposes it.
+  Next is B-0043, the Kolmogorov-Smirnov statistic and energy distance.
 
 * Phase 0: foundations
 
@@ -1719,13 +1719,22 @@ Decomposed in B-0042. Every statistic is implemented *in Rust*, in
 is ever pointed at plant data. Six small numerical routines with nothing to
 check them against is exactly how a validation suite ends up confidently wrong.
 
-** NEXT B-0042 Decompose Phase 5, and the statistics kernel
+** DONE B-0042 Decompose Phase 5, and the statistics kernel
 :PROPERTIES:
 :ID:    B-0042
 :PHASE: 5
 :TIER:  5
 :DEPS:  B-0041
 :PLAN:  Validation > Tier 5
+:COMMIT: 451233f
+:RESULT: Phase 5 split into B-0042..B-0051. =crates/tepsim-stats= exists with
+         Summary (Welford + Chan-Golub-LeVeque), ln_gamma, the regularised
+         incomplete beta, Student's t CDF and quantile, Welch's t and TOST.
+         26 known-answer tests, all against exact identities or published
+         tables. Mutation-checked: a transposed Lanczos digit fails 6, the
+         Welford delta-twice error fails 6, Welch df with n fails 2, merge
+         without the between-group term fails 1. Three bugs found and fixed,
+         one of them non-termination at I_{1/2}(a,a).
 :END:
 
 Split Phase 5 into iteration-sized items (this heading and the ones below it),
@@ -1743,12 +1752,13 @@ beta function needed for its p-value, and the TOST wrapper reporting the
 confidence interval alongside the verdict.
 
 Done when:
-- [ ] Phase 5 decomposed in place, and the split recorded in =LOG.org=
-- [ ] =crates/tepsim-stats= exists, =no_std + alloc=, =forbid(unsafe_code)=
-- [ ] =xtask ci= asserts no shipped crate depends on it
-- [ ] Every routine has a *known-answer* test against a published worked
+- [X] Phase 5 decomposed in place, and the split recorded in =LOG.org=
+- [X] =crates/tepsim-stats= exists, =no_std=, =forbid(unsafe_code)=. Not
+      =alloc=: nothing here allocates. It arrives with B-0043, which sorts.
+- [X] =xtask ci= asserts no shipped crate depends on it
+- [X] Every routine has a *known-answer* test against a published worked
       example, cited by source, not against a number this project produced
-- [ ] TOST reports the interval, not just the verdict
+- [X] TOST reports the interval, not just the verdict
 
 ** TODO B-0043 Distribution comparison: Kolmogorov-Smirnov and energy distance
 :PROPERTIES:

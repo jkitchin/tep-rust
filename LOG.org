@@ -4779,3 +4779,133 @@ established what that costs: 172,800 steps is about six seconds per source per
 libm configuration in release. A Tier 5 battery over 21 faults and two sources
 is therefore minutes, not hours, which means it can be a real gate rather than
 a nightly.
+
+* 2026-08-28 B-0042 Decompose Phase 5, and the statistics kernel
+:PROPERTIES:
+:ITEM:     B-0042
+:PHASE:    5
+:TIER:     5
+:COMMIT:   451233f
+:GFORTRAN: 15.2.0
+:STATUS:   DONE
+:END:
+** Preflight
+Clean and green. =xtask fidelity= 100 of 100 steps, worst 3.521e-14 at =YP(12)=
+step 77, unchanged for a fourth iteration. Provenance 1306/2997, nothing new
+unclaimed. gfortran 15.2.0.
+
+** The split
+Phase 5 becomes ten items, B-0042 through B-0051, ordered so that every
+statistic exists and is checked before anything points it at plant data:
+B-0042 the moment kernel and TOST, B-0043 Kolmogorov-Smirnov and energy
+distance, B-0044 an FFT, B-0045 autocorrelation and Welch spectra, B-0046 the
+correlation matrix and the physics invariants, B-0047 the battery, B-0048
+=xtask validate --tiers 5= and the report, B-0049 the Tier 6 detectors, B-0050
+the cross-source experiment, B-0051 Tier 7.
+
+The ordering is deliberate. The temptation with a statistical validation suite
+is to write the harness first and fill in the statistics as they are needed,
+which produces routines whose only check is that the plant data they judge
+looked plausible. Everything numerical here lands with a known-answer test
+before it has anything to judge.
+
+** What changed
+=crates/tepsim-stats=, validation-only. =xtask ci='s isolation check now covers
+both development-only crates rather than just the oracle, and it fails if a
+crate it names does not exist, so a typo cannot silently turn it into a loop
+over nothing.
+
+Adding the crate departs from =PLAN.org='s workspace layout, so it is a
+recorded decision (2026-08-28 in =BACKLOG.org=) with the plan updated. The
+argument is short: the Tier 5 differentials are *tests* in =tepsim-oracle=, and
+a test crate cannot sensibly depend on =xtask=, so the statistics need to be a
+library.
+
+Contents: =Summary= (Welford 1962 for the moments, Chan-Golub-LeVeque 1979 for
+merging), =ln_gamma= (Lanczos, g = 7), the regularised incomplete beta (Lentz's
+continued fraction), Student's t CDF and quantile, Welch's t-test, and TOST.
+
+** Validation numbers
+26 known-answer tests, 0 failures. Not one of them checks against a number this
+project produced:
+
+- =ln_gamma=: Gamma(n) = (n-1)! for n = 1..20; the half-integers from
+  Gamma(1/2) = sqrt(pi) by recurrence; the reflection formula at six points.
+- Incomplete beta: I_x(1,1) = x, I_x(a,1) = x^a, I_x(1,b) = 1-(1-x)^b over 7 x
+  5 points; I_{1/2}(a,a) = 1/2 for a up to 500; the symmetry identity; NaN
+  rather than a panic on five out-of-domain inputs.
+- Student's t: the Cauchy closed form at df = 1 and the algebraic one at
+  df = 2, ten points each; *thirteen published table entries* to better than
+  5e-5; quantile inverts CDF to 1e-12 over 6 x 7 points.
+- =Summary=: exact mean and variance of 1..=n for five n; merge equals
+  summarising the concatenation to 1e-12.
+- Welch: a fully hand-worked case, se = sqrt(2.5), t = -3/sqrt(2.5),
+  df = 6.25/1.0625, each to 1e-13; df reduces to n_a+n_b-2 in the balanced
+  equal-variance case.
+- TOST: interval and p-value agree at all 400 margins tested, with both
+  verdicts seen.
+
+Accuracy, measured rather than assumed. The incomplete beta's error is
+=eps * (16 + |ln_gamma(2a)|)= relative: 8 eps at a = 1, where the log-gamma
+term vanishes, and 5.2e-13 at a = 500 against a bound of 1.3e-12. That is not a
+tuned tolerance, it is the cancellation in the prefactor's exponent, and no
+arrangement of this algorithm avoids it.
+
+Mutation testing, since "26 tests pass" says nothing on its own:
+
+| mutation                                      | tests failed |
+|-----------------------------------------------+--------------|
+| transposed digit in a Lanczos coefficient     |            6 |
+| Welford using =delta= twice (the classic slip) |            6 |
+| Welch df with =n= instead of =n-1=              |            2 |
+| =merge= dropping the between-group term        |            1 |
+
+A one-ULP change to a Lanczos coefficient passes everything, which is correct:
+that is below the routine's own accuracy, and a test that failed on it would be
+asserting noise.
+
+Tests: 303 default (up from 277), 468 with =oracle= (up from 442).
+
+** Surprises and decisions
+*The obvious incomplete beta does not terminate.* The natural way to use the
+symmetry =I_x(a,b) = 1 - I_{1-x}(b,a)= is to recurse. At =a == b= the
+switchover point is exactly 1/2, so =I_{1/2}(a,a)= swaps to itself forever.
+That is not a corner case: it is Student's t with one degree of freedom at
+=t = 1=. It blew the stack on the first run. Fixed by applying the symmetry to
+the continued fraction rather than by recursing, which is what Numerical
+Recipes does and now the code says why.
+
+*Two of the three test failures were the tests, not the code.* Worth writing
+down because both are general:
+
+The symmetry test as first written computed =left - (1 - right)=. With
+=I_0.05(7.5,1.5) = 5.5e-10=, its partner is =1 - 5.5e-10=, and forming
+=1 - that= in =f64= throws away nine significant digits *before* the
+comparison. It reported 6.9e-8 error for a routine correct to 4e-17. Stated as
+=I_x(a,b) + I_{1-x}(b,a) = 1= with an absolute tolerance, it passes at 4e-17.
+
+The t-approaches-normal test ran at df = 1e6 and 1e7 and reported a 4.9%
+discrepancy. The cause was resolution: at df = 1e7 the log-gammas are 7.7e7, so
+the prefactor carries 1.7e-8 relative error, and the gap being measured is
+7.6e-8 relative. The experiment was asking for four digits it did not have.
+Moved to df = 1e4 and 1e5, where there are six orders of margin, and the test
+became *stronger*: the measured coefficient of =phi(z)/n= agrees with the
+expansion's =-(z^3+z)/4= to five significant figures at all four z, so it is
+now asserted rather than printed.
+
+Both are the same lesson in different clothes: before believing a numerical
+test's verdict, check that the experiment can resolve what it is measuring.
+
+** Next
+B-0043, the two-sample Kolmogorov-Smirnov statistic and the energy distance.
+
+Three things worth knowing before starting it. The KS statistic needs sorted
+samples, which is where =alloc= finally enters this crate. The asymptotic
+p-value comes from the Kolmogorov distribution =Q(x) = 2 sum (-1)^(k-1)
+exp(-2 k^2 x^2)=, which converges fast for moderate x and badly for small x, so
+the small-x branch needs the theta-function transformation and both branches
+need pinning against published critical values (D_crit at alpha = 0.05 for
+n = m = 100 is a number that can be looked up). And the energy distance is
+O(n*m) in the naive form, which for 100 seeds by 172,800 samples is not
+affordable; the item should measure the cost and say what it does about it
+rather than discovering the problem in B-0047.
