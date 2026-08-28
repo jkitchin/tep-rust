@@ -86,15 +86,20 @@ direction after about 25 minutes to redirect effort to the user-facing surface
 Tier 7, reproducing the published `d00` through `d21` files, is B-0051. Tiers 8,
 9 and 10 have not been started.
 
-**The validation report is written by hand.** `PLAN.org` calls for `cargo xtask
-validate` to generate a chapter of this book with tables, histograms and plots.
-It does not do that yet: `xtask` writes nothing into `book/`. The numbers in
-[Validation](validation.md) were transcribed from `LOG.org`, and each one names
-the iteration that measured it so the transcription can be checked.
+**The validation report is generated for Tiers 1 to 3 only.** `cargo xtask
+validate` now writes [the measured chapters](validation/index.md) from the
+suite's own output, but only for the tiers it has a generator for. Tiers 4 and 5
+still run without writing a page, and Tiers 6 to 10 have no harness. The
+narrative in [Validation](validation.md) remains hand-written and transcribed
+from `LOG.org`; each number there names the iteration that measured it, so the
+transcription can be checked against the generated chapters.
 
-**The delta register is written by hand too.** The `@delta` annotation
-convention exists in the source from the first entry, but the generator that
-would collect them into [the register](deltas.md) is a Phase 9 item.
+**The delta register's prose is written by hand, but it is no longer
+unchecked.** `cargo xtask deltas` collects every `@delta` marker in the source,
+cross-checks it against the entries in [the register](deltas.md), and fails if
+either half is missing or if the two disagree about the class. The collected
+table is [the delta marker index](validation/delta-index.md). Generating the
+register's prose itself is still a Phase 9 item.
 
 ## Two items awaiting sign-off
 

@@ -21,4 +21,9 @@
 # Fidelity to the Fortran
 
 - [Validation](validation.md)
+  - [Measured numbers](validation/index.md)
+  - [Tier 1: the utility routines](validation/tier1.md)
+  - [Tier 2: the plant model](validation/tier2.md)
+  - [Tier 3: the generator stream](validation/tier3.md)
 - [Quirk and delta register](deltas.md)
+  - [Delta marker index](validation/delta-index.md)

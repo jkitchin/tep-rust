@@ -1,5 +1,13 @@
 # Quirk and delta register
 
+> **The two halves of this register are cross-checked.** `cargo xtask deltas`
+> collects every `@delta` marker in the source, matches it against the `## D-0NN`
+> headings below, and fails if an entry has no marker, if a marker has no entry,
+> or if the two disagree about the class. The collected table is the generated
+> [delta marker index](validation/delta-index.md). The prose below is still
+> written by hand, which is what the closing paragraph of the next section is
+> about; the cross-check and the index are not.
+
 Every deliberate deviation from the original Fortran gets an entry here: what
 the original does, what this port does instead, the class, the **measured**
 effect, and the test that measures it. An entry with a description but no
