@@ -1983,13 +1983,26 @@ Done when:
 - [ ] The seed count is settled by a recorded decision, not by whichever
       number happened to pass
 
-** TODO B-0048 xtask validate --tiers 5 and the report chapter
+** DONE B-0048 Generated validation pages and the delta cross-check
 :PROPERTIES:
 :ID:    B-0048
 :PHASE: 5
 :TIER:  5
 :DEPS:  B-0047b
 :PLAN:  Validation > Tier 5
+:COMMIT: 28f481d
+:RESULT: =cargo xtask validate= writes =book/src/validation/=: an index with
+         the live fidelity result, and per-tier chapters carrying a
+         measurements table *and* the verbatim transcripts it is derived from.
+         =cargo xtask deltas= cross-checks the register's two halves and is a
+         gate step. Every regenerated number matched the hand-written chapter
+         exactly.
+:FINDING: The cross-check failed on its first run against a real, pre-existing
+          violation: D-008 was documented and no =@delta= marker named it,
+          although the doc comment above =const FAST= said so in prose. Marker
+          added; eleven entries, eleven markers, classes agree.
+:RESIDUE: Tiers 4 and 5 run under =validate= but write no chapter. The pages
+          were generated at smoke volume and say so in bold.
 :END:
 
 Wire the battery into =xtask validate= and generate =book/src/validation/=
@@ -2034,13 +2047,28 @@ Done when:
       B-0050's plumbing. Moved to B-0049a
 - [X] Detection delay and false alarm rate defined precisely
 
-** TODO B-0049a Canonical variate analysis, and detectors against published rates
+** DONE B-0049a Canonical variate analysis, and detectors against published rates
 :PROPERTIES:
 :ID:    B-0049a
 :PHASE: 5
 :TIER:  6
 :DEPS:  B-0049 B-0047c
 :PLAN:  Validation > Tier 6
+:COMMIT: 8a91f75
+:RESULT: CVA by Cholesky reduction of the generalised eigenproblem, 22
+         known-answer tests: textbook Cholesky exactly, =B = I= bit-for-bit
+         against the standard solver, 1000 pencils against the
+         characteristic polynomial at 8.3e-16, a construction giving exactly
+         3/5 and 5/13. Detection rates reproduce the literature's split:
+         faults 3, 9, 15 hard (T2 0.031, 0.036, 0.055), faults 1, 2, 6, 7, 8,
+         12, 13, 14 easy (0.95 to 1.00); every hard fault alarms at most
+         1.89x fault-free data, every easy one at least 30.6x. 17 CVA
+         mutations, 15 killed and the two survivors documented as untestable
+         in principle; 8 rate mutations, all killed.
+:FINDING: The SPE limit alarms on 15.0% of =d00_te= but 0.2% of =d00=, the
+          file it was fitted to. The limit is not miscalibrated: =d00_te=
+          genuinely differs from =d00=, which is Tier 7's undocumented
+          training protocol arrived at from the other direction.
 :END:
 
 The two halves of B-0049 that were not done. CVA needs a generalised
@@ -2254,13 +2282,28 @@ Done when:
 - [X] The content hash changes when the scenario does and not otherwise
 - [X] Binary =IDV= flags remain reproducible exactly, as a special case
 
-** TODO B-0054a Scenario serialisation
+** DONE B-0054a Scenario serialisation
 :PROPERTIES:
 :ID:    B-0054a
 :PHASE: 6
 :TIER:  none
 :DEPS:  B-0054
 :PLAN:  Architecture > Ground truth and labeling
+:COMMIT: 3e561d8
+:RESULT: A versioned, semicolon-separated key/value text, no serde. 22 tests:
+         round-trip over 17 edge cases including a full 32-event schedule, a
+         subnormal step and negative-zero hours; digest preserved across the
+         round trip; a strict parser that names unknown fields, missing
+         fields, malformed numbers, out-of-range values and later versions
+         rather than defaulting. The alphabet is URL-fragment safe by
+         construction, which is asserted. Exposed through both binding layers
+         and the browser's three hand-maintained field lists (four, counting
+         the test harness) are collapsed to one opaque token.
+:DECISION: No serde. Eleven scalars plus 32 events do not pay for a
+           proc-macro in a =no_std= crate with a browser size budget, the
+           strictness wanted is =deny_unknown_fields= plus a hand-written
+           =Deserialize= in practice, and JSON's braces and quotes
+           percent-encode into noise in a URL fragment.
 :END:
 
 =Scenario= has a content hash but no =to_json=/=from_json=. Three places now
@@ -2288,17 +2331,26 @@ Arrow and Parquet are *not* implemented. Whether their dependency cost is
 acceptable in a crate that must also compile to wasm32 is an open question and
 belongs in its own item.
 
-** TODO B-0056 The CLI
+** DONE B-0056 The CLI
 :PROPERTIES:
 :ID:    B-0056
 :PHASE: 6
 :TIER:  none
 :DEPS:  B-0054 B-0055
 :PLAN:  Architecture > Workspace layout
+:COMMIT: e06c971
+:RESULT: =tep run= (nine flags, streaming CSV through the library's own sink),
+         =tep faults=, =tep help=. Argument parsing is hand-written: the whole
+         surface is nine flags, and =tepsim-cli= is the one place a heavyweight
+         dependency would show up in a user's build.
+:RESIDUE: =tep dataset=, a batch generator writing a labelled corpus, is not
+          implemented. It is a thin loop over =Simulation= and belongs with
+          whatever decides the on-disk format, which is the Arrow question
+          B-0055 left open.
 :END:
 
-=tep run=, =tep list-faults=, =tep dataset=. Today the binary prints "Nothing
-does."
+(Landed incrementally across B-0052, B-0053 and B-0055 rather than as its own
+iteration.)
 
 ** TODO B-0057 Quirk fixes with measured deltas
 :PROPERTIES:
@@ -2475,13 +2527,25 @@ Exit: 1.0 tagged, all three surfaces built from one commit.
          stream.rs citation defect fixed in B-0055.
 :END:
 
-** TODO B-0059a The tutorial track, and generating the validation chapter
+** DONE B-0059a The tutorial track, and generating the validation chapter
 :PROPERTIES:
 :ID:    B-0059a
 :PHASE: 9
 :TIER:  none
 :DEPS:  B-0059 B-0048
 :PLAN:  Documentation
+:COMMIT: 3e561d8
+:RESULT: Four tutorials, every sample compiled and run against the tree and
+         its verbatim stdout shown: a first run and what the 53 channels mean;
+         injecting IDV(4) and finding it in the manipulated variable rather
+         than the measurement; building a PCA detector and measuring it; and a
+         fault that arrives at hour six and clears at twelve. The generated
+         validation chapter is B-0048.
+:FINDING: Tutorial three reports an SPE false alarm rate of 0.204 against a
+          nominal 0.01 and explains it rather than hiding it: the
+          Jackson-Mudholkar limit assumes independent observations and plant
+          data is autocorrelated. It also reproduces IDV(3) being
+          undetectable, at 0.025.
 :END:
 
 Two things B-0059 could not do.
