@@ -14,16 +14,17 @@ earlier phases will change what the right decomposition is.
 
 Rewrite this block at the end of every iteration. Keep it to five lines.
 
-- Phase: 4, five of eight done. Phases 2 and 3 are closed
-- Last completed: B-0039. The scheduler and the driver. Closed loop is
-  bit-identical to the Fortran for 14,400 steps under the platform libm
+- Phase: 4, six of eight done. Phases 2 and 3 are closed
+- Last completed: B-0040. IDV(12) reproduced behind a flag, and TEINIT's
+  unreset Newton warm starts found
 - In flight: (none)
-- Baseline: =cargo xtask ci= green; 277 tests default, 439 with =oracle=;
+- Baseline: =cargo xtask ci= green; 277 tests default, 442 with =oracle=;
   =validate --tiers 1,2,3,4= green; provenance *1123/1589* on =teprob.f=,
   *183/1408* on =temain_mod.f=, 43.6% combined
 - Toolchain: rustup, pinned to rustc 1.97.1, wasm32 installed, libm 0.2.16
 - Remote: private jkitchin/tep-rust, CI green on all 7 jobs
-- Blocked on: nothing. Next is B-0040, the driver's hard-coded IDV(12).
+- Blocked on: B-0025b and B-0040a await sign-off; neither blocks progress.
+  Next is B-0041, Phase 4 acceptance.
 
 * Phase 0: foundations
 
@@ -1630,7 +1631,7 @@ Done when:
 :TIER:  10
 :DEPS:  B-0039
 :PLAN:  Quirk and delta register
-:COMMIT: pending
+:COMMIT: 5eb09e9
 :RESULT: Reproduced by default; fix behind
          =DriverQuirks::only_the_requested_disturbances=. Delta D-011: the
          two part at step 29,390, not 28,800, because IDV(12) only reaches

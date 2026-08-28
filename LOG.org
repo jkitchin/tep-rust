@@ -4576,3 +4576,105 @@ Note that the closed-loop differential above runs four hours, which is
 deliberately *short of* step 28,800. Once =IDV(12)= is in, that run can be
 extended past eight hours and the disturbance's arrival becomes the thing it
 checks.
+
+* 2026-08-28 B-0040 The driver's hard-coded IDV(12), and a warm start nobody resets
+:PROPERTIES:
+:ITEM:     B-0040
+:PHASE:    4
+:TIER:     10
+:COMMIT:   5eb09e9
+:GFORTRAN: 15.2.0
+:STATUS:   DONE
+:END:
+** Preflight
+Clean and green. =xtask fidelity=: 100 of 100 steps, worst 3.521e-14 at
+=YP(12)= step 77, identical to B-0039's. Provenance 1123/1589 and 183/1408, no
+new unclaimed ranges. gfortran 15.2.0, unchanged.
+
+** What changed
+=temain_mod.f:366-368= is reproduced: =Driver= forces =IDV(12)= on at
+=STEADY_STATE_STEPS= (3600*8), and
+=DriverQuirks::only_the_requested_disturbances= turns that off. Default is the
+faithful path, as =CLAUDE.md= requires for Class C.
+=Driver::scenario_is_overridden= reports when the driver has gone past the
+requested scenario.
+
+The closed-loop differential now runs ten hours rather than four, so it covers
+the mark instead of stopping short of it.
+
+** Validation numbers
+Closed loop against the Fortran driver, 10 h, 36,000 steps, crossing the
+=IDV(12)= mark:
+
+| libm     | worst XMEAS       | worst XMV (%range) | first split |
+|----------+-------------------+--------------------+-------------|
+| platform | 0                 | 0                  | never       |
+| vendored | 2.694e-13 @ (37)  | 1.074e-11 @ (10)   | step 39     |
+
+Bit-identical for 36,000 closed-loop steps under the platform libm, forced
+disturbance included.
+
+D-011, the Class C delta. Faithful against fixed, everything else identical:
+
+| first difference       | step 29,390, =XMEAS(22)=            |
+| identical before that  | all 41, all 29,389 steps, every bit |
+| worst over the run     | 1.092e-1 at =XMEAS(37)=             |
+| worst at hour ten      | 3.262e-2 at =XMEAS(38)=             |
+
+Tests: 277 default, 442 with =oracle=. Provenance unchanged.
+
+** Surprises and decisions
+*The quirk does not take effect when it is switched on.* =IDV(12)= reaches the
+plant through =IDVWLK(6)= (=teprob.f:351=), and =teprob.f:359= only redraws
+that walk when =TIME= passes =TNEXT(6)=. So the flag flips at step 28,800 and
+nothing moves until step 29,390, ten minutes later. My first version of the
+test asserted the split was at the mark and failed. The fix was not to relax
+the assertion but to check the step against the *Fortran*: two oracle runs
+differing only in the forcing also part at 29,390. The number is now ground
+truth rather than a recorded coincidence, and the onset moves with the seed, so
+anyone hunting the quirk in a dataset by eye should not look at hour eight.
+
+*=TEINIT= does not reset the Newton warm starts, and that made Tier 4
+order-dependent.* =TCR=, =TCS=, =TCC=, =TCV= are read as guesses and written as
+answers by =TESUB2= (=teprob.f:460=). Nothing in =teprob.f= ever assigns them
+otherwise. They are process-global mutable state that survives =TEINIT=, so two
+identical runs in one process disagree in the last bits and which answer you
+get depends on the order the tests ran in.
+
+This surfaced as the D-011 test reporting that two Fortran runs of the *same
+scenario* differed at step 1. Repeated =TEFUNC(0)= does not converge to a fixed
+point (=TESUB2= chatters in the last bits; see D-001), so the fix is
+=Oracle::init_cold=, which zeroes the four before =TEINIT=. That reproduces a
+freshly loaded process exactly, from any history: verified after runs of 1,
+137, 5,000 and 20,000 steps. Both Tier 4 files now use it, and
+=teinit_does_not_reset_the_newton_warm_starts= in =drive_fortran.rs= pins both
+halves, that the problem is real and that the fix removes it.
+
+Tier 2 was never exposed: =Scenario::force= restores the whole of
+=COMMON/TEPROC/=, so the warm start is part of the scenario. Tier 1 is not
+exposed either, since it calls the subroutines directly. So the exposure was
+Tier 4 only, and the previously recorded Tier 4 numbers should be read as
+having a last-bit dependence on test order. They are all diagnostic, so nothing
+recorded needs revising, but B-0034's and B-0039's figures were produced under
+the old behaviour.
+
+*=CONSHAND= and the negative zero, again.* The new =scenario_is_overridden=
+compares two flags that are exactly 0.0 or exactly 1.0. clippy wants an epsilon
+and is wrong here, so it compares bits.
+
+** Next
+B-0041, Phase 4 acceptance. The remaining criterion in =BACKLOG.org= is a
+48-hour closed-loop run that does not trip. That is 172,800 steps, which is
+=NPTS= exactly, so it is the run the original driver was written to do.
+
+Two things to be careful of. It crosses the =IDV(12)= mark at step 28,800 and
+spends 40 of its 48 hours under a disturbance, so "does not trip" is a claim
+about the *disturbed* plant, not the nominal one, and the log entry should say
+so. And at 36,000 steps the closed-loop differential already takes six seconds
+under the platform libm; 172,800 steps against the oracle will take roughly
+half a minute, which is fine for =validate= but too slow for =ci=. Put the long
+run behind =validate --tiers 4= and leave =ci= on the ten-hour version.
+
+After that, Phase 5, which needs its decomposition written as the first action
+of its first iteration. Everything in it (TOST, KS, ACF, Welch) has to be
+implemented in Rust: no numpy, no scipy.
