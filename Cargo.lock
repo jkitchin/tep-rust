@@ -397,6 +397,9 @@ dependencies = [
 [[package]]
 name = "tepsim-scenario"
 version = "0.0.0"
+dependencies = [
+ "tepsim-core",
+]
 
 [[package]]
 name = "tepsim-stats"

@@ -73,7 +73,7 @@ pub use flows::{FlowDrift, Flows, flows};
 pub use heat::{HeatDrift, HeatTransfer, heat_transfer};
 pub use kinetics::{Kinetics, ReactionDrift, kinetics};
 pub use measurements::{Measured, Shutdown, ShutdownCause, measurements};
-pub use plant::{Inputs, Measurements, Plant, PlantError, Signals, SimTime};
+pub use plant::{Extensions, Inputs, Measurements, Plant, PlantError, Signals, SimTime};
 pub use rng::TepRng;
 pub use state::{Derivative, Holdup, N_STATES, State, VectorSpace, Vessel};
 pub use stream::{ByStream, Stream};

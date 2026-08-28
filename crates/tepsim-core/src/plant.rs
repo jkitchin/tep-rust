@@ -109,6 +109,67 @@ impl Inputs {
         }
         out
     }
+
+    /// The disturbance vector as the plant should read it.
+    ///
+    /// Binary by default, exactly as `teprob.f:341-346` forces. With
+    /// [`Extensions::continuous_disturbances`] the magnitudes pass through
+    /// unchanged, so a fault can be half on.
+    ///
+    /// Negative magnitudes are clamped to zero either way. The original's
+    /// `IF(IDV(I).GT.0) IDV(I)=1` treats anything not positive as off, and a
+    /// negative disturbance would mean running a fault backwards, which no
+    /// part of the model is written for.
+    #[must_use]
+    pub fn effective_disturbances(&self, extensions: Extensions) -> [f64; 20] {
+        if !extensions.continuous_disturbances {
+            return self.clamped_disturbances();
+        }
+        let mut out = [0.0; 20];
+        for (slot, raw) in out.iter_mut().zip(self.disturbances) {
+            *slot = if raw > 0.0 { raw } else { 0.0 };
+        }
+        out
+    }
+}
+
+/// Capabilities the original does not have.
+///
+/// Distinct from [`QuirkFixes`], and the distinction is the point. A quirk fix
+/// changes behaviour the original got *wrong*, so it is off by default and
+/// needs sign-off. An extension adds behaviour the original never had, so
+/// enabling one is not a claim that the original was mistaken: it is a
+/// statement that this run is no longer trying to reproduce it.
+///
+/// Everything here is off by default, and with everything off the port is
+/// bit-identical to the Fortran.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Extensions {
+    /// Let a disturbance be partly on.
+    ///
+    /// `teprob.f:341-346` opens `TEFUNC` by forcing every `IDV` to zero or
+    /// one, so the original admits exactly two states per fault. The
+    /// disturbances themselves are then used multiplicatively (`teprob.f:407`
+    /// is `XST(1,4) = TESUB8(1,TIME) - IDV(1)*0.03`), so a magnitude between
+    /// zero and one scales the fault smoothly and needs no other change.
+    ///
+    /// What it costs: a run with this on is not comparable to any published
+    /// dataset, and none of the validation ladder applies to it. A magnitude
+    /// of exactly 1.0 is bit-identical to the faithful path, which is
+    /// asserted, so the extension can be left on for a study that mixes full
+    /// and partial faults.
+    pub continuous_disturbances: bool,
+}
+
+impl Extensions {
+    /// Nothing beyond the original.
+    #[must_use]
+    pub const fn none() -> Self {
+        Self {
+            continuous_disturbances: false,
+        }
+    }
 }
 
 impl Default for Inputs {
@@ -233,6 +294,9 @@ pub struct Plant {
     /// Which Class C quirks are fixed rather than reproduced. All off by
     /// default; see [`QuirkFixes`].
     pub quirks: QuirkFixes,
+    /// Capabilities beyond the original. All off by default; see
+    /// [`Extensions`].
+    pub extensions: Extensions,
     /// The walk-driven inputs the pure phase reads (`teprob.f:407-416`).
     ///
     /// Recomputed by [`Plant::advance_discrete`] on every step.
@@ -269,6 +333,7 @@ impl Default for Plant {
             valve_command: [0.0; 12],
             seeds: TemperatureSeeds::default(),
             quirks: QuirkFixes::default(),
+            extensions: Extensions::none(),
             walks: WalkInputs::default(),
             channels: Walks::default(),
             rng: TepRng::with_default_seed(),
@@ -304,7 +369,7 @@ impl Plant {
     /// four times between two of these and the disturbances advance once.
     // @port teprob.f:340-416, 793-804
     pub fn advance_discrete(&mut self, t: SimTime, u: &Inputs) {
-        let idv = u.clamped_disturbances();
+        let idv = u.effective_disturbances(self.extensions);
 
         // teprob.f:347-406.
         advance(&mut self.channels, &mut self.rng, t.hours(), &idv);
@@ -455,7 +520,7 @@ impl Plant {
         // already done it for its own purposes; doing it again here keeps
         // `derivatives` a function of its arguments rather than of what the
         // pre-phase happened to store.
-        let idv = u.clamped_disturbances();
+        let idv = u.effective_disturbances(self.extensions);
 
         let mut flow = flows(y, &unpacked, &eq, &table, &idv, w.flow);
         let _ = stripper(&mut table, &mut flow, unpacked.stripper.celsius);

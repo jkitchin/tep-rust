@@ -5,6 +5,8 @@ use alloc::vec::Vec;
 use tepsim_control::{DRIVER_INITIAL_VALVES, Driver, STEADY_STATE_STEPS};
 use tepsim_core::{Inputs, Plant, SimTime, State, TemperatureSeeds, constants};
 
+use tepsim_scenario::Action;
+
 use crate::recorder::Recorder;
 use crate::run::{Labels, Outcome, Run, Sample};
 use crate::scenario::{DISTURBANCES, Scenario};
@@ -77,6 +79,7 @@ impl Simulation {
     pub fn new(scenario: Scenario) -> Self {
         let mut plant = Plant::new();
         plant.set_rng(scenario.seed);
+        plant.extensions = scenario.extensions;
         // Not `TemperatureSeeds::default()`: `TEINIT` runs one evaluation of
         // its own before returning, so a run starts from the converged values
         // rather than from the nominal literals. See B-0017 and B-0034.
@@ -168,6 +171,24 @@ impl Simulation {
         self.step += 1;
         let step = self.step;
         let dt = self.scenario.step_hours;
+
+        // Scheduled events, before the controllers see anything. An event at
+        // time t takes effect on the first step whose time is at or past t.
+        if !self.scenario.schedule.is_empty() {
+            let previous = self.hours - dt;
+            // Collected into a fixed array rather than iterated directly,
+            // because applying an action needs `&mut self` while the iterator
+            // borrows the schedule.
+            let mut due = [None; tepsim_scenario::MAX_EVENTS];
+            let mut count = 0;
+            for event in self.scenario.schedule.due(previous, self.hours) {
+                due[count] = Some(event.action);
+                count += 1;
+            }
+            for action in due.into_iter().take(count).flatten() {
+                self.apply(action);
+            }
+        }
 
         // `temain_mod.f:366-368`. The driver switches IDV(12) on at eight
         // hours whatever the scenario asked for. Delta D-011.
@@ -296,6 +317,35 @@ impl Simulation {
         }
         recorder.finish();
         self.event.unwrap_or(Outcome::Completed)
+    }
+
+    /// Apply one scheduled action.
+    fn apply(&mut self, action: Action) {
+        match action {
+            Action::Start { fault } => self.set_magnitude(fault, 1.0),
+            Action::Stop { fault } => self.set_magnitude(fault, 0.0),
+            Action::SetMagnitude { fault, magnitude } => self.set_magnitude(fault, magnitude),
+            Action::Setpoint { loop_index, value } => {
+                self.driver.scheme_mut().set_setpoint(loop_index, value);
+            }
+        }
+    }
+
+    /// Change one disturbance's magnitude, and record or clear its onset.
+    fn set_magnitude(&mut self, fault: usize, magnitude: f64) {
+        let mut requested = *self.driver.requested();
+        requested[fault - 1] = magnitude;
+        self.driver.request(&requested);
+        if magnitude > 0.0 {
+            if self.onset[fault - 1].is_none() {
+                self.onset[fault - 1] = Some(self.hours);
+            }
+        } else {
+            // Cleared, so a later onset is a new one. The label's
+            // `since_onset` is time since the fault *last started*, and a
+            // fault that stopped and started again has two separate onsets.
+            self.onset[fault - 1] = None;
+        }
     }
 
     /// Ground truth as of now.

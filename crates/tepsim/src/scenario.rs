@@ -1,6 +1,7 @@
 //! What to simulate: how long, from which seed, with which disturbances.
 
-use tepsim_core::{FAULTS, QuirkFixes};
+use tepsim_core::{Extensions, FAULTS, QuirkFixes};
+use tepsim_scenario::{Invalid, Schedule};
 
 use crate::integrator::Integrator;
 
@@ -58,6 +59,16 @@ pub struct Scenario {
     /// `true` by default, because every published dataset longer than eight
     /// hours carries it. Delta D-011.
     pub driver_forces_idv12: bool,
+    /// Events on a schedule: faults that arrive, clear, or change magnitude
+    /// part way through, and setpoint moves.
+    ///
+    /// Empty by default, which is the only shape the original admits. A
+    /// non-empty schedule is what lets a study ask what happens when a fault
+    /// arrives at hour twelve and clears at hour twenty, which no published
+    /// Tennessee Eastman dataset contains.
+    pub schedule: Schedule,
+    /// Capabilities beyond the original. All off by default.
+    pub extensions: Extensions,
     /// How to advance the state.
     ///
     /// [`Integrator::Euler`] by default, which is what the original does and
@@ -90,8 +101,73 @@ impl Scenario {
             controlled: true,
             quirks: QuirkFixes::new(),
             driver_forces_idv12: true,
+            schedule: Schedule::new(),
+            extensions: Extensions::none(),
             integrator: Integrator::Euler,
         }
+    }
+
+    /// Add an event to the schedule.
+    #[must_use]
+    pub fn with_event(mut self, event: tepsim_scenario::Event) -> Self {
+        self.schedule.add(event);
+        self
+    }
+
+    /// Allow a disturbance to be partly on.
+    ///
+    /// See [`Extensions::continuous_disturbances`]. A run with this on is not
+    /// comparable to any published dataset.
+    #[must_use]
+    pub const fn with_continuous_disturbances(mut self) -> Self {
+        self.extensions.continuous_disturbances = true;
+        self
+    }
+
+    /// Check the scenario is runnable.
+    ///
+    /// # Errors
+    ///
+    /// The first problem found. A fractional magnitude without the extension
+    /// is rejected rather than rounded: silently turning a request for half a
+    /// fault into a whole one would produce a run that does not match its own
+    /// description, which is exactly what the content hash exists to prevent.
+    pub fn validate(&self) -> Result<(), Invalid> {
+        self.schedule
+            .validate(self.extensions.continuous_disturbances)
+    }
+
+    /// A content hash over everything that affects the run.
+    ///
+    /// Two scenarios describing the same experiment hash the same, and two
+    /// that differ in any respect do not. A dataset carrying this says what
+    /// produced it, rather than relying on a filename and a memory.
+    #[must_use]
+    pub fn digest(&self) -> tepsim_scenario::Digest {
+        let mut digest = tepsim_scenario::Digest::new();
+        // Versioned, so a later change to what a scenario contains cannot make
+        // an old digest silently mean something else.
+        digest.push_str("tepsim.scenario.v1");
+        digest.push_f64(self.seed);
+        digest.push_f64(self.hours);
+        digest.push_f64(self.step_hours);
+        digest.push_usize(self.sample_every);
+        for on in self.disturbances {
+            digest.push_bool(on);
+        }
+        digest.push_bool(self.controlled);
+        digest.push_bool(self.quirks.trip_ends_the_run);
+        digest.push_bool(self.driver_forces_idv12);
+        digest.push_bool(self.extensions.continuous_disturbances);
+        digest.push_str(self.integrator.name());
+        self.schedule.hash_into(&mut digest);
+        digest
+    }
+
+    /// The digest as sixteen hex characters, for a filename.
+    #[must_use]
+    pub fn digest_hex(&self) -> [u8; 16] {
+        tepsim_scenario::short_hex(self.digest())
     }
 
     /// Choose the integrator.
@@ -163,10 +239,12 @@ impl Scenario {
     /// How many integrator steps this scenario is.
     #[must_use]
     pub fn steps(&self) -> usize {
-        // Rounded rather than truncated, so 48.0 hours at a one-second step is
-        // 172,800 and not 172,799 because of a representation error in the
-        // quotient.
-        (self.hours / self.step_hours).round() as usize
+        // Rounded rather than truncated. `f64::round` is a `std` method and
+        // this crate is `no_std`, so the rounding is written out: the quotient
+        // is positive by construction, so adding a half and truncating is
+        // round-half-up.
+        let quotient = self.hours / self.step_hours;
+        (quotient + 0.5) as usize
     }
 
     /// How many samples it will record.

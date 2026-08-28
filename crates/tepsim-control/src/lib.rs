@@ -1222,6 +1222,15 @@ impl Driver {
         self.disturbances[n - 1] = self.requested[n - 1];
     }
 
+    /// The scenario as asked for, before the driver forces anything.
+    ///
+    /// Needed by a caller running a schedule: changing one fault mid-run means
+    /// reading the current request, altering one entry, and setting it back.
+    #[must_use]
+    pub const fn requested(&self) -> &[f64; 20] {
+        &self.requested
+    }
+
     /// Set the whole scenario at once.
     pub fn request(&mut self, idv: &[f64; 20]) {
         self.requested = *idv;

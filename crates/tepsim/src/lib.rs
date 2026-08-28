@@ -53,6 +53,7 @@ pub use recorder::{Columnar, Csv, CsvString, Decimating, Recorder, Ring, Selecti
 pub use run::{CHANNELS, Labels, MANIPULATED, MEASUREMENTS, Outcome, Run, Sample, channel_names};
 pub use scenario::{DISTURBANCES, Scenario};
 pub use sim::{Simulation, forced_disturbance_step};
+pub use tepsim_scenario::{Action, Digest, Event, Invalid, Schedule};
 
 pub use tepsim_control;
 pub use tepsim_core;

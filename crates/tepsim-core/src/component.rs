@@ -342,10 +342,28 @@ mod tests {
         );
     }
 
+    /// The check is a `debug_assert!`, so it exists only in a debug build and
+    /// this test can only run in one.
+    ///
+    /// Without the `cfg` the test fails in release, where the assertion is
+    /// compiled out and `Composition::new` returns normally. That went
+    /// unnoticed because `cargo xtask ci` runs the workspace tests in debug;
+    /// it surfaced the first time anything ran `cargo test --release` on this
+    /// crate.
     #[test]
+    #[cfg(debug_assertions)]
     #[should_panic(expected = "must sum to 1")]
     fn a_composition_that_does_not_sum_to_one_is_rejected_in_debug() {
         let _ = Composition::new([0.5; 8]);
+    }
+
+    /// And in release it does not panic, which is the other half of the
+    /// contract: the check is a development aid and costs nothing shipped.
+    #[test]
+    #[cfg(not(debug_assertions))]
+    fn a_composition_that_does_not_sum_to_one_is_accepted_in_release() {
+        let c = Composition::new([0.5; 8]);
+        assert!(!c.sums_to_one());
     }
 
     #[test]

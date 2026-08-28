@@ -10,5 +10,8 @@ repository.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
+[dependencies]
+tepsim-core.workspace = true
+
 [lints]
 workspace = true
