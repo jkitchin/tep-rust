@@ -494,37 +494,75 @@ fn the_energy_distance_grows_with_separation() {
     }
 }
 
-/// The cost, measured rather than asserted, because B-0047 has to budget for
-/// it. The naive form is quadratic and the fast one is not.
+/// The cost, measured rather than asserted, because B-0047b had to budget for
+/// it. The definition is quadratic in the sample count and the fast form is
+/// not, and *that* is what is asserted rather than any wall-clock figure.
+///
+/// # Two ways this test was wrong before
+///
+/// It first timed one call to `energy_distance_naive` and extrapolated by
+/// `(n/small)^2`. Two separate faults, both invisible in a debug build:
+///
+/// The result was discarded with `let _ =`, so in a release build the whole
+/// call was eliminated as dead code. The measured time was 0.0 s, the
+/// projection was 0.0 s, and the test failed claiming the naive form was
+/// affordable. `black_box` is what stops that.
+///
+/// And an absolute projection is a claim about this machine. The scaling is a
+/// claim about the algorithm, so the scaling is what is checked: quadrupling
+/// the sample count should cost the definition about sixteen times as much and
+/// the fast form about four.
 #[test]
 fn the_fast_energy_distance_handles_a_tier_five_sized_sample() {
+    use std::hint::black_box;
+
     let mut rng = Lcg::new(0xFEED);
     let n = 172_800;
     let x = rng.sample(n, 0.0, 1.0);
     let y = rng.sample(n, 0.05, 1.0);
 
     let start = std::time::Instant::now();
-    let e = energy_distance(&x, &y);
+    let e = black_box(energy_distance(black_box(&x), black_box(&y)));
     let elapsed = start.elapsed();
     println!("energy distance on 2 x {n} samples: {e:.6} in {elapsed:?}");
     assert!(e.is_finite() && e > 0.0);
 
-    // The definition on the same data would be 3 * (172800^2) = 9e10 distance
-    // evaluations. Timing a thousandth of it and extrapolating says what that
-    // would cost, which is the number B-0047 needs.
-    let small = 1_000;
-    let start = std::time::Instant::now();
-    let _ = energy_distance_naive(&x[..small], &y[..small]);
-    let naive = start.elapsed();
-    let projected = naive.as_secs_f64() * (n as f64 / small as f64).powi(2);
+    // Both forms at two sizes, four times apart.
+    let time = |f: &dyn Fn(&[f64], &[f64]) -> f64, m: usize| {
+        let start = std::time::Instant::now();
+        let value = black_box(f(black_box(&x[..m]), black_box(&y[..m])));
+        assert!(value.is_finite(), "the call was optimised away");
+        start.elapsed().as_secs_f64()
+    };
+
+    let (small, large) = (2_000_usize, 8_000);
+    let naive_small = time(&energy_distance_naive, small);
+    let naive_large = time(&energy_distance_naive, large);
+    let fast_small = time(&energy_distance, small);
+    let fast_large = time(&energy_distance, large);
+
+    let naive_growth = naive_large / naive_small;
+    let fast_growth = fast_large / fast_small;
     println!(
-        "the definition on {small} took {naive:?}; on {n} it would take about \
-         {:.0} s per comparison",
-        projected
+        "quadrupling the sample count: definition x{naive_growth:.1}, fast form \
+         x{fast_growth:.1}"
     );
     assert!(
-        projected > 60.0,
-        "the naive form is projected at {projected:.1} s, which is affordable \
-         after all, so the fast path may not be worth its complexity"
+        naive_growth > 8.0,
+        "the definition grew only x{naive_growth:.1} for four times the data, \
+         so it is not behaving quadratically and this comparison is measuring \
+         something else"
     );
+    assert!(
+        naive_growth > 2.0 * fast_growth,
+        "the definition grew x{naive_growth:.1} and the fast form \
+         x{fast_growth:.1}, which is not the separation the fast path exists \
+         for"
+    );
+
+    // And the absolute figure B-0047b recorded, printed rather than gated: the
+    // definition on the full sample would be 3 * 172800^2 distance
+    // evaluations.
+    let projected = naive_small * (n as f64 / small as f64).powi(2);
+    println!("the definition on {n} samples would take about {projected:.0} s");
 }
