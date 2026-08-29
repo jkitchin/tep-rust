@@ -8,6 +8,8 @@
 
 #![forbid(unsafe_code)]
 
+mod dataset;
+
 use std::io::{self, BufWriter, Write};
 use std::process::ExitCode;
 
@@ -18,6 +20,7 @@ tep - Tennessee Eastman Process simulator
 
 USAGE:
     tep run [OPTIONS]        Simulate and write CSV to stdout
+    tep dataset [OPTIONS]    Generate a d00-d21 shaped dataset of files
     tep faults               List the twenty disturbances
     tep help                 This message
 
@@ -32,11 +35,29 @@ RUN OPTIONS:
     --no-forced-idv12        Do not switch IDV(12) on at hour eight
     --labels                 Include ground-truth columns
 
+DATASET OPTIONS:
+    --out <dir>              Where to write (default: ./tep-data)
+    --set <which>            te (default), training, all
+    --faults <list>          `all` (default) or e.g. 0,1,4,6
+    --format <fmt>           dat (default, the published layout) or csv
+    --seed <n>               Override the per-file seeds teprob.f records
+    --force-idv12            Add IDV(12) at hour eight to every run
+    --list                   Print the inventory and write nothing
+
 EXAMPLES:
     tep run --hours 8 > normal.csv
     tep run --fault 4 --hours 24 --labels > idv4.csv
     tep run --fault 1 --seed 12345 --every 60 | head
     tep run --hours 4 --integrator rk4 > accurate.csv
+    tep dataset --out ./data
+    tep dataset --set all --faults 0,4,6 --format csv --out ./small
+
+NOTE ON `dataset`:
+    The output has the same geometry as d00-d21 and is not the same numbers.
+    The toolchain that generated the shipped files is unrecorded, the output
+    was rounded to five figures before anyone saw it, the training protocol is
+    documented nowhere, and IDV(21) is not in this revision of the model, so
+    d21 cannot be generated at all. `tep dataset` says all of this on stderr.
 
 NOTE ON --integrator:
     Only `euler` reproduces the original. The published data uses fixed-step
@@ -52,6 +73,13 @@ fn main() -> ExitCode {
             print!("{USAGE}");
             ExitCode::SUCCESS
         }
+        Some("dataset") => match dataset::parse(&args[1..]) {
+            Ok(options) => match dataset::run(&options) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(message) => fail(&message),
+            },
+            Err(message) => fail(&message),
+        },
         Some("faults") => {
             list_faults();
             ExitCode::SUCCESS
