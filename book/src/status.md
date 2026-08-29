@@ -1,105 +1,89 @@
 # Status
 
-This port is not finished, and the useful thing a status page can do is say
-exactly where the edge is. What follows is the state of the tree at the time
-this chapter was written, taken from the current-state block of `BACKLOG.org`
-and from the closing entries of `LOG.org`.
+**Everything planned is built.** Every phase has landed, every validation tier
+has a harness, and the four decisions that were once open have been taken. The
+backlog is 85 items done, none open and none blocked.
 
-## What works
+That makes this page shorter than it used to be, and its job is now to say
+where the *limits* are rather than where the edge of construction is. Numbers
+here come from the current-state block of `BACKLOG.org` and the closing entries
+of `LOG.org`, and each names the iteration that measured it.
 
-**The plant model is complete and validated.** `tepsim-core` ports the whole of
-`TEFUNC` (`teprob.f:196-816`), from unpacking the fifty states through the
-vapour-liquid equilibrium, the kinetics, the stream table, the flows and the
-compressor, the stripper, the heat transfer, the measurements and the fifty
-balances. It closed with B-0025 for the balances and B-0024b for the noise and
-the analysers.
+## What exists
 
-**The control layer is complete.** `tepsim-control` ports the twenty control
-loops of `temain_mod.f`, plus the driver's own scheduling (see
-`temain_mod.f:246-317` for the velocity-form PI loop and `temain_mod.f:365-412`
-for the driver). Nineteen of the twenty are ones the driver calls; the
-twentieth, `CONTRL22`, is defined, tuned and never called, which is delta D-008.
-Phase 4 closed with B-0041 and its full 48-hour differential.
+The plant model, the control layer, the public API, the command line, the
+Python wheel and the browser app are all complete and validated.
+`tepsim-core` ports the whole of `TEFUNC` (`teprob.f:196-816`);
+`tepsim-control` ports the twenty control loops and the driver's own
+scheduling; `tepsim` is the API most callers want; `tep` drives it from a
+terminal, including `tep dataset` for generating `d00`-`d21` shaped files; the
+wheel carries no C dependency; and [TEP Studio](studio/) runs the whole
+simulator in a browser tab with no server.
 
-**The public API exists.** `tepsim` gives you `Scenario`, `Simulation` and
-`Run`, and `tep` drives them from a terminal. B-0052 established that
-`Simulation` reproduces the previously validated run loop bit for bit, so every
-claim Tiers 4 and 5 made now attaches to the public surface.
+The differential harness is `tepsim-oracle`, which compiles and links the
+unmodified Fortran, and `tepsim-stats`, which implements every statistic the
+ladder needs in Rust with known-answer tests, so no part of the validation
+depends on numpy or scipy.
 
-**The differential harness runs.** `tepsim-oracle` compiles and links the
-unmodified Fortran and carries the Tier 1, 2, 3, 4 and 5 machinery.
-`tepsim-stats` implements every statistic Tier 5 needs in Rust, with
-known-answer tests, so no part of the validation depends on numpy or scipy.
+**All ten tiers have a harness and all ten have run.** Tier 8, differential
+fuzzing with shrinking, and Tier 9, cross-platform determinism, were the last
+two and landed together. The [validation chapters](validation/index.md) are
+generated from the suite's own output for the tiers that have a generator; the
+narrative in [Validation](validation.md) is hand-written and transcribed from
+`LOG.org`, and each number there names the iteration that measured it so the
+transcription can be checked.
 
-The baseline recorded in `BACKLOG.org` at the close of B-0052 is 387 tests by
-default and 577 with the `oracle` feature, `cargo xtask validate --tiers
-1,2,3,4` green, and provenance at 1123 of 1589 claimed lines of `teprob.f` and
-183 of 1408 of `temain_mod.f`, 43.6% combined.
+## What is genuinely still missing
 
-## What does not exist yet
+These are limits, not unfinished work, and most of them are limits of the
+machine this was built on rather than of the code.
 
-**There is no browser application.** Phase 8 has not started. It additionally
-needs `trunk`, which is not installed on the development machine.
+**Tier 9 has no x86-64 leg and no real-browser leg.** Six committed digests are
+identical on aarch64 and on wasm32 under Node, across three build profiles, and
+the browser app's transport path reproduces them independently. Nobody has run
+them on x86-64, Windows or aarch64 Linux, and Node is not a browser. The table
+is committed constants rather than a value computed twice in one process,
+precisely so that running `cargo xtask tier9` on another machine completes the
+claim with no code change.
 
-**There are no Python bindings.** `crates/tepsim-py` is eleven lines of doc
-comment. Phase 7 was never blocked on PyO3; it was blocked on there being an
-API to bind, which B-0052 has now supplied.
+**Tier 8 has one open counterexample.** In five million tuples, `fuzz#863105`
+misses the 1e-12 gate at 4.607e-12 of the scale of its terms. It is recorded
+and attributed rather than fixed, because there is nothing to fix: it is an
+accepted one-ULP `exp` difference amplified by 973 simulated hours of
+`IDV(13)`'s kinetic drift, and it is bit-identical under `libm-system`.
 
-**There is no scenario engine.** `crates/tepsim-scenario` is sixteen lines. A
-`Scenario` today is the struct described in [Getting started](getting-started.md),
-which covers seed, duration, step, sampling cadence, the twenty disturbance
-flags and the quirk switches, and nothing more. Arbitrary user-defined faults,
-scheduled onsets and scenario files are backlog item B-0054.
+**Two `IDV` faults miss the Tier 5 margin under the vendored libm.** `IDV(14)`
+and `IDV(19)`, on exactly the valves those faults stick, and bit-identical
+under the platform libm. The cause is `teprob.f:801`, a discontinuous branch on
+a floating-point comparison. Those valves are judged on their distribution
+rather than on a mean, because a series of plateaux has no meaningful centre.
+No margin was widened.
 
-**Recorder sinks exist** as of B-0055: `Columnar` for analysis, `Csv` for
-reading by eye, `Ring` for a bounded live display, and `Decimating` and
-`Selecting` as composable wrappers. `Simulation::run_into` streams into one
-rather than collecting, which matters because a 48-hour run sampled at every
-step is 172,800 rows of 53 channels. Apache Arrow and Parquet are not
-implemented; whether their dependency cost is acceptable is still an open
-question.
+**Apache Arrow and Parquet sinks are not implemented.** The recorder sinks that
+exist are `Columnar`, `Csv`, `Ring`, `Decimating` and `Selecting`, and
+`Simulation::run_into` streams into one rather than collecting. Arrow's
+dependency cost was judged not to be worth paying until someone has a dataset
+large enough that CSV is the bottleneck; the right home would be `tepsim-cli`,
+never `tepsim`, which is `no_std` and compiles to wasm32 under a size budget.
 
-**Three integrators exist** as of B-0053: fixed-step explicit Euler, classical
-RK4, and Dormand-Prince 5(4) with an embedded error estimate. **Only Euler
-reproduces the original**, and it is the default; the validation ladder's every
-claim is a claim about Euler. The step size is not yet adapted, because a
-variable step changes when the discrete phases run and that is a decision about
-fidelity rather than about numerics.
+**A historian export does not exist.** Everything is wide tabular. A long-format
+`tag,timestamp,value,quality` record would need a caller-supplied epoch, since
+the core may not read a clock, a decision about what quality code a dead-time
+analyser and a frozen channel deserve, and units promoted from prose in
+`measurements.rs` to data on a channel.
 
-The three-phase split of the right-hand side described in [The right-hand
-side](process/rhs.md) exists precisely so a multi-stage method can be correct,
-and B-0053 is where that was finally demonstrated: all three methods advance
-the disturbance walks once per outer step and update the gas analyser the same
-number of times, which a naive four-stage method built on `TEFUNC` would not.
+**The step size is not adapted.** Three integrators exist as of B-0053: fixed
+step explicit Euler, classical RK4, and Dormand-Prince 5(4) with an embedded
+error estimate. **Only Euler reproduces the original**, and it is the default.
+A variable step changes when the discrete phases run, which is a decision about
+fidelity rather than about numerics, so it has not been taken.
 
-That comparison also produced a result about the original rather than about the
+That comparison produced a result about the original rather than about the
 port. RK4 and Dormand-Prince agree with each other to 1.5e-6 while both differ
 from Euler by about 1.1e-2, so the published Tennessee Eastman data carries
 roughly one percent of integration error against an accurate solution of the
 same equations. Reproducing that is the point, but it means "the TEP" names a
 particular discretisation and not only a set of differential equations.
-
-**Tier 5 is partial and Tiers 6 through 10 have not run.** The Tier 5 battery
-exists and passes, but the full run covers **3 of the 21 scenarios**, stopped by
-direction after about 25 minutes to redirect effort to the user-facing surface
-(LOG entry B-0047b). Tier 6, the downstream detector experiment, is B-0050.
-Tier 7, reproducing the published `d00` through `d21` files, is B-0051. Tiers 8,
-9 and 10 have not been started.
-
-**The validation report is generated for Tiers 1 to 3 only.** `cargo xtask
-validate` now writes [the measured chapters](validation/index.md) from the
-suite's own output, but only for the tiers it has a generator for. Tiers 4 and 5
-still run without writing a page, and Tiers 6 to 10 have no harness. The
-narrative in [Validation](validation.md) remains hand-written and transcribed
-from `LOG.org`; each number there names the iteration that measured it, so the
-transcription can be checked against the generated chapters.
-
-**The delta register's prose is written by hand, but it is no longer
-unchecked.** `cargo xtask deltas` collects every `@delta` marker in the source,
-cross-checks it against the entries in [the register](deltas.md), and fails if
-either half is missing or if the two disagree about the class. The collected
-table is [the delta marker index](validation/delta-index.md). Generating the
-register's prose itself is still a Phase 9 item.
 
 ## The two Class C quirks, and what a default `Scenario` now does
 

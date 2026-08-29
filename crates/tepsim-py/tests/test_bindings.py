@@ -411,7 +411,36 @@ def test_scenario_repr_round_trips():
         Scenario.fault(3, hours=1, seed=5),
         Scenario(faults=[2, 7, 20], controlled=False, trip_ends_the_run=False),
     ):
+        # These are all expressible as a constructor call, so that is what
+        # `repr` should give: it is what is readable at a prompt.
+        assert repr(scenario).startswith("Scenario(")
         assert eval(repr(scenario)) == scenario
+
+
+def test_repr_round_trips_what_the_constructor_cannot_express():
+    """`Scenario(...)` has no argument for a schedule, an extension or an
+    integrator, so `repr` falls back to `from_text` for those.
+
+    Without this, `repr` produced valid Python that evaluated to a *different*
+    scenario with a different digest, and the class docstring promised it did
+    not. Found from a notebook, not from a test, which is why this exists.
+    """
+    Scenario = tep.Scenario  # noqa: N806  (the name `eval` needs in scope)
+    base = Scenario.baseline().to_text()
+    for scenario in (
+        # A scheduled fault that arrives at hour 6 and clears at hour 12.
+        Scenario.from_text(base.replace("events=", "events=6:start:4,12:stop:4")),
+        # A non-default integrator.
+        Scenario.from_text(base.replace("integrator=euler", "integrator=rk4")),
+        # The continuous-disturbance extension.
+        Scenario.from_text(base.replace("continuous=0", "continuous=1")),
+    ):
+        assert repr(scenario).startswith("Scenario.from_text(")
+        restored = eval(repr(scenario))
+        assert restored == scenario
+        # The digest is the thing that actually decides whether two scenarios
+        # are the same run, so assert on it as well as on equality.
+        assert restored.digest == scenario.digest
 
 
 # ---------------------------------------------------------------------------

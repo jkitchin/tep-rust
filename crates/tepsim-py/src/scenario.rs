@@ -431,7 +431,32 @@ impl Scenario {
         Self::wrap(self.inner.open_loop())
     }
 
+    /// `repr` that round-trips, in both of the two shapes it needs.
+    ///
+    /// # Why this is not always a constructor call
+    ///
+    /// The docstring on this class promises `eval(repr(s)) == s`, and the
+    /// obvious implementation quietly broke that promise. `Scenario(...)`
+    /// cannot express three of the fields a scenario carries: the schedule, the
+    /// `continuous_disturbances` extension and the integrator. A `repr` that
+    /// printed only the constructor's arguments produced valid Python that
+    /// evaluated to a *different* scenario, with a different digest and a
+    /// different run, and nothing said so.
+    ///
+    /// So a scenario the constructor can express is printed as a constructor
+    /// call, because that is what is readable at a prompt, and anything else is
+    /// printed as `Scenario.from_text(...)`, which round-trips by construction:
+    /// the text carries every field and `tests/test_bindings.py` asserts the
+    /// pair on scenarios of both shapes.
     fn __repr__(&self) -> String {
+        let baseline = tepsim::Scenario::baseline();
+        let expressible = self.inner.schedule.is_empty()
+            && self.inner.extensions == baseline.extensions
+            && self.inner.integrator == baseline.integrator;
+
+        if !expressible {
+            return format!("Scenario.from_text({:?})", self.inner.to_text());
+        }
         format!(
             "Scenario(seed={:?}, hours={:?}, step_hours={:?}, sample_every={}, \
              faults=({}), controlled={}, driver_forces_idv12={}, trip_ends_the_run={})",

@@ -17,6 +17,14 @@ create-missing = false
 # the book" link leaves the book entirely. Every other page uses relative
 # links and does not care.
 site-url = "/tep-rust/"
+# Puts a GitHub icon in the book's top bar, linking every page back to the
+# source. The book makes claims about specific `teprob.f` line ranges and
+# specific measured numbers, and a reader who wants to check one should not
+# have to guess where the repository is.
+git-repository-url = "https://github.com/jkitchin/tep-rust"
+git-repository-icon = "fab-github"
+# And an "edit this page" link, pointing at the file that produced it.
+edit-url-template = "https://github.com/jkitchin/tep-rust/edit/main/book/{path}"
 mathjax-support = true
 smart-punctuation = false
 no-section-label = false
