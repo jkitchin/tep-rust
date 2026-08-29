@@ -48,3 +48,6 @@ __pycache__/
 
 # The golden trace is committed on purpose: it is the fidelity preflight's
 # anchor and must work without a Fortran toolchain. Not ignored.
+
+# Assembled locally to rehearse what `.github/workflows/pages.yml` publishes.
+/_site/

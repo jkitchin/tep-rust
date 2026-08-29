@@ -1,0 +1,142 @@
+# Publishes the book and TEP Studio to GitHub Pages.
+#
+# The site is assembled from two things that build very differently.
+#
+# The book needs no toolchain. `cargo xtask validate` writes the generated
+# validation chapters and `cargo xtask deltas` writes the delta marker index,
+# and both are committed, so mdBook alone is enough.
+#
+# The studio does need one: `apps/studio/dist` is gitignored on purpose, so
+# what gets deployed is built here from `crates/tepsim-wasm` rather than from
+# a checked-in artifact that could silently drift from the source.
+#
+# Both tool versions are pinned, for the reason `rust-toolchain.toml` pins
+# rustc: a renderer or a code generator that moves under you turns a
+# documentation diff into a mystery. wasm-bindgen in particular *must* match
+# the library version exactly, because the glue and the module share a private
+# ABI, so the version is read out of `Cargo.lock` rather than typed here.
+name: pages
+
+on:
+  push:
+    branches: [main]
+    # Only when something the site is made of moves.
+    paths:
+      - 'book/**'
+      - 'apps/studio/**'
+      - 'crates/tepsim-wasm/**'
+      - 'crates/tepsim/**'
+      - 'crates/tepsim-core/**'
+      - 'crates/tepsim-control/**'
+      - 'crates/tepsim-scenario/**'
+      - 'Cargo.lock'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+# Least privilege: read the repo, and mint the token `deploy-pages` needs.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deploy at a time, and let a newer commit win. `cancel-in-progress: false`
+# would queue them and publish an older site after a newer one.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+env:
+  MDBOOK_VERSION: 0.5.4
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # --- the book -----------------------------------------------------
+
+      - name: Install mdBook ${{ env.MDBOOK_VERSION }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.local/bin"
+          url="https://github.com/rust-lang/mdBook/releases/download/v${MDBOOK_VERSION}/mdbook-v${MDBOOK_VERSION}-x86_64-unknown-linux-gnu.tar.gz"
+          curl --proto '=https' --tlsv1.2 -sSfL "$url" | tar -xz -C "$HOME/.local/bin"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Versions, recorded rather than assumed
+        run: mdbook --version
+
+      - name: Build the book
+        run: mdbook build book
+
+      # --- the studio ---------------------------------------------------
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          target: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+
+      # The version the library is built against. `apps/studio/build.sh` reads
+      # the same field the same way and refuses to run on a mismatch; this
+      # installs what that check is going to demand.
+      - name: Install wasm-bindgen-cli, at the version Cargo.lock pins
+        run: |
+          set -euo pipefail
+          wanted="$(awk '/^name = "wasm-bindgen"$/ { f = 1; next }
+                         f && /^version = / { gsub(/[",]/, "", $3); print $3; exit }' Cargo.lock)"
+          echo "Cargo.lock wants wasm-bindgen $wanted"
+          cargo install wasm-bindgen-cli --version "$wanted" --locked
+
+      # binaryen for wasm-opt. Worth about 9% of the raw module and close to
+      # nothing gzipped, so `build.sh` treats it as optional; installing it
+      # here costs seconds and makes the published bytes the smaller ones.
+      - name: Install binaryen
+        run: sudo apt-get update && sudo apt-get install -y binaryen
+
+      - name: Build the studio
+        run: apps/studio/build.sh
+
+      # --- assemble -----------------------------------------------------
+
+      # The book at the root and the studio one level down, so the published
+      # URLs are `<site>/` and `<site>/studio/`. `book.toml` sets `site-url`
+      # to match, which is what makes the book's 404 page resolve correctly
+      # from a subpath.
+      - name: Assemble the site
+        run: |
+          set -euo pipefail
+          rm -rf _site
+          mkdir -p _site
+          cp -r book/book/. _site/
+          mkdir -p _site/studio
+          cp -r apps/studio/dist/. _site/studio/
+
+      # Both halves have to be there, and the studio has to have its wasm.
+      # Without this a broken build publishes an empty directory and the only
+      # symptom is a 404 that nobody sees until they visit.
+      - name: The site has both halves
+        run: |
+          set -euo pipefail
+          test -f _site/index.html
+          test -f _site/studio/index.html
+          test -f _site/studio/js/tepsim_wasm_bg.wasm
+          pages=$(find _site -name '*.html' | wc -l)
+          wasm=$(du -h _site/studio/js/tepsim_wasm_bg.wasm | cut -f1)
+          echo "$pages HTML page(s); wasm module $wasm"
+          test "$pages" -gt 10
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

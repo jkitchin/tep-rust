@@ -10,6 +10,21 @@
 //! and Tier 2 are measured against a specific compiler and a specific flag set;
 //! changing either invalidates every number recorded in `LOG.org`, so it is a
 //! deliberate re-baseline rather than a casual edit.
+//!
+//! # This does not build on Windows, and that is the policy
+//!
+//! `xtask::oracle_supported` refuses to build the oracle on Windows, so nothing
+//! in CI reaches this file there. The policy is `CLAUDE.md`'s: the oracle runs
+//! on Linux and macOS runners only. Every Tier 1 and Tier 2 number was
+//! baselined against a specific gfortran on one of those two, and admitting a
+//! third toolchain is a re-baseline, not a portability fix.
+//!
+//! For whoever does decide to port it, the first thing in the way is a path.
+//! `fs::canonicalize` on Windows returns an extended-length `\\?\` path, and
+//! MinGW's `f951.exe` cannot parse one: it reported
+//! `Fatal Error: Cannot open file '\\teprob.f'` the first time CI ran this on
+//! `windows-latest`. Stripping the prefix before handing the path to gfortran
+//! is the fix, and it is the beginning of the work rather than the end of it.
 
 use std::env;
 use std::path::{Path, PathBuf};

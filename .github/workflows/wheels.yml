@@ -151,20 +151,35 @@ jobs:
           path: dist
 
   # The free-threaded interpreters, which have no stable ABI to target, so their
-  # wheels are version specific: cp313t and cp314t, one per interpreter per
-  # platform. `--no-default-features` is what removes `pyo3/abi3-py39`; see the
-  # comment on `[features]` in crates/tepsim-py/Cargo.toml for why it cannot be
-  # done any other way. `PLAN.org` adds abi3t when 3.15 makes it available, at
+  # wheels are version specific: cp314t, one per interpreter per platform.
+  # `--no-default-features` is what removes `pyo3/abi3-py39`; see the comment on
+  # `[features]` in crates/tepsim-py/Cargo.toml for why it cannot be done any
+  # other way. `PLAN.org` adds abi3t when 3.15 makes it available, at
   # which point this whole job collapses back into the one above.
   #
-  # UNVERIFIED, and the least certain part of this file:
-  #   - that `-i python3.13t` resolves inside the manylinux container. The host
-  #     interpreter that actions/setup-python installs is not visible in there;
-  #     maturin is being trusted to find the container's own /opt/python builds.
-  #   - that pyo3 0.29 builds cleanly against a free-threaded interpreter with
-  #     abi3 off. It should, but nothing here has compiled it.
-  # If the container resolution is the problem, the fix is `container: off` plus
-  # a separate manylinux repair step, not weakening the tag.
+  # Both of this block's open questions were answered the first time it ran,
+  # on 2026-08-29, and the answers went opposite ways.
+  #
+  # `-i python3.14t` *does* resolve inside the manylinux container, so the
+  # worry about `actions/setup-python`'s host interpreter not being visible was
+  # unfounded: maturin finds the container's own build. All three 3.14t
+  # platforms pass.
+  #
+  # And 3.13t cannot work, for a reason upstream of this repository:
+  #
+  #   error: PyO3 does not support the free-threaded build of CPython versions
+  #   below 3.14, the selected Python version is 3.13
+  #
+  # It failed identically on all three platforms. The build backend says the
+  # same thing independently: "CFFI does not support the free-threaded build of
+  # CPython 3.13. Upgrade to free-threaded 3.14 or newer." So `3.13t` is not a
+  # row that needs fixing, it is a row that cannot exist with pyo3 0.29, and it
+  # is removed rather than left red or papered over with `continue-on-error`.
+  # Free-threaded coverage is unaffected: 3.14t still builds on all three
+  # platforms, and 3.14 is where free-threading is officially supported anyway.
+  #
+  # Restore `3.13t` only if a future pyo3 announces support for it, which as of
+  # 0.29 it explicitly does not.
   freethreaded:
     name: ${{ matrix.python }} ${{ matrix.platform.name }}
     needs: licences
@@ -172,7 +187,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python: ['3.13t', '3.14t']
+        python: ['3.14t']
         platform:
           - name: manylinux-x86_64
             os: ubuntu-latest

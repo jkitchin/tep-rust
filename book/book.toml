@@ -10,6 +10,13 @@ build-dir = "book"
 create-missing = false
 
 [output.html]
+# The book is served from a subpath, `https://<host>/tep-rust/`, not from a
+# domain root. `site-url` is what mdBook uses to build absolute links on the
+# 404 page; without it that page emits `href="/"` and relative stylesheet
+# paths, so a mistyped URL two levels deep renders unstyled and its "back to
+# the book" link leaves the book entirely. Every other page uses relative
+# links and does not care.
+site-url = "/tep-rust/"
 mathjax-support = true
 smart-punctuation = false
 no-section-label = false

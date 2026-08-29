@@ -359,14 +359,21 @@ mod citation_tests {
         (688, "XMEAS(10)=FTM(10)"),
     ];
 
+    /// The vendored Fortran, read at *compile* time.
+    ///
+    /// `include_str!` rather than `std::fs::read_to_string`, for two reasons.
+    /// Miri runs `tepsim-core`'s unit tests with filesystem isolation on, so a
+    /// runtime read aborts the whole Miri job, which is how this was found. And
+    /// a compile-time include cannot resolve to the wrong file or fail at run
+    /// time: if the path is wrong the crate does not build.
+    const TEPROB: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../reference/fortran/teprob.f"
+    ));
+
     #[test]
     fn every_cited_line_says_what_the_documentation_claims() {
-        let path = concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../reference/fortran/teprob.f"
-        );
-        let source = std::fs::read_to_string(path).expect("the vendored Fortran");
-        let lines: std::vec::Vec<&str> = source.lines().collect();
+        let lines: std::vec::Vec<&str> = TEPROB.lines().collect();
 
         for (number, expected) in CITATIONS {
             let line: String = lines
@@ -388,12 +395,7 @@ mod citation_tests {
     /// could still pass if the source happened to be repetitive.
     #[test]
     fn the_neighbouring_lines_do_not_match() {
-        let path = concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../reference/fortran/teprob.f"
-        );
-        let source = std::fs::read_to_string(path).expect("the vendored Fortran");
-        let lines: std::vec::Vec<&str> = source.lines().collect();
+        let lines: std::vec::Vec<&str> = TEPROB.lines().collect();
 
         for (number, expected) in CITATIONS {
             for offset in [-1_isize, 1] {

@@ -6,7 +6,7 @@
   "scripts": {
     "build": "./build.sh",
     "measure": "./measure.sh",
-    "test": "node --test --test-force-exit node/",
+    "test": "node --test --test-force-exit \"node/**/*.test.mjs\"",
     "serve": "python3 -m http.server 8000 --directory dist"
   }
 }

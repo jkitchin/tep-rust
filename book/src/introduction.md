@@ -95,6 +95,18 @@ harness: `tepsim::Simulation` reproduces the validated loop bit for bit over the
 nominal scenario and `IDV(1)`, `IDV(6)`, `IDV(13)` and `IDV(20)`, on all 60
 samples and all 53 channels, in both `libm` configurations.
 
+## Run it in the browser first
+
+[**TEP Studio**](studio/) is this simulator compiled to WebAssembly, running
+entirely in your browser with no server and nothing to install. Start the plant,
+switch a disturbance on, and watch the controllers fight it. Every scenario is
+shareable as a URL, because the whole scenario is in the link.
+
+It is the same code the rest of this book documents, not a demonstration model:
+the page prints a determinism digest that matches the one the native build
+computes, and `apps/studio/node/deployed.test.mjs` asserts that on the module
+that actually ships.
+
 ## How to read this book
 
 [Getting started](getting-started.md) is the working API and the command line

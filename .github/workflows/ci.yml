@@ -15,16 +15,31 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # The gate, on every target we claim to support. gfortran is absent on the
-  # Windows runner by design, so `xtask ci` skips the oracle job there rather
-  # than failing: see the `oracle` job below, which is where that coverage lives.
+  # The gate, on Linux only.
+  #
+  # It ran on all three runners until 2026-08-29. What that bought, measured
+  # rather than assumed the first time the matrix actually completed, was one
+  # genuine finding: the Windows runner *does* ship gfortran, contrary to the
+  # comment that used to sit here, so `xtask ci` tried to build the oracle
+  # there and `f951.exe` could not parse the extended-length `\\?\` path that
+  # `fs::canonicalize` produces. That is now handled by policy in
+  # `xtask::oracle_supported`, which refuses Windows outright, matching what
+  # `CLAUDE.md` always said.
+  #
+  # Everything else the Windows and macOS gate rows checked is checked
+  # elsewhere: the oracle job below still runs on Linux and macOS, so aarch64
+  # and a second gfortran are still covered and the bit-exactness claim is
+  # unaffected; the wheels workflow still builds and smoke-tests wheels on
+  # Windows and macOS, which is where cross-platform breakage would actually
+  # reach a user; and `tepsim-core` is `no_std` with no platform-specific code
+  # to diverge. Three full gates for that was not paying for itself.
   gate:
     name: gate (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest]
     steps:
       # Before checkout, and it has to be: crates/tepsim-py/{LICENSE,
       # LICENSE-NCSA,NOTICE.md} are symlinks to the repository root, and Git for
@@ -134,5 +149,13 @@ jobs:
       # integration tests read the vendored Fortran from disk, which miri
       # forbids without disabling isolation. Relaxing isolation to run tests
       # that cannot exhibit UB would weaken the check for nothing.
+      #
+      # That scoping is not enough on its own, which this job proved the first
+      # time it ran in 180 commits: `stream.rs`'s citation tests are *unit*
+      # tests, inside `--lib`, and they read `teprob.f` with
+      # `std::fs::read_to_string`. Miri aborted the whole job. They use
+      # `include_str!` now, so the file is read at compile time and no unit
+      # test in `tepsim-core` touches the filesystem. Keep it that way: a unit
+      # test that needs a file either includes it or belongs in `tests/`.
       - name: Miri on tepsim-core
         run: cargo +nightly miri test -p tepsim-core --lib

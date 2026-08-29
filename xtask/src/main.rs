@@ -240,8 +240,8 @@ fn cmd_ci(root: &Path, fast: bool) -> Result<(), String> {
     // differential tests need `float_cmp` and `suboptimal_flops` allowed,
     // because exact comparison against the Fortran is what they are for.
     //
-    // Skipped without gfortran, like the rest of the oracle work.
-    if which("gfortran").is_some() {
+    // Skipped where the oracle is unavailable, like the rest of the oracle work.
+    if oracle_supported() {
         step(
             root,
             "cargo",
@@ -257,7 +257,10 @@ fn cmd_ci(root: &Path, fast: bool) -> Result<(), String> {
             ],
         )?;
     } else {
-        println!("[skip] clippy with the oracle feature: no gfortran on PATH");
+        println!(
+            "[skip] clippy with the oracle feature: {}",
+            oracle_unavailable()
+        );
     }
     // And a third pass under `libm-system`. Not redundant: that configuration
     // is `std`, so `f64::mul_add` exists and `clippy::suboptimal_flops` starts
@@ -288,10 +291,11 @@ fn cmd_ci(root: &Path, fast: bool) -> Result<(), String> {
 
     if fast {
         println!("\n[skip] oracle differential job (--fast)");
-    } else if which("gfortran").is_none() {
+    } else if !oracle_supported() {
         println!(
-            "\n[skip] oracle differential job: gfortran not found.\n\
-             Per CLAUDE.md, a session without gfortran must not do model work."
+            "\n[skip] oracle differential job: {}.\n\
+             Per CLAUDE.md, a session without the oracle must not do model work.",
+            oracle_unavailable()
         );
     } else {
         step(
@@ -325,6 +329,21 @@ fn cmd_ci(root: &Path, fast: bool) -> Result<(), String> {
     // first. The licences were already checked at the top of this function, so
     // it does not repeat that here.
     cmd_python(root, false)?;
+
+    // TEP Studio's Node suite. Nothing ran it until B-0071, and the cost of
+    // that was exactly what this project keeps rediscovering: its runner had
+    // broken silently on a Node upgrade, and behind the broken runner sat a
+    // test still asserting the pre-sign-off D-007 behaviour. Both were found
+    // the moment something ran it.
+    //
+    // Node is optional, like gfortran and maturin: a checkout without it can
+    // still gate the Rust. The suite itself skips its deployed-artifact check
+    // when `apps/studio/dist` has not been built.
+    if which("node").is_some() {
+        step(&root.join("apps/studio"), "npm", &["test", "--silent"])?;
+    } else {
+        println!("\n[skip] TEP Studio's Node suite: node is not on PATH");
+    }
 
     println!("\nci: green");
     Ok(())
@@ -1015,8 +1034,8 @@ fn cmd_validate(root: &Path, flags: &[String]) -> Result<(), String> {
                 }
             }
             6 => {
-                if which("gfortran").is_none() {
-                    return Err("tier 6 needs gfortran, which is not on PATH.".to_string());
+                if !oracle_supported() {
+                    return Err(format!("tier 6 cannot run: {}.", oracle_unavailable()));
                 }
                 // The cross-source detector experiment, plus the detection
                 // rates against the published files. Both take a size
@@ -1048,8 +1067,8 @@ fn cmd_validate(root: &Path, flags: &[String]) -> Result<(), String> {
                 }
             }
             7 => {
-                if which("gfortran").is_none() {
-                    return Err("tier 7 needs gfortran, which is not on PATH.".to_string());
+                if !oracle_supported() {
+                    return Err(format!("tier 7 cannot run: {}.", oracle_unavailable()));
                 }
                 // Every published file rather than the four-file smoke set.
                 // About five minutes in release; thirty-five in debug, which
@@ -1084,8 +1103,8 @@ fn cmd_validate(root: &Path, flags: &[String]) -> Result<(), String> {
                 tier9::cmd_tier9(root, &[])?;
             }
             10 => {
-                if which("gfortran").is_none() {
-                    return Err("tier 10 needs gfortran, which is not on PATH.".to_string());
+                if !oracle_supported() {
+                    return Err(format!("tier 10 cannot run: {}.", oracle_unavailable()));
                 }
                 println!("\n=== tier 10: measured deltas for every Class C quirk ===");
                 step(
@@ -1138,14 +1157,48 @@ fn cmd_validate(root: &Path, flags: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-/// No gfortran, no model work. `CLAUDE.md` is explicit about this.
+/// Whether this machine can build and run the Fortran oracle.
+///
+/// Two conditions, and the second is easy to forget. gfortran has to be on
+/// PATH, and the platform has to be one the oracle is supported on, which per
+/// `CLAUDE.md` is Linux and macOS and never Windows.
+///
+/// # Why the platform check is not redundant
+///
+/// It was, until CI ran on Windows for the first time in 180 commits. The
+/// `windows-latest` runner image ships gfortran, so a bare `which("gfortran")`
+/// says yes and the oracle build script runs. It then fails, because
+/// `build.rs` hands gfortran a path from `fs::canonicalize`, which on Windows
+/// is an extended-length `\\?\` path that MinGW's `f951.exe` cannot parse:
+/// `Fatal Error: Cannot open file '\\teprob.f'`.
+///
+/// The fix is the policy, not the path. Every Tier 1 and Tier 2 number in
+/// `LOG.org` was baselined against a specific gfortran on Linux or macOS, and
+/// silently admitting a third toolchain would invalidate them without anyone
+/// deciding to. See the note in `crates/tepsim-oracle/build.rs` for what a
+/// deliberate Windows port would have to fix first.
+fn oracle_supported() -> bool {
+    !cfg!(windows) && which("gfortran").is_some()
+}
+
+/// Why the oracle is unavailable, for a skip message.
+fn oracle_unavailable() -> &'static str {
+    if cfg!(windows) {
+        "the oracle is not supported on Windows; see `oracle_supported`"
+    } else {
+        "gfortran is not on PATH"
+    }
+}
+
+/// No oracle, no model work. `CLAUDE.md` is explicit about this.
 fn require_gfortran(tier: u8) -> Result<(), String> {
-    if which("gfortran").is_some() {
+    if oracle_supported() {
         return Ok(());
     }
     Err(format!(
-        "tier {tier} needs gfortran, which is not on PATH. Per CLAUDE.md, a \
-         session without it must not do model work."
+        "tier {tier} cannot run: {}. Per CLAUDE.md, a session without the \
+         oracle must not do model work.",
+        oracle_unavailable()
     ))
 }
 

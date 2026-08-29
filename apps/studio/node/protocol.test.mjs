@@ -162,11 +162,9 @@ test("a restarted run is identical to one started with the fault set", async () 
   assert.equal(rebuilt.checksum, direct.last.checksum);
 });
 
-test("an open-loop run trips and the plant keeps reporting", async () => {
-  // Not a failure mode: `teprob.f:807-811` freezes the plant and carries on,
-  // and those frozen samples are in every published dataset. The page has to
-  // show a trip without treating it as an error, so the protocol has to carry
-  // one.
+test("an open-loop run trips, and the protocol says so rather than erroring", async () => {
+  // A trip is a result, not a failure mode, so the page has to be able to show
+  // one without treating it as an error and the protocol has to carry it.
   const { last, started } = await runToCompletion(worker, {
     hours: 6,
     controlled: false,
@@ -174,8 +172,25 @@ test("an open-loop run trips and the plant keeps reporting", async () => {
   assert.equal(last.outcome, "tripped");
   assert.ok(last.tripHours > 0 && last.tripHours < 6, `tripped at ${last.tripHours} h`);
   assert.ok(typeof last.tripCause === "string" && last.tripCause.length > 0);
-  // The run still emitted every planned sample: the trip froze the plant, it
-  // did not end the run.
+  // Delta D-007, signed off 2026-08-28: the run ends at the trip, so it is
+  // shorter than the plan. Before that it froze the plant and emitted every
+  // planned sample, and this assertion read `equal` instead.
+  assert.ok(
+    last.emitted < started.totalSamples,
+    `the run continued past the trip: ${last.emitted} of ${started.totalSamples}`,
+  );
+});
+
+test("and `tripEndsTheRun: false` freezes the plant and reports to the end", async () => {
+  // The other half of D-007. `teprob.f:807-811` zeroes the derivatives and the
+  // plant keeps reporting, which is what the frozen tails in the published
+  // `d06` and `d18` files are, so the browser has to be able to reproduce it.
+  const { last, started } = await runToCompletion(worker, {
+    hours: 6,
+    controlled: false,
+    tripEndsTheRun: false,
+  });
+  assert.equal(last.outcome, "tripped");
   assert.equal(last.emitted, started.totalSamples);
 });
 

@@ -1,5 +1,12 @@
 # TEP-Rust
 
+[![CI](https://github.com/jkitchin/tep-rust/actions/workflows/ci.yml/badge.svg)](https://github.com/jkitchin/tep-rust/actions/workflows/ci.yml)
+[![book](https://github.com/jkitchin/tep-rust/actions/workflows/pages.yml/badge.svg)](https://kitchingroup.cheme.cmu.edu/tep-rust/)
+[![wheels](https://github.com/jkitchin/tep-rust/actions/workflows/wheels.yml/badge.svg)](https://github.com/jkitchin/tep-rust/actions/workflows/wheels.yml)
+
+**[Read the book](https://kitchingroup.cheme.cmu.edu/tep-rust/)** ·
+**[Run it in your browser](https://kitchingroup.cheme.cmu.edu/tep-rust/studio/)**
+
 A pure-Rust port of the Tennessee Eastman Process, taken from Downs and Vogel's
 original Fortran rather than from any later reimplementation, and shipped three
 ways: a Rust crate, a Python package with no C dependencies, and a
