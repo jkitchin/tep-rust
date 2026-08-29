@@ -2958,7 +2958,7 @@ error against the true state that only the simulator knows.
 :TIER:  11
 :DEPS:  B-0052
 :PLAN:  Operations > Economics
-:COMMIT: pending
+:COMMIT: 9eaad83
 :RESULT: =tepsim-operations= exists and is shipped; =xtask ci='s isolation
          check now reports *8* shipped crates and still passes. The cost rate
          has four terms, each citing the =XMEAS= channel it reads and the
