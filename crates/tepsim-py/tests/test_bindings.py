@@ -20,6 +20,7 @@ test suite, which is where a numerical claim belongs.
 
 import ast
 import os
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
@@ -582,16 +583,96 @@ def test_simulation_carries_its_scenario():
 # ---------------------------------------------------------------------------
 
 
+def _spin_for(seconds):
+    """Iterations of a pure-Python loop in `seconds` of wall clock."""
+    ticks = 0
+    deadline = time.perf_counter() + seconds
+    while time.perf_counter() < deadline:
+        ticks += 1
+    return ticks / seconds
+
+
+def test_run_releases_the_gil():
+    """The main thread keeps running Python at nearly full speed during a run.
+
+    # This is a ratio against this machine, and it has to be
+
+    Two earlier versions of this test were wrong in opposite ways, and both are
+    worth recording because each looks reasonable.
+
+    It first asserted `serial / threaded > 2.0` across four worker threads. That
+    is a proxy for the claim, and it failed on a Windows CI runner at 1.81,
+    which is *real parallelism*: a held GIL gives 1.0. The test was demanding
+    near-perfect scaling from a shared two-core virtual machine, and the only
+    way to "fix" it would have been to move the threshold to suit the runner.
+
+    It was then rewritten to count iterations of a Python loop while a run was in
+    flight and require more than ten thousand, on the reasoning that a held GIL
+    gives the interpreter nothing to switch to and so would give zero. **That
+    reasoning is wrong**, and rebuilding the extension with the `py.detach` call
+    removed proved it: the main thread still managed 164,572 iterations with the
+    GIL held, against 7,960,693 with it released. A held GIL is not a stopped
+    interpreter, it is a slow one. The threshold would have passed either way.
+
+    So the discriminator is the *ratio* of the same loop against itself: how fast
+    this thread runs Python while a run is in flight, over how fast it runs with
+    nothing else happening. Released, it is a large fraction of one. Held, it was
+    measured at about 1/43 of one. The threshold sits an order of magnitude from
+    each, and because both halves are measured on the same machine in the same
+    process, a slow runner moves neither.
+    """
+    # Calibrate first, while nothing else is running.
+    idle_rate = _spin_for(0.2)
+    assert idle_rate > 0, "the calibration loop did not run"
+
+    simulation = tep.Simulation(tep.Scenario.baseline(hours=24, seed=42))
+    finished = threading.Event()
+
+    def work():
+        try:
+            simulation.run()
+        finally:
+            finished.set()
+
+    worker = threading.Thread(target=work, daemon=True)
+    start = time.perf_counter()
+    worker.start()
+
+    ticks = 0
+    while not finished.is_set():
+        ticks += 1
+    worker.join(timeout=120)
+    elapsed = time.perf_counter() - start
+    busy_rate = ticks / elapsed
+
+    assert not worker.is_alive(), "the run never finished"
+    assert elapsed > 0.05, (
+        f"the run took {elapsed:.3f} s, too little to have observed anything; "
+        "lengthen the scenario"
+    )
+
+    ratio = busy_rate / idle_rate
+    print(
+        f"main thread: {busy_rate:,.0f} it/s during a {elapsed:.3f} s run, "
+        f"{idle_rate:,.0f} it/s idle, ratio {ratio:.3f}"
+    )
+    assert ratio > 0.20, (
+        f"the main thread ran at {ratio:.3f} of its idle speed while a run was "
+        "in flight; with the GIL released this is a large fraction of 1, and "
+        "removing `py.detach` measured 0.023"
+    )
+
+
 @pytest.mark.skipif(
     (os.cpu_count() or 1) < 4, reason="needs four cores to show any parallelism"
 )
-def test_run_releases_the_gil():
-    """An ensemble has to parallelise with threads, not just interleave.
+def test_threaded_runs_agree_with_serial_ones_and_the_speedup_is_recorded():
+    """Threading changes how long an ensemble takes and never what it contains.
 
-    The margin is deliberately loose. Four independent 12-hour runs on four
-    cores measured 5.4x on the machine this was written on; anything above 2x
-    is impossible without the GIL actually being released, and anything below
-    it is a scheduling accident rather than a regression.
+    The speedup is printed and not asserted. What it is worth depends on the
+    machine, and `test_run_releases_the_gil` already establishes that the GIL is
+    released, which is the part that can regress. Recording the number is useful;
+    gating on it measures the runner.
     """
     workers = 4
     sims = [
@@ -600,8 +681,7 @@ def test_run_releases_the_gil():
     ]
 
     start = time.perf_counter()
-    for simulation in sims:
-        simulation.run()
+    serial_runs = [simulation.run() for simulation in sims]
     serial = time.perf_counter() - start
 
     start = time.perf_counter()
@@ -609,7 +689,10 @@ def test_run_releases_the_gil():
         threaded_runs = list(pool.map(tep.Simulation.run, sims))
     threaded = time.perf_counter() - start
 
-    assert serial / threaded > 2.0, f"serial {serial:.3f} s, threaded {threaded:.3f} s"
+    print(
+        f"{workers} runs: serial {serial:.3f} s, threaded {threaded:.3f} s, "
+        f"speedup {serial / threaded:.2f}x on {os.cpu_count()} reported cores"
+    )
     # Parallel or not, the answers have to be the ones the scenarios determine.
-    for simulation, run in zip(sims, threaded_runs):
-        assert np.array_equal(run.to_numpy(), simulation.run().to_numpy())
+    for serial_run, threaded_run in zip(serial_runs, threaded_runs):
+        assert np.array_equal(serial_run.to_numpy(), threaded_run.to_numpy())
