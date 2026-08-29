@@ -78,6 +78,34 @@ fn print_report(report: &Report) {
             v.spectrum.p_value()
         );
     }
+    // One machine-readable line per variable, for the forest plot.
+    //
+    // The human table above shows the five worst by TOST p-value, which is a
+    // verdict. This is the measurement behind it: how far inside its own
+    // equivalence margin each variable's paired mean difference sits. A
+    // p-value says the test did not reject; this says by how much, which is
+    // what moves first if fidelity degrades.
+    //
+    // `kind` carries why a variable is or is not subject to the moment gate,
+    // because dropping the exceptions would overstate the result. `constant`
+    // means the reference never moved, so there is no mean to compare;
+    // `stuck` is a valve this scenario's fault sticks, judged on its
+    // distribution instead (B-0047d).
+    for v in &report.variables {
+        let kind = if v.constant {
+            "constant"
+        } else if v.stuck_valve {
+            "stuck"
+        } else {
+            "gated"
+        };
+        println!(
+            "  forest var {} kind {kind} difference {:.6e} margin {:.6e}",
+            v.variable + 1,
+            v.paired.welch.difference,
+            v.paired.margin
+        );
+    }
     println!(
         "  mean-test power: unpaired {:.2}, paired {:.4} x the margin",
         report.worst_mean_power(),

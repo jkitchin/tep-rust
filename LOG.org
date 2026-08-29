@@ -6447,3 +6447,66 @@ its equivalence margin needs =battery.rs= to print the difference and not only
 the TOST verdict, and an ECDF overlay needs some test to emit per-sample data.
 The first is the more valuable: it would put all 21 scenarios by 53 variables on
 one axis against the margin, which is the claim Tier 5 actually makes.
+
+* 2026-08-29 B-0079 The Tier 5 forest plot: every variable against its margin
+:PROPERTIES:
+:ITEM:     B-0079
+:PHASE:    9
+:TIER:     5
+:COMMIT:   pending
+:GFORTRAN: 15.2.0
+:STATUS:   DONE
+:END:
+** Preflight
+Fidelity 100 of 100, worst 3.521323734565789e-14 at =YP(12)= step 77. Unchanged;
+nothing here touches the model.
+
+** What changed
+The figure B-0078 could not draw. =tier5_battery= now prints a machine-readable
+line per variable with the paired difference, the margin, and why the moment
+gate does or does not apply; =plot::forest= draws it.
+
+The calibration figure says the two sources are closer to each other than the
+reference is to itself. This one says *how much room is left*, which neither
+that figure nor a TOST verdict can: a p-value reports that a test did not
+reject, not by what distance.
+
+** Validation numbers
+Smoke battery, 3 scenarios by 4 seeds by 2 h, 159 variable-measurements.
+
+| quantity | value |
+|----------+-------|
+| worst gated difference / margin | *5.590e-12* |
+| gated variables | 156 of 159 |
+| exempt (constant reference) | 3, all =XMV(12)=, the agitator |
+| markers reaching the gate | 0 |
+
+Eleven orders of magnitude of headroom on the worst variable.
+
+** Surprises and decisions
+
+*The figure shipped with the exact bug its backlog item warned against, and the
+item is why it was caught.* A constant reference has a margin of zero, so
+=ratio()= is undefined, and the first drawing skipped those points while the
+legend still advertised a marker for them. Three of 159 silently absent, and a
+denominator a reader would have counted wrongly. Written down as a requirement
+before any code, checked afterwards, and it still took actually rendering the
+figure and noticing the legend promised a marker that was nowhere on the canvas.
+
+Constant variables are now drawn in the zero lane, with a tooltip saying they
+have no ratio and why. =a_constant_variable_is_drawn_rather_than_dropped= pins
+it, and was mutation-tested by restoring the skipping form: it fails with "a
+marker went missing".
+
+*The axis is set by the gated points alone.* A stuck valve sits outside its
+margin by construction, and letting it into the scale would stretch the axis and
+make every gated point look artificially close to zero. That is flattering the
+result with layout. =the_forest_scale_ignores_the_variables_it_does_not_gate=
+asserts the gated marker keeps its exact x position when a stuck one is added.
+
+** Next
+The figure is drawn at smoke size, because the full battery is about three
+hours. Running it once at full size and committing that figure would make it the
+strongest artifact in the book: 21 scenarios by 53 variables, 1,113 markers, all
+of them against the margin they are actually gated on. Nothing else needs to
+change to do it, only the time.

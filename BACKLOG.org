@@ -14,8 +14,8 @@ earlier phases will change what the right decomposition is.
 
 Rewrite this block at the end of every iteration. Keep it to five lines.
 
-- Phase: Phases 0-9 complete except B-0079, which is NEXT. Phase 10, the
-  operations layer, is open: B-0075 to B-0077 follow B-0074
+- Phase: Phases 0-9 complete. Phase 10, the operations layer, is open:
+  B-0075 to B-0077 follow B-0074
 - Last completed: B-0062 (Tier 8 fuzzing), B-0063 (Tier 9 determinism), B-0064
   (=tep dataset=), B-0065/B-0066/B-0067 (the three sign-offs), B-0068 (the
   book's tutorials pinned to compiled examples)
@@ -3143,13 +3143,36 @@ Done when:
          difference, and nothing prints per-sample data.
 :END:
 
-** NEXT B-0079 The Tier 5 forest plot: every variable against its margin
+** DONE B-0079 The Tier 5 forest plot: every variable against its margin
 :PROPERTIES:
 :ID:    B-0079
 :PHASE: 9
 :TIER:  5
 :DEPS:  B-0078
 :PLAN:  Validation > Validation report
+:COMMIT: pending
+:RESULT: =tier5_battery= prints one machine-readable line per variable carrying
+         the paired difference, the margin and *why* the moment gate does or
+         does not apply; =plot::forest= draws it as a lane per scenario with
+         the gate at 1 and the region past it shaded.
+
+         *Worst gated variable: 5.590e-12 of its margin*, about eleven orders
+         of magnitude of headroom, at smoke size (3 scenarios by 4 seeds by
+         2 h, 159 variable-measurements). Nothing is near the band.
+
+         *The first version of this figure had the exact bug the item warned
+         against.* A constant reference has a margin of zero, so its ratio is
+         undefined, and the drawing skipped it while the legend went on
+         advertising a marker for it: three of 159 points silently absent, and
+         a denominator a reader would have counted wrongly. Constant variables
+         are now drawn in the zero lane with a tooltip saying they have no
+         ratio and why. =a_constant_variable_is_drawn_rather_than_dropped=
+         pins it and was mutation-tested against the original skipping form.
+
+         The axis is set by the gated points alone, so a stuck valve sitting
+         outside its margin cannot stretch the scale and flatter the rest;
+         =the_forest_scale_ignores_the_variables_it_does_not_gate= asserts the
+         gated marker does not move when one is added.
 :END:
 
 B-0078 could not draw this one, and said so rather than approximating it: the

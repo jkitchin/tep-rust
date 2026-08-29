@@ -301,6 +301,18 @@ is worth drawing:
 <figcaption style="font-size: 0.9em; opacity: 0.8; margin-top: 0.6em;"><strong>The two sources against the reference's own run-to-run spread.</strong> Horizontally, a statistic measured between the Fortran and the port. Vertically, the same statistic measured between two halves of the Fortran's own runs, which is the null the battery calibrates against. Both axes share one scale, so the diagonal is exactly the line of equality: a point above it means the two implementations differ from each other by less than the reference differs from itself. The claim is false if a cross-source point crosses to the low side. The two points that already sit there are the battery's own positive control, where one variable of the reference was shifted by ten standard deviations before comparing, and they show what a real difference looks like on the same axes. Written by <code>cargo xtask validate --tiers 5 --smoke</code>, so the points are the <em>smoke</em> battery's, 3 scenarios by 4 seeds by 2 h and fourteen seconds of running, not the full one: the figure's own subtitle says which, and the full-battery numbers are the ones tabulated above and recorded for B-0047b in <code>LOG.org</code>. At smoke size the permutation tests cannot reject at all, which is why the picture shows the gap between the cross-source value and its null rather than a verdict.</figcaption>
 </figure>
 
+That plot answers "are the two sources closer to each other than the reference
+is to itself", which is the calibrated question. It does not answer "how much
+room is left", and neither does a TOST verdict: a p-value reports that a test
+did not reject, not by what distance. The margin is a stated quantity, a tenth
+of the reference's standard deviation for each variable, so the distance can
+simply be drawn.
+
+<figure style="margin: 1.5rem 0;">
+{{#include validation/figures/tier5-forest.svg}}
+<figcaption style="font-size: 0.9em; opacity: 0.8; margin-top: 0.6em;"><strong>Each variable's mean difference against its own equivalence margin.</strong> One marker per variable per scenario: the paired difference between the Fortran's mean and the port's, divided by that variable's equivalence margin. One is the gate and the region past it is shaded, so the claim is false the moment a solid marker reaches the shaded band. Nothing is close: the worst gated variable sits at <code>5.590e-12</code> of its margin, which is about eleven orders of magnitude of headroom. Hollow markers are the variables the moment gate does not apply to, drawn rather than dropped, because omitting them would quietly shrink the denominator a reader counts against. A constant reference has no margin at all and so has no ratio, and sits in the zero lane; a valve stuck by the scenario's own fault is judged on its distribution instead, which is the decision recorded as B-0047d. Written by <code>cargo xtask validate --tiers 5 --smoke</code>, at the same smoke size as the figure above and for the same reason.</figcaption>
+</figure>
+
 TOST power against battery size, measured in the same entry:
 
 | battery | worst power |

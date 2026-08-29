@@ -1396,15 +1396,31 @@ fn write_tier5_figure(
     command: &str,
     runs: &[report::TargetRun],
 ) -> Result<(), String> {
-    let points = plot::calibration_points(runs);
     let size = plot::battery_size(runs).unwrap_or_else(|| "size not reported".to_string());
+
+    let points = plot::calibration_points(runs);
     match plot::calibration(&points, &size) {
-        Some(svg) => plot::write_figure(root, &svg, command),
+        Some(svg) => plot::write_figure(root, &svg, command)?,
         None => {
             println!("[note] tier 5 printed no calibrated statistic, so no figure was written.");
-            Ok(())
         }
     }
+
+    // The forest plot: what the calibration figure cannot say. That one shows
+    // the two sources are closer than the reference is to itself; this one
+    // shows how far inside its own stated margin each individual variable
+    // sits, which is the quantity that moves first if fidelity degrades.
+    let forest = plot::forest_points(runs);
+    match plot::forest(&forest, &size) {
+        Some(svg) => plot::write_figure(root, &svg, command)?,
+        None => {
+            println!(
+                "[note] tier 5 printed no per-variable measurement, so no forest \
+                 figure was written."
+            );
+        }
+    }
+    Ok(())
 }
 
 /// The two figures the generated index carries, with their failure conditions.
@@ -1441,6 +1457,24 @@ equality. The claim is false if a cross-source point crosses to the low side \
 of the diagonal; the two that already sit there are the battery's own positive \
 control, where one variable of the reference was shifted by ten standard \
 deviations before comparing.",
+        from: "B-0047b",
+    },
+    plot::Caption {
+        id: "tier5-forest",
+        title: "Each variable's mean difference against its own equivalence margin",
+        caption: "\
+The calibration figure above says the two sources are closer to each other \
+than the reference is to itself. It does not say how much room is left, and a \
+TOST verdict does not either: a p-value reports that a test did not reject, \
+not by what distance. This does. Each marker is one of the 53 variables in one \
+scenario, its paired mean difference divided by that variable's own \
+equivalence margin, which is a tenth of the reference's standard deviation for \
+that variable. One is the gate and the region past it is shaded, so the claim \
+is false if any solid marker reaches the shaded band. Hollow markers are the \
+variables the moment gate does not apply to and are drawn rather than dropped: \
+a reference that never moved has no mean to compare, and a valve stuck by the \
+scenario's own fault is judged on its distribution instead, which is the \
+decision recorded as B-0047d.",
         from: "B-0047b",
     },
 ];

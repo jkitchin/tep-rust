@@ -1000,6 +1000,315 @@ pub(crate) fn noise_band(points: &[NoisePoint], hours: f64) -> Option<Svg> {
 }
 
 // ---------------------------------------------------------------------------
+// figure 5: Tier 5, every variable against its own equivalence margin
+// ---------------------------------------------------------------------------
+
+/// Why a variable is or is not subject to the moment gate.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Gating {
+    /// The paired mean test applies and the point is judged against the margin.
+    Gated,
+    /// The reference never moved, so there is no mean to compare.
+    Constant,
+    /// A valve this scenario's fault sticks, judged on its distribution
+    /// instead. Delta B-0047d.
+    Stuck,
+}
+
+impl Gating {
+    fn parse(token: &str) -> Option<Self> {
+        match token {
+            "gated" => Some(Self::Gated),
+            "constant" => Some(Self::Constant),
+            "stuck" => Some(Self::Stuck),
+            _ => None,
+        }
+    }
+
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Gated => "judged against the margin",
+            Self::Constant => "reference never moved: no mean to compare",
+            Self::Stuck => "stuck valve: judged on its distribution instead",
+        }
+    }
+}
+
+/// One variable's paired mean difference, against its own margin.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct ForestPoint {
+    /// `nominal`, `IDV(7)`.
+    pub(crate) scenario: String,
+    /// One-based, as the Fortran indexes it.
+    pub(crate) variable: usize,
+    /// Whether the moment gate applies.
+    pub(crate) gating: Gating,
+    /// The paired mean difference, in the units of the measurement.
+    pub(crate) difference: f64,
+    /// The equivalence margin, same units.
+    pub(crate) margin: f64,
+}
+
+impl ForestPoint {
+    /// The plotted quantity: how far out of its margin the difference sits.
+    ///
+    /// One is the gate. A margin of zero would make this meaningless, so it
+    /// returns `None` rather than an infinity that would silently dominate the
+    /// axis.
+    pub(crate) fn ratio(&self) -> Option<f64> {
+        if self.margin > 0.0 && self.margin.is_finite() {
+            Some(self.difference.abs() / self.margin)
+        } else {
+            None
+        }
+    }
+}
+
+/// Read the per-variable measurements out of the battery's transcript.
+///
+/// The line shape is the one `tier5_battery` prints:
+///
+/// ```text
+///   forest var 7 kind gated difference 1.364242e-12 margin 3.553614e0
+/// ```
+pub(crate) fn forest_points(runs: &[TargetRun]) -> Vec<ForestPoint> {
+    let mut out = Vec::new();
+    let mut scenario = String::new();
+    for run in runs {
+        for line in &run.transcript {
+            let trimmed = line.trim();
+            if let Some(rest) = trimmed.strip_prefix("=== ") {
+                scenario = rest
+                    .split_once(" (")
+                    .map_or(rest, |(name, _)| name)
+                    .to_string();
+                continue;
+            }
+            let Some(rest) = trimmed.strip_prefix("forest var ") else {
+                continue;
+            };
+            let mut fields = rest.split_whitespace();
+            let (Some(var), Some("kind"), Some(kind)) =
+                (fields.next(), fields.next(), fields.next())
+            else {
+                continue;
+            };
+            let (Some(variable), Some(gating)) = (var.parse().ok(), Gating::parse(kind)) else {
+                continue;
+            };
+            let (Some(difference), Some(margin)) = (
+                float_after(trimmed, "difference "),
+                float_after(trimmed, "margin "),
+            ) else {
+                continue;
+            };
+            out.push(ForestPoint {
+                scenario: scenario.clone(),
+                variable,
+                gating,
+                difference,
+                margin,
+            });
+        }
+    }
+    out
+}
+
+/// Every variable's paired mean difference, as a fraction of its own margin.
+///
+/// This is the figure that states what Tier 5 claims. The calibration plot
+/// shows that the two sources differ by less than the reference differs from
+/// itself; this shows how far inside its stated margin each individual
+/// variable sits, which is the quantity that moves first if fidelity degrades.
+pub(crate) fn forest(points: &[ForestPoint], size: &str) -> Option<Svg> {
+    if points.is_empty() {
+        return None;
+    }
+    let id = "tier5-forest";
+    let mut scenarios: Vec<String> = Vec::new();
+    for point in points {
+        if !scenarios.contains(&point.scenario) {
+            scenarios.push(point.scenario.clone());
+        }
+    }
+
+    const WIDTH: f64 = 880.0;
+    const ROW_H: f64 = 19.0;
+    const ZERO_X: f64 = 178.0;
+
+    // Only the gated points set the scale. A constant variable has no mean and
+    // a stuck valve is not judged this way, so letting either stretch the axis
+    // would compress the evidence to make room for something that is not it.
+    let values: Vec<f64> = points
+        .iter()
+        .filter(|p| p.gating == Gating::Gated)
+        .filter_map(ForestPoint::ratio)
+        .filter(|r| *r > 0.0)
+        .collect();
+    if values.is_empty() {
+        return None;
+    }
+    let axis = LogAxis::covering(&values, &[1.0], 228.0, WIDTH - 130.0);
+
+    let top = 88.0;
+    let bottom = top + scenarios.len() as f64 * ROW_H;
+    let height = bottom + 74.0;
+
+    let gated = points.iter().filter(|p| p.gating == Gating::Gated).count();
+    let exempt = points.len() - gated;
+    let zeros = points
+        .iter()
+        .filter(|p| p.gating == Gating::Gated && p.ratio() == Some(0.0))
+        .count();
+    let outside = points
+        .iter()
+        .filter(|p| p.gating == Gating::Gated)
+        .filter(|p| p.ratio().is_some_and(|r| r >= 1.0))
+        .count();
+    let worst = values.iter().copied().fold(0.0_f64, f64::max);
+
+    let mut svg = Svg::new(
+        id,
+        WIDTH,
+        height,
+        "Tier 5: each variable's mean difference against its equivalence margin",
+        &format!(
+            "A logarithmic strip plot with one row per scenario. Each marker is \
+             one of the 53 variables: the paired difference between the \
+             Fortran's mean and the port's, divided by that variable's own \
+             equivalence margin. One is the gate, and the region past it is \
+             shaded. {outside} of {gated} gated markers reach it. {zeros} are \
+             exactly zero. A further {exempt} variables are not judged this \
+             way and are drawn hollow; a constant reference has no margin, so \
+             it sits in the zero lane."
+        ),
+    );
+    svg.text(
+        "hd",
+        16.0,
+        20.0,
+        "start",
+        "Tier 5: how far inside its margin each variable sits",
+    );
+    svg.text(
+        "sub",
+        16.0,
+        36.0,
+        "start",
+        &format!(
+            "{}, {} variables per scenario. Paired mean difference divided by \
+             that variable's equivalence margin.",
+            size,
+            points.len() / scenarios.len().max(1)
+        ),
+    );
+
+    for exponent in axis.ticks() {
+        let x = axis.at(10f64.powf(exponent));
+        svg.line("gr", x, top - 8.0, x, bottom);
+        svg.text("tick", x, top - 14.0, "middle", &decade_label(exponent));
+    }
+    svg.line("ax", axis.x0 - 6.0, top - 8.0, axis.x1, top - 8.0);
+    svg.text(
+        "tick",
+        axis.x0,
+        top - 32.0,
+        "start",
+        "paired mean difference, as a fraction of the equivalence margin",
+    );
+
+    svg.rect("zone", ZERO_X - 24.0, top - 8.0, 48.0, bottom - top + 8.0);
+    svg.text("tick", ZERO_X, top - 14.0, "middle", "= 0");
+    svg.line("brk", ZERO_X + 34.0, top - 8.0, ZERO_X + 34.0, bottom);
+
+    let gate_x = axis.at(1.0);
+    svg.rect(
+        "band",
+        gate_x,
+        top - 8.0,
+        axis.x1 - gate_x,
+        bottom - top + 8.0,
+    );
+    svg.line("gate", gate_x, top - 8.0, gate_x, bottom);
+    svg.text("gatetx", gate_x - 6.0, top - 32.0, "end", "the margin");
+
+    for (index, scenario) in scenarios.iter().enumerate() {
+        let y = top + index as f64 * ROW_H + ROW_H / 2.0;
+        if index % 2 == 1 {
+            svg.rect("zone", 8.0, y - ROW_H / 2.0, WIDTH - 16.0, ROW_H);
+        }
+        svg.text("lb", 150.0, y + 4.0, "end", scenario);
+        for point in points.iter().filter(|p| &p.scenario == scenario) {
+            // A constant reference has a margin of zero, so it has no ratio at
+            // all. It still gets drawn, in the zero lane, because dropping it
+            // would leave the legend advertising a marker that never appears
+            // and would quietly shrink the denominator a reader counts against.
+            // That is precisely what this figure did on its first run.
+            let ratio = point.ratio();
+            let x = match ratio {
+                Some(r) if r > 0.0 => axis.at(r),
+                _ => ZERO_X,
+            };
+            let tip = format!(
+                "{scenario}, XMEAS/XMV column {}: difference {}, margin {}, {} ({})",
+                point.variable,
+                value_label(point.difference),
+                value_label(point.margin),
+                ratio.map_or_else(
+                    || "no ratio: the margin is zero".to_string(),
+                    |r| format!("ratio {}", value_label(r))
+                ),
+                point.gating.label()
+            );
+            // Hollow for the two exempt kinds, so a reader can see they were
+            // measured and not silently dropped, and can see they are not
+            // being counted as passes.
+            if point.gating == Gating::Gated {
+                svg.dot("ok", x, y, 3.0, &tip);
+            } else {
+                let _ = writeln!(
+                    svg.body,
+                    r#"<circle class="altr" cx="{x:.1}" cy="{y:.1}" r="3.4"><title>{}</title></circle>"#,
+                    xml(&tip)
+                );
+            }
+        }
+    }
+
+    let y = bottom + 26.0;
+    svg.dot("ok", 16.0, y - 4.0, 3.0, "judged against the margin");
+    svg.text("note", 25.0, y, "start", "judged against the margin");
+    let _ = writeln!(
+        svg.body,
+        r#"<circle class="altr" cx="216.0" cy="{:.1}" r="3.4"/>"#,
+        y - 4.0
+    );
+    svg.text(
+        "note",
+        226.0,
+        y,
+        "start",
+        "not judged this way: a constant reference, or a stuck valve",
+    );
+    svg.text(
+        "note",
+        WIDTH - 16.0,
+        y,
+        "end",
+        &format!("worst gated: {}", value_label(worst)),
+    );
+    svg.text(
+        "note",
+        16.0,
+        y + 18.0,
+        "start",
+        "A marker past the shaded line would be a variable whose mean moved by \
+         more than the margin allows.",
+    );
+    Some(svg)
+}
+
+// ---------------------------------------------------------------------------
 // figure 4: Tier 5, cross-source against the within-source null
 // ---------------------------------------------------------------------------
 
@@ -1659,6 +1968,107 @@ mod tests {
              \x20 worst at end   : 5.149e-5 of XNS\n",
         )];
         assert!(noise_points(&runs).is_empty());
+    }
+
+    #[test]
+    fn the_forest_reads_the_line_shape_and_keeps_the_scenario() {
+        let runs = [run(
+            "tier5_battery",
+            Libm::Vendored,
+            "=== nominal (4 seeds, gating) ===\n\
+             \x20 forest var 7 kind gated difference 1.364242e-12 margin 3.553614e0\n\
+             \x20 forest var 53 kind constant difference 0.000000e0 margin 0.000000e0\n\
+             === IDV(14) (4 seeds, gating) ===\n\
+             \x20 forest var 51 kind stuck difference -2.000000e-1 margin 1.000000e0\n",
+        )];
+        let points = forest_points(&runs);
+        assert_eq!(points.len(), 3);
+
+        assert_eq!(points[0].scenario, "nominal");
+        assert_eq!(points[0].variable, 7);
+        assert_eq!(points[0].gating, Gating::Gated);
+        let ratio = points[0].ratio().expect("a ratio");
+        assert!((ratio - 1.364_242e-12 / 3.553_614).abs() < 1e-24, "{ratio}");
+
+        // A constant reference has no margin, so it has no ratio at all.
+        assert_eq!(points[1].gating, Gating::Constant);
+        assert_eq!(points[1].ratio(), None);
+
+        // A stuck valve does have both, and is far outside the margin; it is
+        // not gated on this, which is the point of drawing it differently.
+        assert_eq!(points[2].scenario, "IDV(14)");
+        assert_eq!(points[2].gating, Gating::Stuck);
+        assert!((points[2].ratio().expect("a ratio") - 0.2).abs() < 1e-12);
+    }
+
+    /// The exempt variables are *drawn*, not silently dropped.
+    ///
+    /// The first version of this figure skipped any point whose `ratio()` was
+    /// `None`, which is every constant reference, while the legend went on
+    /// advertising a marker for them. The figure looked complete and had
+    /// quietly shrunk the denominator a reader counts against.
+    #[test]
+    fn a_constant_variable_is_drawn_rather_than_dropped() {
+        let point = |variable, gating, difference, margin| ForestPoint {
+            scenario: "nominal".to_string(),
+            variable,
+            gating,
+            difference,
+            margin,
+        };
+        let points = [
+            point(7, Gating::Gated, 1.0e-12, 1.0),
+            point(53, Gating::Constant, 0.0, 0.0),
+        ];
+        let svg = forest(&points, "smoke battery").expect("a figure");
+        let body = svg.finish("test fixture");
+
+        assert_eq!(
+            body.matches("<circle").count(),
+            // Two data markers plus the two legend swatches.
+            4,
+            "a marker went missing:\n{body}"
+        );
+        assert!(
+            body.contains("no ratio: the margin is zero"),
+            "the constant variable was drawn without saying why it has no ratio"
+        );
+    }
+
+    #[test]
+    fn the_forest_scale_ignores_the_variables_it_does_not_gate() {
+        // A stuck valve sitting outside the margin must not stretch the axis
+        // and make the gated points look artificially close to zero.
+        let point = |gating, difference| ForestPoint {
+            scenario: "IDV(14)".to_string(),
+            variable: 51,
+            gating,
+            difference,
+            margin: 1.0,
+        };
+        let tight = [point(Gating::Gated, 1.0e-12)];
+        let with_stuck = [point(Gating::Gated, 1.0e-12), point(Gating::Stuck, 5.0)];
+
+        let a = forest(&tight, "smoke")
+            .expect("a figure")
+            .finish("test fixture");
+        let b = forest(&with_stuck, "smoke")
+            .expect("a figure")
+            .finish("test fixture");
+        assert_eq!(
+            a.matches("<circle").count() + 1,
+            b.matches("<circle").count(),
+            "the stuck valve was not drawn"
+        );
+        // The gated point keeps its position: the axis did not move.
+        let x_of = |body: &str| {
+            body.split("<circle")
+                .find(|c| c.contains("judged against the margin"))
+                .and_then(|c| c.split("cx=\"").nth(1))
+                .and_then(|c| c.split('"').next())
+                .map(str::to_string)
+        };
+        assert_eq!(x_of(&a), x_of(&b), "the exempt point moved the axis");
     }
 
     #[test]
