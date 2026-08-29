@@ -36,7 +36,7 @@
     reason = "bit equality between two runs is the property under test"
 )]
 
-use tepsim::{Outcome, Scenario, Simulation};
+use tepsim::{Scenario, Simulation};
 use tepsim_oracle::tier5::Scenario as TierScenario;
 
 /// Long enough to cross the eight-hour mark that D-011 turns on, and long

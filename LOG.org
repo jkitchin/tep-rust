@@ -5962,3 +5962,138 @@ And nothing has yet run =.github/workflows/wheels.yml=. The free-threaded and
 Pyodide rows are the weakest part of this round: nothing has compiled pyo3 0.29
 against a free-threaded interpreter, and the Emscripten job has the most moving
 parts and none exercised.
+
+* 2026-08-28 B-0047c..B-0059a The last round: everything that is not a decision
+:PROPERTIES:
+:ITEM:     B-0047c B-0048 B-0049a B-0054a B-0056 B-0057 B-0059a
+:PHASE:    5 6 9
+:TIER:     5 6 10
+:COMMIT:   0b0a800
+:GFORTRAN: 15.2.0
+:STATUS:   DONE
+:END:
+** Preflight
+Green. Fidelity 100 of 100, worst 3.521e-14 at =YP(12)= step 77, unchanged
+since B-0026. Provenance 1306/2997. Deltas: 11 entries, 11 markers, classes
+agree.
+
+** The headline: the full Tier 5 battery
+21 scenarios by 100 seeds by 48 hours on both sources. 4200 runs, 171 minutes.
+
+*Nineteen of twenty-one pass every gate.* Paired mean power 0.0000 to 0.0086,
+so the confidence interval is under one percent of the equivalence margin.
+Frobenius cross 2.8e-5 to 1.9e-2 against within-source maxima of 5 to 8. Every
+calibrated statistic at p = 1.0000 on every scenario.
+
+*Two do not, and they are exactly the ones that should be suspected.* =IDV(14)=
+and =IDV(19)= are sticking-valve faults, and the channels that fail are
+precisely the valves they stick.
+
+| scenario | paired power | undecided                | worst gap | frobenius |
+|----------+--------------+--------------------------+-----------+-----------|
+| IDV(14)  |       1.4271 | XMV(10), XMV(11), XMV(5) | 1.114 mar |     3.002 |
+| IDV(19)  |       1.2117 | XMV(5)                   | 0.702 mar |     2.176 |
+
+=teprob.f:801= moves a valve only when the command differs from its position by
+more than the stick threshold. That is a discontinuous branch on a
+floating-point comparison, and with the vendored libm an ULP of difference
+eventually lands the two implementations on opposite sides of it: one valve
+moves and the other does not for a whole control period.
+
+*Under =libm-system= both scenarios are bit-identical, 0.000e0.* So it is
+transcendental rounding meeting a discrete decision, the same mechanism B-0021
+and B-0022 found in the strict comparisons, and not an error in the algebra.
+The margin was not widened, the port was not changed, and B-0047d is BLOCKED
+with the numbers and three options.
+
+** The seed count, resolved by pairing rather than by more compute
+B-0047b measured the unpaired mean test needing 237 to 460 seeds. The right
+answer was not more seeds: the two sources are run at the *same* seeds, so each
+seed's difference is an observation and the wander both sources share cancels
+out of it. Measured on a fixture with a shared offset of order one and a true
+difference of 0.01, unpaired power is 7.75 and paired power 0.0000. The
+unpaired figure is kept and reported, because it is the conservative statement
+and the right one for a comparison that cannot be seed-matched.
+
+** What else landed
+| item   | what                                                | by    |
+|--------+-----------------------------------------------------+-------|
+| B-0048 | generated validation pages; delta cross-check        | agent |
+| B-0049a| CVA, and detection rates against the literature      | agent |
+| B-0054a| scenario serialisation; four tutorials              | agent |
+| B-0056 | the CLI, recorded as done                           | -     |
+| B-0057 | both Class C deltas measured                        | me    |
+| B-0059a| the tutorial track                                  | agent |
+
+** Validation numbers
+D-007, over 10 h: the open-loop plant trips at step 11,017 and the fix discards
+69.5% of the run; =IDV(6)= trips at 21,037 and loses 42.0%; five closed-loop
+faults never trip and the fix is exactly a no-op. Up to the trip the two
+settings are bit-identical.
+
+D-011: worst paired mean shift 0.32 margins on =XMEAS(7)=, diluted about
+fivefold because =IDV(12)= is active for under two of the ten hours. The
+undiluted figure is B-0040's 1.092e-1.
+
+Detection rates reproduce the literature's split. Faults 3, 9, 15 hard (T2
+0.031, 0.036, 0.055); faults 1, 2, 6, 7, 8, 12, 13, 14 easy (0.95 to 1.00).
+Every hard fault alarms at most 1.89x fault-free data, every easy one at least
+30.6x. No published number is quoted as a target, because the agent did not
+have the papers and declined to write down remembered rates.
+
+CVA: =B = I= bit-for-bit against the standard solver, 1000 pencils against the
+characteristic polynomial at 8.3e-16, a construction giving exactly 3/5 and
+5/13.
+
+** Surprises and decisions
+*The backlog's plan for B-0057 was wrong, and finding out why was the item.* It
+assumed both Class C deltas could be measured by running the Tier 5 battery
+with the fix on and off. That works for D-011 and cannot work for D-007: every
+battery statistic compares two ensembles of the same shape, and the fix makes a
+tripped run *stop*, so a Kolmogorov-Smirnov statistic between a 200-sample run
+and a 61-sample one is measuring the truncation. D-007's delta is measured in
+the terms the fix actually changes.
+
+*The delta register's two halves had disagreed since B-0008.* The generated
+cross-check failed on its first run: D-008 was documented and no =@delta=
+marker named it, although the doc comment above =const FAST= said so in prose.
+Prose is not compiled. Marker added, and the check is a gate step from the same
+commit, which is the only honest order.
+
+*The oracle feature had never been linted.* =xtask ci= ran clippy on default
+features only, so everything behind =#[cfg(feature = "oracle")]= was
+unlinted: the Tier 2, 5, 6 and 7 machinery, every differential, the harness.
+Ten real lints in the library, including a manual clamp that must stay one
+because =CONSHAND= normalises negative zero and two Euler steps that must not
+fuse. It is a gate step now.
+
+*A fourth timing assertion was removed rather than revised.* The energy
+distance's had already been through three revisions: optimised away as dead
+code, then an ordering that flipped under load, then a scaling check that still
+flaked with builds competing for cores. The claim is that one algorithm is
+O(n log n) and the other O(n*m), which is true by inspection and which no
+wall-clock measurement on a shared machine is evidence for. It records the
+numbers now and asserts only correctness.
+
+*A =debug_assert= test had been failing in release since it was written*, unseen
+because =xtask ci= runs the workspace tests in debug.
+
+** Next
+There is no more work that is not a decision. Four items are BLOCKED and all
+four are the user's:
+
+- *B-0025b*: should a shutdown end the run or freeze the plant? The evidence is
+  one-sided. The freeze is what =teprob.f:807-811= does and what four published
+  files contain, and the fix discards up to 69.5% of a run.
+- *B-0040a* and *B-0051a*: should the driver's forced =IDV(12)= stay the
+  default? These are one question. The only argument for the current default
+  was that published data carries it, and Tier 7 showed that is false.
+- *B-0047d*: is a macroscopic difference on the three sticking-valve faults,
+  under the vendored libm only, acceptable?
+
+Unfinished work that is not blocked, and is small: =tep dataset=; Arrow and
+Parquet sinks; Tier 8 (differential fuzzing) and Tier 9 (cross-platform
+determinism) have no harness, though the wasm half of Tier 9 is automatable
+today through the exported digest; and =.github/workflows/wheels.yml= has never
+run, its free-threaded and Pyodide rows being the least certain part of
+anything here.
