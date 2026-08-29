@@ -3201,14 +3201,41 @@ Done when:
 - [ ] Numbers in `LOG.org`: the worst difference-over-margin and which variable
       and scenario it belongs to
 
-** NEXT B-0080 Generate Rieth-shaped ensembles from the CLI
+** DONE B-0080 Generate Rieth-shaped ensembles from the CLI
 :PROPERTIES:
 :ID:    B-0080
 :PHASE: 6
 :TIER:  none
 :DEPS:  B-0064
 :PLAN:  Command-line interface
-:END:
+:COMMIT: pending
+:RESULT: =tep dataset --layout rieth --runs N=. The geometry lives in
+         =tepsim::published::rieth= as named constants with a scenario builder,
+         so the numbers are in the library and under test rather than in an
+         argument parser. Output is their long layout: one file per split with
+         =faultNumber=, =simulationRun=, =sample= and the 52 variables, 55
+         columns.
+
+         Verified against the documented protocol rather than assumed.
+         =the_rieth_geometry_is_self_consistent= derives every row count from
+         the hours and the cadence and checks the 20/480 and 160/800 splits.
+         The onset was checked in generated data, not only in the scenario:
+         =XMEAS(1)= has sd 0.012 before row 20 and 0.242 after it, a factor of
+         twenty.
+
+         =the_rieth_training_run_is_not_the_original_training_run= is the test
+         worth having. Both protocols are 25 h and both split 20 against 480,
+         and they are *different runs*: ours has the fault from step zero and
+         discards the first hour, theirs schedules it at hour one and keeps all
+         500 rows. Someone will otherwise use one file as the other.
+
+         21,000 seeds asserted distinct and reproducible. *No independence
+         claim is made*, deliberately: =TESUB7= is =G = mod(G*9228907, 2^32)=
+         in double precision and the product exceeds 2^53 for most states, so
+         the modulus is inexact and it is not the clean multiplicative
+         generator it looks like. A cycle search from the compiled-in seed
+         found no return within 2e9 states, which refutes the group-theoretic
+         period and establishes nothing about overlap either way.
 
 `tep dataset` produces the original 44 files, one run each. The dataset most
 current machine-learning work is trained on is not that one: it is

@@ -6510,3 +6510,68 @@ hours. Running it once at full size and committing that figure would make it the
 strongest artifact in the book: 21 scenarios by 53 variables, 1,113 markers, all
 of them against the margin they are actually gated on. Nothing else needs to
 change to do it, only the time.
+
+* 2026-08-29 B-0080 Rieth-shaped ensembles from the CLI
+:PROPERTIES:
+:ITEM:     B-0080
+:PHASE:    6
+:TIER:     none
+:COMMIT:   pending
+:GFORTRAN: 15.2.0
+:STATUS:   DONE
+:END:
+** Preflight
+Fidelity 100 of 100, 3.521323734565789e-14 at =YP(12)= step 77. Unchanged.
+
+** What changed
+=tep dataset --layout rieth --runs N=, which produces the shape of
+=rieth-2017-addit=: many runs per fault, one long-format file per split with
+=faultNumber=, =simulationRun= and =sample= beside the 52 variables.
+
+That dataset, not the original 44 files, is what most current machine-learning
+work on this process is trained against, and the CLI could not produce its shape
+at all.
+
+** Validation numbers
+| | training | testing |
+|---+---+---|
+| hours | 25 | 48 |
+| rows | 500 | 960 |
+| onset | 1 h, row 20 | 8 h, row 160 |
+| normal / faulty | 20 / 480 | 160 / 800 |
+
+Onset verified in generated data rather than only in the scenario: =XMEAS(1)=
+has sd *0.01202* over the 20 rows before the training onset and *0.24175* over
+the 80 after it. 21,000 seeds asserted distinct and reproducible.
+
+** Surprises and decisions
+
+*Their training protocol is not ours, and the two are easy to confuse.* Both are
+25 hours and both split twenty rows against four hundred and eighty. Ours runs
+with the fault live from step zero and discards the first hour, which is the
+only hypothesis that explains =d00.dat='s 500 rows against the others' 480.
+Theirs schedules the fault at hour one and keeps all 500 rows, so the first
+twenty are genuinely fault-free. There is a test whose whole purpose is to state
+that they differ.
+
+*I nearly asserted something about the generator's period that is false.* The
+dataset describes its runs as using independent, non-overlapping seeds, and I
+started to reason that at 500 runs by 21 faults this cannot hold, because a
+multiplicative generator mod 2^32 has period at most 2^30 and a single 48-hour
+run draws about 8e7 numbers. A cycle search settled it instead: *no return to
+the starting state within 2e9 states*. The reason is already documented in
+=rng.rs=, that =G * 9228907= exceeds 2^53 for most states, so the modulus is
+inexact and this is not the clean generator the arithmetic assumed. The claim
+was wrong and so was its negation; the code now promises only what it can
+deliver, which is that the seeds are distinct, spread and reproducible.
+
+*A doc link that resolved to the wrong scope.* =///= on =pub mod rieth= is
+resolved in the *parent* module's scope, so =super::File= inside it meant
+=tepsim::File= and not =tepsim::published::File=. Caught by =cargo doc -D
+warnings= in the gate, which is exactly what that step is for.
+
+** Next
+The obvious follow-on is throughput. A full-scale run is 21,000 simulations and
+about three and a half hours single-threaded. Runs are independent and a run is
+a pure function of its scenario, so =std::thread= would take it to well under an
+hour with no new dependency and no risk to determinism.

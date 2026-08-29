@@ -380,3 +380,144 @@ pub fn round_as_published(value: f64) -> f64 {
     let text = format!("{:.*e}", PUBLISHED_DIGITS - 1, value);
     text.parse().unwrap_or(value)
 }
+
+/// The Rieth ensemble: 500 runs per fault, and a different training protocol.
+///
+/// `rieth-2017-addit`, the Harvard Dataverse set most current machine-learning
+/// work on this process is trained against. It is not the original `d00`-`d21`
+/// distribution and it is not generated the same way, which is the reason this
+/// module exists separately from the constants above.
+///
+/// # Where it differs from the original, and why that matters
+///
+/// The testing protocol is the same: 48 hours, 960 rows, the fault at hour
+/// eight. The *training* protocol is not, and the difference is easy to miss
+/// because both are 25 hours and both split twenty rows against four hundred
+/// and eighty.
+///
+/// [`TRAINING_HOURS`] here runs 25 hours with the fault arriving at hour one
+/// and keeps all 500 rows, so the first 20 are fault-free and the remaining 480
+/// are faulted. [`File::scenario`] instead runs 25 hours with the fault
+/// live from the first step and *discards* the first hour, which is the only
+/// hypothesis that explains `d00.dat`'s 500 rows against every other training
+/// file's 480. Those are different runs, and one file cannot stand in for the
+/// other.
+///
+/// # This generates their shape, not their data
+///
+/// The same caveat the rest of this module carries. Their seeds are not
+/// recorded anywhere this repository can read, the toolchain that produced
+/// their files is not recorded either, and `IDV(21)` is not in this revision of
+/// the model.
+pub mod rieth {
+    use super::{SAMPLE_EVERY, Split, Unavailable};
+    use crate::scenario::Scenario;
+    use tepsim_scenario::Event;
+
+    /// Simulation runs per fault, per split, in the published distribution.
+    pub const RUNS: usize = 500;
+
+    /// Hours in a training run.
+    pub const TRAINING_HOURS: f64 = 25.0;
+
+    /// Rows in a training run: the whole 25 hours at three minutes.
+    pub const TRAINING_ROWS: usize = 500;
+
+    /// When the fault arrives in a faulted training run.
+    pub const TRAINING_ONSET_HOURS: f64 = 1.0;
+
+    /// Fault-free rows at the head of a faulted training run.
+    pub const TRAINING_NORMAL_ROWS: usize = 20;
+
+    /// Hours in a testing run.
+    pub const TESTING_HOURS: f64 = 48.0;
+
+    /// Rows in a testing run.
+    pub const TESTING_ROWS: usize = 960;
+
+    /// When the fault arrives in a faulted testing run.
+    pub const TESTING_ONSET_HOURS: f64 = 8.0;
+
+    /// Fault-free rows at the head of a faulted testing run.
+    pub const TESTING_NORMAL_ROWS: usize = 160;
+
+    /// The generator word for one run.
+    ///
+    /// # Why this is not called independent
+    ///
+    /// The dataset's own description says its runs use independent,
+    /// non-overlapping seeds. This function does not make that claim, because
+    /// with this generator it is not one that can be checked cheaply.
+    /// `teprob.f`'s `TESUB7` is `G = mod(G * 9228907, 2^32)` evaluated in double
+    /// precision, and the product exceeds 2^53 for most states, so the modulus
+    /// is inexact and the sequence is not the clean multiplicative congruential
+    /// generator it looks like. A cycle search from the compiled-in seed found
+    /// no return to its starting state within 2e9 states, which rules out the
+    /// group-theoretic period of such a generator and settles nothing about
+    /// whether two streams overlap.
+    ///
+    /// So what is promised here is only what can be delivered: the seeds are
+    /// distinct, spread across the generator's range, and a deterministic
+    /// function of `(fault, split, run)`, so a run is reproducible from its
+    /// coordinates alone.
+    #[must_use]
+    pub fn seed(fault: usize, split: Split, run: usize) -> f64 {
+        // Odd, distinct per coordinate, and comfortably inside the range the
+        // original's own recorded seeds occupy (about 1e9 to 9.9e9). The strides
+        // are coprime with each other so no two coordinates collide.
+        let split_offset = match split {
+            Split::Training => 0_u64,
+            Split::Testing => 1,
+        };
+        let index = (fault as u64) * 2 * RUNS as u64 + split_offset * RUNS as u64 + run as u64;
+        let word = 1_000_000_007_u64 + index * 7_919_u64 * 2;
+        word as f64
+    }
+
+    /// The scenario for one run of the ensemble.
+    ///
+    /// # Errors
+    ///
+    /// [`Unavailable::FaultNotInThisRevision`] for `IDV(21)`, which this
+    /// revision of `teprob.f` does not contain.
+    pub fn scenario(fault: usize, split: Split, run: usize) -> Result<Scenario, Unavailable> {
+        if fault > crate::DISTURBANCES {
+            return Err(Unavailable::FaultNotInThisRevision { fault });
+        }
+        let (hours, onset) = match split {
+            Split::Training => (TRAINING_HOURS, TRAINING_ONSET_HOURS),
+            Split::Testing => (TESTING_HOURS, TESTING_ONSET_HOURS),
+        };
+        let mut scenario = Scenario::baseline()
+            .with_seed(seed(fault, split, run))
+            .with_hours(hours)
+            .sampling_every(SAMPLE_EVERY);
+        // The same two pins `File::scenario` carries and for the same reasons:
+        // the published bytes say IDV(12) was not forced, and a published file
+        // has its full row count whether or not the plant tripped.
+        scenario.driver_forces_idv12 = false;
+        scenario.quirks.trip_ends_the_run = false;
+        if fault != 0 {
+            scenario = scenario.with_event(Event::start(onset, fault));
+        }
+        Ok(scenario)
+    }
+
+    /// Rows in a run of this split.
+    #[must_use]
+    pub const fn rows(split: Split) -> usize {
+        match split {
+            Split::Training => TRAINING_ROWS,
+            Split::Testing => TESTING_ROWS,
+        }
+    }
+
+    /// Fault-free rows at the head of a faulted run of this split.
+    #[must_use]
+    pub const fn normal_rows(split: Split) -> usize {
+        match split {
+            Split::Training => TRAINING_NORMAL_ROWS,
+            Split::Testing => TESTING_NORMAL_ROWS,
+        }
+    }
+}

@@ -41,6 +41,10 @@ RUN OPTIONS:
 
 DATASET OPTIONS:
     --out <dir>              Where to write (default: ./tep-data)
+    --layout <name>          published (default, the d00-d21 files) or rieth
+                             (many runs per fault, long format)
+    --runs <n>               Runs per fault, rieth layout only (default 1;
+                             the published distribution uses 500)
     --set <which>            te (default), training, all
     --faults <list>          `all` (default) or e.g. 0,1,4,6
     --format <fmt>           dat (default, the published layout) or csv
@@ -55,6 +59,20 @@ EXAMPLES:
     tep run --hours 4 --integrator rk4 > accurate.csv
     tep dataset --out ./data
     tep dataset --set all --faults 0,4,6 --format csv --out ./small
+    tep dataset --layout rieth --runs 500 --set all --out ./rieth
+
+NOTE ON `--layout rieth`:
+    Produces the shape of Rieth et al. 2017, the Harvard Dataverse set most
+    current machine-learning work is trained on: many runs per fault, one
+    long-format file per split with faultNumber, simulationRun and sample
+    columns. Their testing protocol is the original's, 48 h with the fault at
+    hour eight. Their TRAINING protocol is not: 25 h with the fault at hour one
+    and all 500 rows kept, where d01-d21 discard the first hour. Both are 25 h
+    and both split 20 rows against 480, so the two are easy to confuse.
+
+    The seeds are ours, not theirs: theirs are recorded nowhere this repository
+    can read. Full scale is 500 runs by 21 faults by 2 splits, about 21,000
+    runs, and `tep dataset` prints an estimate before it starts.
 
 NOTE ON `dataset`:
     The output has the same geometry as d00-d21 and is not the same numbers.

@@ -284,3 +284,133 @@ fn the_published_column_order_is_measurements_then_valves() {
         all.last().expect("a last channel")
     );
 }
+
+// ---------------------------------------------------------------------------
+// The Rieth ensemble
+// ---------------------------------------------------------------------------
+
+use tepsim::published::rieth;
+
+/// The geometry is the one the dataset documents, and the arithmetic closes.
+#[test]
+fn the_rieth_geometry_is_self_consistent() {
+    // 25 h and 48 h at three minutes.
+    assert_eq!(
+        rieth::TRAINING_ROWS,
+        (rieth::TRAINING_HOURS * 3600.0 / (SAMPLE_EVERY as f64)) as usize
+    );
+    assert_eq!(
+        rieth::TESTING_ROWS,
+        (rieth::TESTING_HOURS * 3600.0 / (SAMPLE_EVERY as f64)) as usize
+    );
+    // The onset row is where the documented normal/faulty split falls.
+    assert_eq!(
+        rieth::TRAINING_NORMAL_ROWS,
+        (rieth::TRAINING_ONSET_HOURS * 3600.0 / (SAMPLE_EVERY as f64)) as usize
+    );
+    assert_eq!(
+        rieth::TESTING_NORMAL_ROWS,
+        (rieth::TESTING_ONSET_HOURS * 3600.0 / (SAMPLE_EVERY as f64)) as usize
+    );
+    // 20 + 480 and 160 + 800, as the dataset's description states.
+    assert_eq!(rieth::TRAINING_ROWS - rieth::TRAINING_NORMAL_ROWS, 480);
+    assert_eq!(rieth::TESTING_ROWS - rieth::TESTING_NORMAL_ROWS, 800);
+}
+
+/// The training protocol is *not* the original's, and the test says so out
+/// loud, because both are 25 hours and both split 20 against 480.
+#[test]
+fn the_rieth_training_run_is_not_the_original_training_run() {
+    let original = FILES
+        .iter()
+        .find(|f| f.fault == 1 && f.split == Split::Training)
+        .expect("d01")
+        .scenario()
+        .expect("a scenario");
+    let theirs = rieth::scenario(1, Split::Training, 0).expect("a scenario");
+
+    assert_eq!(original.hours, theirs.hours, "both are 25 hours");
+    // Ours has the fault from step zero and discards the first hour; theirs
+    // schedules it at hour one and keeps every row.
+    assert!(original.schedule.is_empty(), "the original has no schedule");
+    assert!(
+        !theirs.schedule.is_empty(),
+        "Rieth's fault arrives on a schedule"
+    );
+    assert_eq!(original.samples(), rieth::TRAINING_ROWS);
+    assert_eq!(theirs.samples(), rieth::TRAINING_ROWS);
+    // The rows kept differ: 480 against 500.
+    assert_eq!(
+        original.samples()
+            - FILES
+                .iter()
+                .find(|f| f.fault == 1 && f.split == Split::Training)
+                .expect("d01")
+                .discarded_rows(),
+        480
+    );
+}
+
+/// Every run in the ensemble has its own seed, and the same coordinates always
+/// give the same one.
+#[test]
+fn every_run_has_a_distinct_and_reproducible_seed() {
+    use std::collections::BTreeSet;
+    let mut seen = BTreeSet::new();
+    for fault in 0..=20 {
+        for split in [Split::Training, Split::Testing] {
+            for run in 0..rieth::RUNS {
+                let seed = rieth::seed(fault, split, run);
+                assert!(seed > 0.0 && seed.is_finite(), "seed {seed}");
+                assert!(
+                    seen.insert(seed.to_bits()),
+                    "seed {seed} collides at fault {fault} run {run}"
+                );
+                assert_eq!(seed, rieth::seed(fault, split, run), "not reproducible");
+            }
+        }
+    }
+    assert_eq!(seen.len(), 21 * 2 * rieth::RUNS);
+}
+
+/// Two runs of the ensemble really are different runs, and the fault really
+/// does arrive where the geometry says.
+#[test]
+fn the_ensemble_produces_distinct_runs_with_the_fault_where_it_belongs() {
+    let a = tepsim::Simulation::new(
+        rieth::scenario(1, Split::Training, 0)
+            .expect("a scenario")
+            .with_hours(3.0),
+    )
+    .run();
+    let b = tepsim::Simulation::new(
+        rieth::scenario(1, Split::Training, 1)
+            .expect("a scenario")
+            .with_hours(3.0),
+    )
+    .run();
+    assert_ne!(
+        a.samples.first().map(tepsim::Sample::row),
+        b.samples.first().map(tepsim::Sample::row),
+        "two runs of the ensemble are identical, so the seeds did not take"
+    );
+
+    // Fault-free before the onset, faulted after it.
+    let onset = rieth::TRAINING_NORMAL_ROWS;
+    assert!(
+        !a.samples[onset - 1].labels.faulted(),
+        "the fault arrived before its onset row"
+    );
+    assert!(
+        a.samples[onset + 1].labels.faulted(),
+        "the fault had not arrived after its onset row"
+    );
+}
+
+#[test]
+fn the_ensemble_refuses_idv21_like_the_rest_of_the_module() {
+    assert!(matches!(
+        rieth::scenario(21, Split::Testing, 0),
+        Err(Unavailable::FaultNotInThisRevision { fault: 21 })
+    ));
+}
