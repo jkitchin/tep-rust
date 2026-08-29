@@ -36,27 +36,35 @@ fn first_rust_block(markdown: &str) -> String {
     panic!("the fence was never closed");
 }
 
-/// Every tutorial page, and the example it is the listing of.
+/// A page, the crate its example lives in, the example's name, and whether the
+/// page also quotes that example's output.
 ///
 /// `a-detector` lives in `tepsim-stats` rather than here because it uses that
 /// crate, and `xtask ci`'s isolation check forbids `tepsim/Cargo.toml` from so
 /// much as naming a development-only crate, dev-dependency included.
-const TUTORIALS: &[(&str, &str, &str)] = &[
+///
+/// `README.md` shows a snippet and no transcript, so it is pinned for source
+/// and skipped for output.
+const TUTORIALS: &[(&str, &str, &str, bool)] = &[
     (
         "book/src/tutorials/scheduling-a-fault.md",
         "tepsim",
         "scheduling_a_fault",
+        true,
     ),
     (
         "book/src/tutorials/injecting-a-fault.md",
         "tepsim",
         "injecting_a_fault",
+        true,
     ),
     (
         "book/src/tutorials/a-detector.md",
         "tepsim-stats",
         "a_detector",
+        true,
     ),
+    ("README.md", "tepsim", "readme_snippet", false),
 ];
 
 /// One example crate's source path.
@@ -64,9 +72,53 @@ fn example_path(krate: &str, name: &str) -> PathBuf {
     repo(&format!("crates/{krate}/examples/{name}.rs"))
 }
 
+/// The body of `fn main`, dedented by one level.
+///
+/// A page that is teaching a whole program shows the `fn main` wrapper; a
+/// quick-start snippet should not have to, and making `README.md` carry one
+/// just to satisfy a test would be the test dictating the prose. So a page
+/// whose fence has no `fn main` is compared against the body of the example's,
+/// which is the same code either way.
+fn main_body(source: &str) -> String {
+    let Some(start) = source.find("fn main() {") else {
+        return source.to_string();
+    };
+    let after = &source[start + "fn main() {".len()..];
+    let Some(end) = after.rfind('}') else {
+        return source.to_string();
+    };
+    let mut out: Vec<String> = Vec::new();
+    for line in after[..end].lines() {
+        out.push(line.strip_prefix("    ").unwrap_or(line).to_string());
+    }
+    // The `use` lines live above `fn main` and belong to the snippet too.
+    let mut head: Vec<&str> = source[..start]
+        .lines()
+        .filter(|l| !l.starts_with("//!"))
+        .collect();
+    while head.first().is_some_and(|l| l.trim().is_empty()) {
+        head.remove(0);
+    }
+    while out.first().is_some_and(|l| l.trim().is_empty()) {
+        out.remove(0);
+    }
+    while out.last().is_some_and(|l| l.trim().is_empty()) {
+        out.pop();
+    }
+    let head = head.join("\n");
+    let head = head.trim_end();
+    if head.is_empty() {
+        out.join("\n")
+    } else {
+        // One blank line between the imports and the body, which is how the
+        // source has it and how a snippet reads.
+        format!("{head}\n\n{}", out.join("\n"))
+    }
+}
+
 #[test]
 fn every_tutorial_shows_the_example_it_runs() {
-    for (page, krate, name) in TUTORIALS {
+    for (page, krate, name, _) in TUTORIALS {
         let markdown = fs::read_to_string(repo(page)).unwrap_or_else(|_| panic!("{page}"));
         let example = fs::read_to_string(example_path(krate, name))
             .unwrap_or_else(|_| panic!("{krate}/examples/{name}.rs"));
@@ -80,8 +132,14 @@ fn every_tutorial_shows_the_example_it_runs() {
             .join("\n");
 
         let shown = first_rust_block(&markdown);
+        // A page that shows no `fn main` is showing its body; see `main_body`.
+        let body = if shown.contains("fn main") {
+            body
+        } else {
+            main_body(&body)
+        };
         assert!(
-            shown.lines().count() > 50,
+            shown.lines().count() >= 4,
             "{page}: the parse found {} lines, so it is reading the wrong fence",
             shown.lines().count()
         );
@@ -121,7 +179,10 @@ fn every_tutorial_quotes_the_output_it_gets() {
         );
         return;
     }
-    for (page, krate, name) in TUTORIALS {
+    for (page, krate, name, has_transcript) in TUTORIALS {
+        if !has_transcript {
+            continue;
+        }
         let markdown = fs::read_to_string(repo(page)).unwrap_or_else(|_| panic!("{page}"));
         let quoted = markdown
             .split_once("```text\n")
