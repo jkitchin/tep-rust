@@ -27,6 +27,7 @@
 #![forbid(unsafe_code)]
 
 mod deltas;
+mod plot;
 mod report;
 mod tier9;
 
@@ -977,42 +978,27 @@ fn cmd_validate(root: &Path, flags: &[String]) -> Result<(), String> {
                 // long-horizon divergence is expected. Both configurations are
                 // run, because the *contrast* is the result.
                 println!("\n=== tier 4: trajectories (diagnostic, not a gate) ===");
-                for features in ["oracle", "oracle,libm-system"] {
-                    println!(
-                        "\n--- with the {} libm ---",
-                        if features.contains("system") {
-                            "platform"
-                        } else {
-                            "vendored"
-                        }
-                    );
+                // Captured rather than merely echoed, because the contrast
+                // between the two `libm` builds is the whole result and a
+                // picture of it is worth more than two tables a page apart.
+                let mut runs = Vec::new();
+                for libm in [report::Libm::Vendored, report::Libm::Platform] {
+                    println!("\n--- with the {} libm ---", libm.label());
                     for target in TIER4_TESTS {
-                        step_with_env(
+                        runs.push(report::run_target(
                             root,
-                            "cargo",
-                            &[
-                                "test",
-                                "-p",
-                                "tepsim-oracle",
-                                "--features",
-                                features,
-                                "--release",
-                                "--test",
-                                target,
-                                "--",
-                                "--nocapture",
-                                "--include-ignored",
-                                "--test-threads",
-                                "1",
-                            ],
+                            target,
+                            libm,
+                            &["--include-ignored"],
                             // `NPTS = 172800` at a one-second step: the run
                             // `temain_mod.f` was written to do. `ci` runs ten
                             // hours, which is already past the driver's forced
                             // `IDV(12)`; this runs the whole thing.
                             &[(TIER4_HOURS_ENV, "48")],
-                        )?;
+                        )?);
                     }
                 }
+                write_tier4_figure(root, &invocation, &runs)?;
             }
             5 => {
                 require_gfortran(5)?;
@@ -1020,25 +1006,14 @@ fn cmd_validate(root: &Path, flags: &[String]) -> Result<(), String> {
                 // an hour of simulation. `ci` runs a smoke battery of twelve
                 // runs over the same code.
                 println!("\n=== tier 5: statistical equivalence ===");
-                step_with_env(
+                let battery = report::run_target(
                     root,
-                    "cargo",
-                    &[
-                        "test",
-                        "-p",
-                        "tepsim-oracle",
-                        "--features",
-                        "oracle",
-                        "--release",
-                        "--test",
-                        "tier5_battery",
-                        "--",
-                        "--nocapture",
-                        "--test-threads",
-                        "1",
-                    ],
+                    "tier5_battery",
+                    report::Libm::Vendored,
+                    &[],
                     if smoke { &[] } else { &[(TIER5_ENV, "full")] },
                 )?;
+                write_tier5_figure(root, &invocation, &[battery])?;
                 // The invariants are Tier 5 too, and they are cheap.
                 for features in ["oracle", "oracle,libm-system"] {
                     step(
@@ -1263,9 +1238,234 @@ fn write_chapter(
          CI gate runs."
     };
     let lead = format!("{lead}\n\n{volume}");
-    let page = report::render_tier(root, tier, title, &lead, command, runs);
+    let figures = tier_figures(root, tier, command, runs)?;
+    let page = report::render_tier(root, tier, title, &lead, command, runs, &figures);
     report::write_generated(root, &format!("{}/tier{tier}.md", report::DIR), &page)
 }
+
+/// The gate a tier's comparisons are drawn against.
+///
+/// `PLAN.org`: Tier 1 is a maximum relative error below 1e-13, Tier 2 below
+/// 1e-12 of the scale of the terms. Tier 3 is a trace diff with no numeric
+/// gate of its own, but the blocks it prints are `TESUB5` and `TESUB6`
+/// comparisons, so it is drawn against Tier 1's line and the caption says so.
+fn tier_gate(tier: u8) -> f64 {
+    match tier {
+        2 => 1e-12,
+        _ => 1e-13,
+    }
+}
+
+/// Which `LOG.org` iteration first measured what a tier's figures draw.
+fn tier_provenance(tier: u8) -> &'static str {
+    match tier {
+        1 => "B-0009, B-0010 and B-0011",
+        2 => "B-0026",
+        3 => "B-0028 and B-0029",
+        _ => "LOG.org",
+    }
+}
+
+/// Draw a tier's figures, and return the markdown that inlines them.
+///
+/// Every caption states the failure condition, because a picture with no
+/// stated way to be wrong is decoration. Nothing is drawn from a number that
+/// was typed in: the two functions below read the same transcripts the tables
+/// on the page are built from.
+fn tier_figures(
+    root: &Path,
+    tier: u8,
+    command: &str,
+    runs: &[report::TargetRun],
+) -> Result<String, String> {
+    let gate = tier_gate(tier);
+    let from = tier_provenance(tier);
+    let mut out = String::new();
+
+    let points = plot::error_points(runs);
+    // Named from the data rather than described in prose. A tier reports some
+    // comparisons it deliberately does not gate, and Tier 1 mis-types a
+    // constant on purpose, so the orange dots are expected; which ones they
+    // are is the thing worth pinning down, and a caption that lists them
+    // changes the moment a different one appears.
+    let outside = plot::outside_the_gate(&points, gate);
+    let named = if outside.is_empty() {
+        "Nothing is beyond it in this run.".to_string()
+    } else {
+        format!(
+            "Beyond it in this run: {}, and nothing else. Any other dot \
+             crossing the line is a failure.",
+            outside
+                .iter()
+                .map(|label| format!("`{label}`"))
+                .collect::<Vec<_>>()
+                .join("; ")
+        )
+    };
+    let strip_caption = format!(
+        "Every comparison this tier made, at its own maximum relative error, \
+         in a lane named for the target that ran it. Hovering a dot names the \
+         comparison. A dot is orange because its value is past the {gate:e} \
+         gate and for no other reason: no test is recognised by name, so a \
+         regression and a deliberate positive control are drawn identically. \
+         {named} The bit-equality half of the claim is falsified separately, \
+         by any dot leaving the `= 0` lane under the platform `libm`, where \
+         the two sides call the same `exp`."
+    );
+    let strip_id = format!("tier{tier}-errors");
+    let ulp_id = format!("tier{tier}-ulp");
+
+    match plot::strip(tier, gate, &points) {
+        Some(svg) => {
+            plot::write_figure(root, &svg, command)?;
+            let caption = plot::Caption {
+                id: &strip_id,
+                title: "Every comparison, against the gate",
+                caption: &strip_caption,
+                from,
+            };
+            if let Some(markdown) = plot::include(root, "figures/", &caption) {
+                out.push_str("\n## Figures\n\n");
+                out.push_str(&markdown);
+            }
+        }
+        // Said rather than left to be inferred from an absence. Every
+        // comparison being exactly zero is the strongest result a tier can
+        // have, and it is the one result a logarithmic error axis cannot draw.
+        None if !points.is_empty() => out.push_str(
+            "\n## Figures\n\nEvery one of this tier's comparisons is \
+             bit-identical to the Fortran, so there is\nnothing to place on a \
+             logarithmic error axis and no error figure is drawn. The \
+             figure\nbelow states the same result in the units that suit it.\n",
+        ),
+        None => {}
+    }
+    if let Some(svg) = plot::ulp(tier, gate, runs) {
+        plot::write_figure(root, &svg, command)?;
+        // Only Tier 2 runs both builds, so only Tier 2's caption may name the
+        // bit-equality condition. A caption that stated a failure condition
+        // the figure cannot show would be exactly the decoration these are
+        // supposed not to be.
+        let both = runs.iter().any(|run| run.libm == report::Libm::Platform);
+        let caption = plot::Caption {
+            id: &ulp_id,
+            title: "How many bits actually differ",
+            caption: if both { ULP_CAPTION_BOTH } else { ULP_CAPTION },
+            from,
+        };
+        if let Some(markdown) = plot::include(root, "figures/", &caption) {
+            if out.is_empty() {
+                out.push_str("\n## Figures\n\n");
+            }
+            out.push('\n');
+            out.push_str(&markdown);
+        }
+    }
+    Ok(out)
+}
+
+/// Tier 4's figure, from the scenario sweep both `libm` builds printed.
+///
+/// Tiers 4 and 5 write no chapter, for the reason `GENERATED_TIERS` gives, so
+/// their figures land on the generated index instead. The file carries its own
+/// provenance, so the index can say which run drew it even when that run was
+/// not this one.
+fn write_tier4_figure(
+    root: &Path,
+    command: &str,
+    runs: &[report::TargetRun],
+) -> Result<(), String> {
+    let points = plot::noise_points(runs);
+    let hours = plot::sweep_hours(runs).unwrap_or(0.0);
+    match plot::noise_band(&points, hours) {
+        Some(svg) => plot::write_figure(root, &svg, command),
+        None => {
+            println!(
+                "[note] tier 4 printed no scenario sweep, so no figure was \
+                 written. The sweep is `#[ignore]`d, and `validate` passes \
+                 `--include-ignored` to run it."
+            );
+            Ok(())
+        }
+    }
+}
+
+/// Tier 5's figure: the cross-source value against the within-source null.
+fn write_tier5_figure(
+    root: &Path,
+    command: &str,
+    runs: &[report::TargetRun],
+) -> Result<(), String> {
+    let points = plot::calibration_points(runs);
+    let size = plot::battery_size(runs).unwrap_or_else(|| "size not reported".to_string());
+    match plot::calibration(&points, &size) {
+        Some(svg) => plot::write_figure(root, &svg, command),
+        None => {
+            println!("[note] tier 5 printed no calibrated statistic, so no figure was written.");
+            Ok(())
+        }
+    }
+}
+
+/// The two figures the generated index carries, with their failure conditions.
+///
+/// They are constants rather than built at the point of drawing because the
+/// index is written on every run, including runs that did not touch Tier 4 or
+/// Tier 5. What varies between runs, the command and the commit, is read back
+/// off the figure itself.
+const STANDALONE_FIGURES: &[plot::Caption<'static>] = &[
+    plot::Caption {
+        id: "tier4-noise-band",
+        title: "How far apart the trajectories get, in units of instrument noise",
+        caption: "\
+Every disturbance scenario, run on both implementations, with the worst \
+disagreement anywhere in the run divided by the noise standard deviation \
+`XNS(i)` of the channel it happened on. The reference line is therefore not \
+zero but the point at which the plant's own instruments could resolve the \
+difference. The claim is false if any marker reaches the shaded band, and the \
+explanation is false if the platform `libm` markers ever leave the `= 0` lane: \
+that would mean the divergence is something other than transcendental \
+rounding.",
+        from: "B-0034",
+    },
+    plot::Caption {
+        id: "tier5-calibration",
+        title: "The two sources against the reference's own run-to-run spread",
+        caption: "\
+There is no absolute scale on which a Frobenius distance or a \
+Kolmogorov-Smirnov statistic is small, so the battery measures one: it splits \
+the Fortran's own runs in half and computes the same statistic Fortran against \
+Fortran. The horizontal axis is the statistic across the two sources, the \
+vertical axis is that null, and both axes share a scale so the diagonal is \
+equality. The claim is false if a cross-source point crosses to the low side \
+of the diagonal; the two that already sit there are the battery's own positive \
+control, where one variable of the reference was shifted by ten standard \
+deviations before comparing.",
+        from: "B-0047b",
+    },
+];
+
+/// The ULP figure says the same thing in the units that cannot be flattered.
+const ULP_CAPTION: &str = "\
+The same comparisons counted by how many bits differ rather than by how much. \
+A relative error is a ratio, and dividing by a large number makes any \
+difference look small; a count of differing units in the last place cannot be \
+flattered that way. This tier is straight-line arithmetic over constants \
+already proved bit-identical, so the claim is that the only bar is the one at \
+zero. A second bar appearing anywhere is a regression to chase rather than a \
+tolerance to widen.";
+
+/// The same figure for a tier that ran both `libm` builds, where the contrast
+/// between them is the result and the caption is allowed to say so.
+const ULP_CAPTION_BOTH: &str = "\
+The same comparisons counted by how many bits differ rather than by how much. \
+A relative error is a ratio, and dividing by a large number makes any \
+difference look small; a count of differing units in the last place cannot be \
+flattered that way. The two groups are the whole argument: under the platform \
+`libm`, where both sides call the same `exp`, the distribution is one bar at \
+zero, and every comparison in the tier is identical to the last bit. Under the \
+vendored `libm` a tail appears, and it is the transcendentals rather than the \
+algebra. The claim is false the moment the platform group grows a second bar.";
 
 const TIER1_LEAD: &str = "\
 `TESUB1` (enthalpy), `TESUB2` (temperature from enthalpy by Newton), `TESUB3`
@@ -1360,6 +1560,33 @@ fn write_validation_index(root: &Path, ran: &[u8], written: &[u8]) -> Result<(),
             );
         }
     }
+
+    // Tiers 4 and 5 write no chapter, so their figures live here. Each is
+    // included only if some run has actually drawn it, and the caption says
+    // which run that was: a figure nobody has generated is reported as absent
+    // rather than left out, because a missing picture and a picture nobody
+    // updated look the same on a page.
+    page.push_str(
+        "## What the long tiers look like\n\nTiers 4 and 5 run but write no \
+         chapter yet, for the reason `GENERATED_TIERS`\ngives in `xtask`. \
+         Their figures are here, each drawn by the run named under it.\n",
+    );
+    for figure in STANDALONE_FIGURES {
+        match plot::include(root, "figures/", figure) {
+            Some(markdown) => {
+                let _ = writeln!(page, "\n{markdown}");
+            }
+            None => {
+                let _ = writeln!(
+                    page,
+                    "\n**{}.** No run has drawn this yet. `cargo xtask validate \
+                     --tiers 4,5` writes it.",
+                    figure.title
+                );
+            }
+        }
+    }
+    page.push('\n');
 
     page.push_str("## The ladder\n\n| tier | what it proves | chapter |\n|---|---|---|\n");
     for (tier, proves) in LADDER {

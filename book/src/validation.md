@@ -13,6 +13,14 @@ verdicts, precisely so that a degradation inside tolerance is still visible: if
 a maximum relative error moves from 3e-14 to 8e-13, both pass a 1e-12 gate and
 something has broken, and the only place that is visible is the logged history.
 
+The figures are held to the same rule. Each one is drawn by `cargo xtask
+validate` from the run's own output, committed alongside the generated
+chapters, and captioned with the condition that would make it false. Nothing in
+one is placed by hand: a marker is orange because its value is on the wrong side
+of a gate, never because a test's name was recognised, so a genuine regression
+and a deliberate positive control are drawn identically and the caption is what
+tells them apart.
+
 All numbers below were produced with gfortran 15.2.0 and the pinned rustc
 1.97.1. The oracle's compiler flags are fixed in `build.rs` and asserted by a
 test; changing them invalidates every Tier 1 and Tier 2 number here, so it is a
@@ -129,6 +137,14 @@ Acceptance, from B-0026: all fifty components, **2,412 running states**, all
 three pools, **worst 6.093e-14 at `YP(7)`, `perturbed#300`**, against a 1e-12
 gate.
 
+The whole tier fits in one picture. Every comparison it makes, run twice, once
+against each `libm`, plotted at its own maximum relative error:
+
+<figure style="margin: 1.5rem 0;">
+{{#include validation/figures/tier2-errors.svg}}
+<figcaption style="font-size: 0.9em; opacity: 0.8; margin-top: 0.6em;"><strong>Every Tier 2 comparison, against the 1e-12 gate.</strong> One lane per test target, one dot per comparison, on a logarithmic axis with a separate lane at the left for the comparisons that are exactly bit-identical. Blue dots are the <code>libm-system</code> build, where both sides call the same <code>exp</code> and the claim is bit equality rather than a tolerance; every one of them is in the zero lane, and one leaving it would falsify that claim. Grey dots are the vendored <code>libm</code>, and every one of them is inside the gate, though one in <code>tier2_heat</code> sits close enough to it to be worth hovering over: a table of maxima hides which comparison is nearest the line, and this does not. Any dot crossing into the shaded region would be a failure. The figure is written by <code>cargo xtask validate</code> whenever it runs Tier 2, from that run's own output; the measurements are the ones recorded for B-0026 in <code>LOG.org</code>, and the <a href="validation/tier2.html">generated Tier 2 chapter</a> carries the same figure with the exact command and commit that drew it, plus the same data as a table.</figcaption>
+</figure>
+
 | `YP` | error / scale | error / value | ratio |
 |---|---|---|---|
 | 2 | 3.811e-14 | 1.393e-4 | 3.7e9 |
@@ -193,6 +209,11 @@ All 21 scenarios at 4 hours each stay within `XNS` for the whole run in both
 configurations, and every one is exactly 0.00e0 on the platform `libm`. Worst
 error by scenario on the vendored `libm` at 4 hours: nominal 2.45e-5, `IDV(10)`
 3.66e-8, `IDV(8)` 1.42e-8, `IDV(13)` 1.05e-8, and the rest below 1e-8.
+
+<figure style="margin: 1.5rem 0;">
+{{#include validation/figures/tier4-noise-band.svg}}
+<figcaption style="font-size: 0.9em; opacity: 0.8; margin-top: 0.6em;"><strong>All twenty-one scenarios, in units of instrument noise.</strong> The worst disagreement anywhere in each run, divided by the noise standard deviation <code>XNS(i)</code> of the channel it happened on, so the reference line is not zero but the point at which the plant's own instruments could resolve the difference. Filled dots are the vendored <code>libm</code>; rings are the platform one, and all twenty-one of those sit in the exactly-zero lane. The claim is false if a marker reaches the shaded band at one, and the <em>explanation</em> is false if a ring ever leaves the zero lane: that would mean the divergence is something other than transcendental rounding. Written by <code>cargo xtask validate --tiers 4</code> from that run's own output, at the sweep's own horizon of four hours rather than the eight-hour nominal run tabulated above; the same sweep is recorded for B-0034 in <code>LOG.org</code>, and the <a href="validation/index.html">generated index</a> names the run that drew this copy.</figcaption>
+</figure>
 
 The explanation is better than the one asked for. With identical transcendentals
 the two trajectories are not merely close, they are **bit-identical for 28,800
@@ -271,6 +292,14 @@ Every calibrated statistic passed at p = 1.0000 on all three: the cross-source
 value was never the maximum of its null. The correlation matrix's Frobenius
 distance is three to five orders of magnitude inside the within-source spread,
 which matters because that matrix is exactly what a PCA-based detector consumes.
+
+That relationship, rather than any single number, is what Tier 5 claims, so it
+is worth drawing:
+
+<figure style="margin: 1.5rem 0;">
+{{#include validation/figures/tier5-calibration.svg}}
+<figcaption style="font-size: 0.9em; opacity: 0.8; margin-top: 0.6em;"><strong>The two sources against the reference's own run-to-run spread.</strong> Horizontally, a statistic measured between the Fortran and the port. Vertically, the same statistic measured between two halves of the Fortran's own runs, which is the null the battery calibrates against. Both axes share one scale, so the diagonal is exactly the line of equality: a point above it means the two implementations differ from each other by less than the reference differs from itself. The claim is false if a cross-source point crosses to the low side. The two points that already sit there are the battery's own positive control, where one variable of the reference was shifted by ten standard deviations before comparing, and they show what a real difference looks like on the same axes. Written by <code>cargo xtask validate --tiers 5 --smoke</code>, so the points are the <em>smoke</em> battery's, 3 scenarios by 4 seeds by 2 h and fourteen seconds of running, not the full one: the figure's own subtitle says which, and the full-battery numbers are the ones tabulated above and recorded for B-0047b in <code>LOG.org</code>. At smoke size the permutation tests cannot reject at all, which is why the picture shows the gap between the cross-source value and its null rather than a verdict.</figcaption>
+</figure>
 
 TOST power against battery size, measured in the same entry:
 
