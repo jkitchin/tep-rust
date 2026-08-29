@@ -48,6 +48,7 @@
             <button id="start" type="button">Start</button>
             <button id="stop" type="button" disabled>Stop</button>
             <button id="reset" type="button">Reset</button>
+            <button id="download" type="button" disabled>Download CSV</button>
           </div>
           <dl class="stats">
             <dt>samples</dt><dd id="stat-samples" class="mono">0</dd>
@@ -59,7 +60,19 @@
             <dt>output checksum</dt><dd id="stat-checksum" class="mono">-</dd>
             <dt>scenario digest</dt><dd id="stat-digest" class="mono">-</dd>
             <dt>retained</dt><dd id="stat-retained" class="mono">-</dd>
+            <dt>recorded</dt><dd id="stat-recorded" class="mono">-</dd>
           </dl>
+          <p class="muted small">
+            The download is the run as it happened: every sample, at full
+            resolution, not the decimated view the trends draw. It is available
+            as soon as the first chunk lands, so a stopped run saves what it got
+            to. Columns are <code>step</code>, <code>time_hours</code>, the 53
+            channels, then <code>fault</code> and
+            <code>hours_since_onset</code>. The scenario is a <code>#</code>
+            comment on the second line: the same token a share link carries, so
+            the file names the exact run that produced it rather than describing
+            it.
+          </p>
         </section>
 
         <section>

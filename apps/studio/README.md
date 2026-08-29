@@ -31,8 +31,9 @@ Everything that can be checked without a browser is checked there: the worker
 protocol driven under a shim of the Worker globals, the wasm module's
 determinism digest against the value `crates/tepsim-wasm/tests/determinism.rs`
 pins, throughput against the budget in `PLAN.org`, the link encoding, the
-history store, and a static pass over the built page. Rendering is not tested
-and is not pretended to be.
+history store, the CSV export down to and including revoking the object URL,
+and a static pass over the built page. Rendering is not tested and is not
+pretended to be.
 
 ## What it does
 
@@ -41,7 +42,7 @@ XMV(1..12)]`, arriving as transferable `Float64Array`s. On the page they feed
 three views: a process flow diagram with live readings on every unit and stream,
 a grid of trend charts over a selectable subset of the 53 channels, and a panel
 of the twenty `IDV` disturbances. The scenario lives in the URL fragment, so a
-run travels as a link.
+run travels as a link, and **Download CSV** saves what the run produced.
 
 It travels as one token, `#q=tepsim.scenario.v1;seed=...`, which is what
 `Scenario.text` produces and `Scenario.fromText` reads. Neither the page, the
@@ -93,6 +94,36 @@ which it is doing in the "retained" readout.
 asks for the next chunk, never what is in it. A paced run and an unpaced one
 emit identical bytes, which is asserted rather than asserted-in-a-comment.
 
+**The download is the run, not the picture of it.** `js/csv.js` keeps a second
+store beside the trend history, and that one keeps every sample. Decimating a
+file would silently answer a different question from the one it was asked and
+nothing downstream could tell, so instead the recorder has a 200,000 row ceiling
+(86 MB retained, enough for 48 hours at `sampleEvery = 1`) and *stops* at it
+rather than thinning what it has. A truncated file is a prefix of the run at
+full resolution, and both the "recorded" readout and the file's own header say
+so. It costs nothing to keep: the chunk arrives as a transferred
+`Float64Array` the page already owns, `History` copies what it wants out of it,
+and the recorder holds the same array.
+
+**The scenario travels in the file, not in its name.** The first thing after
+the title is `# scenario: tepsim.scenario.v1;...`, the token `Scenario.fromText`
+reads, so a file in a downloads folder reproduces its own run rather than
+describing it. Not the file name: the token contains `;` and `:`, which are
+illegal in a Windows file name and which browsers rewrite on the download path,
+so a name would arrive mangled and stop round-tripping without saying it had. A
+comment also survives the file being renamed. The name carries what somebody
+scanning a folder needs instead: `tep-idv6-5.8h-116rows-tripped-<checksum>.csv`.
+
+**Ground truth is resolved per row, not per chunk.** The worker reports which
+disturbances are on once per chunk, as of the chunk's last sample, and a chunk
+can be hours of plant; handing that to every row would move an onset earlier by
+up to a chunk, which is the exact quantity a detection-delay figure measures. So
+the *age* of each active disturbance travels with the chunk and each row is
+decided against its own clock. Ages rather than absolute onset times on purpose:
+the driver forces `IDV(12)` on at eight hours, which is a sampling instant, and
+converting between the two would put that row on the wrong side of the
+comparison by one ulp.
+
 ## On Trunk
 
 `PLAN.org` specifies a Leptos app built with Trunk. What was built instead is
@@ -115,22 +146,24 @@ to expect from it.
 ## Measured
 
 Built with `--profile release-wasm` (`opt-level = "s"`, thin LTO, `panic =
-"abort"`, stripped), no `wasm-opt`:
+"abort"`, stripped), no `wasm-opt`, as of B-0073:
 
 | | raw | gzip -9 |
 |---|---|---|
-| wasm module | 87,298 | 35,359 |
-| wasm-bindgen glue | 50,309 | 9,627 |
-| the app itself (HTML, CSS, 7 modules) | 79,121 | 29,024 |
-| **total** | **216,728** | **74,010** |
+| wasm module | 165,312 | 73,579 |
+| wasm-bindgen glue | 52,791 | 10,110 |
+| the app itself (HTML, CSS, 8 modules) | 102,460 | 37,927 |
+| **total** | **320,563** | **121,616** |
 
-`PLAN.org` budgets under 1.5 MB gzipped for the whole app. This is 4.8 percent
+`PLAN.org` budgets under 1.5 MB gzipped for the whole app. This is 7.9 percent
 of it. `apps/studio/measure.sh` prints the table and fails if the budget is
-exceeded.
+exceeded. The CSV export (`js/csv.js` and its wiring) cost 7,481 gzipped bytes,
+0.5 percent of the budget: 114,135 before, 121,616 after.
 
-`wasm-opt -Oz` takes the module from 87,298 to 79,759 bytes raw and from 35,359
-to 35,284 gzipped: worth having, worth almost nothing compressed, and not worth
-failing a build over.
+`wasm-opt -Oz` took the module from 87,298 to 79,759 bytes raw and from 35,359
+to 35,284 gzipped when that was measured, on a smaller module than the one
+above: worth having, worth almost nothing compressed, and not worth failing a
+build over.
 
 Throughput, on an Apple silicon laptop under Node 25, five consecutive 48-hour
 closed-loop runs (172,800 one-second Euler steps each) after a warm-up:
@@ -156,3 +189,10 @@ static structure of the built page is checked, and the numbers are asserted, but
 no browser has rendered this page. Layout, the flowsheet's appearance at real
 widths, canvas rendering, `ResizeObserver` behaviour, the clipboard fallback and
 the dark-mode palette are all unexercised.
+
+The download is checked as far as it can be off a browser: the file is built,
+parsed back and compared against the run that produced it, and `saveCsv` is
+driven against a stand-in for `document` and `URL` so that the blob, the file
+name, the click and the revocation are all asserted. What no test here covers is
+what a real browser does with the click, which is the one step that actually
+writes the file.
