@@ -6286,3 +6286,98 @@ nobody has done.
   epoch (the core may not read a clock), a decision about what quality code a
   dead-time analyser and a frozen channel deserve, and units promoted from
   prose in =measurements.rs= to data on a channel.
+
+* 2026-08-29 B-0074 The operating cost of a run
+:PROPERTIES:
+:ITEM:     B-0074
+:PHASE:    10
+:TIER:     11
+:COMMIT:   pending
+:GFORTRAN: 15.2.0
+:STATUS:   DONE
+:END:
+** Preflight
+Clean and green. This is the first item of a new phase, so the preflight is the
+usual one: fidelity 3.521323734565789e-14, provenance 1306 of 2997 (43.6%),
+deltas 11 and 11. None of them move, because nothing in this iteration touches
+the model.
+
+** What changed
+A new shipped crate, =tepsim-operations=, and the first of its three planned
+pieces: what a run costs, per hour, computed from what the plant measures.
+
+Nothing in =tepsim-core= or =tepsim-control= changed. The layer attaches through
+=Action::Setpoint=, which already existed, which is the whole reason this is
+additive rather than a redesign.
+
+** Validation numbers
+
+*** The physical rates, nominal 48 h, 960 samples, unit prices
+| term       |       rate | unit  |
+|------------+------------+-------|
+| purge      |    386.483 | kg/h  |
+| product    | 17,020.989 | kg/h  |
+| compressor |    341.483 | kWh/h |
+| steam      |    233.579 | kg/h  |
+
+Raw channels at the last sample: =XMEAS(10)= 0.3392 kscmh, =XMEAS(17)= 23.8693
+m3/h, =XMEAS(19)= 230.2244 kg/h, =XMEAS(20)= 340.9525 kW.
+
+*The compressor number is the check that matters.* The canonical base case for
+this process is about 341.4 kW, and 341.483 kWh/h came out of reading
+=XMEAS(20)= through a conversion derived from =teprob.f:699=, with nothing
+fitted to it. A channel wired to the wrong index would not land there.
+
+*** The conversions
+=the_purge_conversion_inverts_teprob_f_688= and its product twin read the
+vendored Fortran, assert the line is exactly
+=XMEAS(10)=FTM(10)*0.359/35.3145= (and =XMEAS(17)=FTM(13)/DLC/35.3145=), and
+round-trip a molar flow to 1e-9 relative. If someone edits the conversion the
+test says which Fortran line it stopped matching.
+
+*** Structure
+Nine tests. Zero prices cost exactly zero; zero flows cost exactly zero; each of
+the four terms answers to its own price and to no other; the product mass rate
+divided back through its own density returns =XMEAS(17)= to 1e-9; the raw
+analyser readings are asserted *not* to sum to 1 before normalising, so the
+normalisation is demonstrably load-bearing.
+
+** Surprises and decisions
+
+*The product density is not measured, and that turned out to be the interesting
+part.* =XMEAS(17)= is a volumetric flow, so a mass rate needs =DLC=, which no
+instrument reports. It is recoverable from the product analyser and the stripper
+temperature through =thermo::liquid_density=, the plant's own correlation,
+already validated against the oracle. That is a small instance of exactly what
+this layer exists to do, and it arrived on the first function rather than in the
+reconciliation item where it was expected.
+
+*The analysers do not sum to 100 and must not be trusted to.*
+=Composition::new= checks the sum to 1e-6 in debug builds, and noisy mole-percent
+readings violate that immediately. Normalising is what an operations layer does;
+the test asserts the raw sum really is out of tolerance so the normalisation
+cannot quietly become decorative.
+
+*=mul_add= is used here and is forbidden three crates away.* The workspace lint
+=clippy::suboptimal_flops= is allowed in =tepsim-core= because a fused
+multiply-add rounds once where the Fortran rounds twice. None of that applies to
+a cost accumulation, so the suggestion is taken, and the contrast is commented at
+the call site so the next person does not have to rediscover which rule applies
+where.
+
+*There is no price preset, deliberately.* The Downs and Vogel coefficients are in
+the paper and not in =reference/=. Typing them here would be a constant nobody in
+the repository could check, which is the precise failure mode
+"constants are asserted, never retyped" exists to prevent. Recorded as an open
+question in =PLAN.org=: vendoring the paper's cost table with a checksum would
+resolve it.
+
+** Next
+*B-0075, data reconciliation.* It is the piece with the best evidence available
+and it is now unblocked. Both halves come out of the source rather than out of a
+modelling choice: the constraints are the balances =tepsim-core= already
+computes and the Tier 2 invariants already check, and the weights are =XNS(i)=,
+the noise standard deviations in =teprob.f=. And the scoring is better than the
+real problem ever gets, because the simulator knows the true state, so
+"reconciliation reduces error against the truth" is directly measurable rather
+than argued from residuals.

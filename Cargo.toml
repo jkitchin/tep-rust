@@ -20,6 +20,7 @@ tepsim-core = { path = "crates/tepsim-core", version = "0.0.0" }
 tepsim-control = { path = "crates/tepsim-control", version = "0.0.0" }
 tepsim-scenario = { path = "crates/tepsim-scenario", version = "0.0.0" }
 tepsim = { path = "crates/tepsim", version = "0.0.0" }
+tepsim-operations = { path = "crates/tepsim-operations", version = "0.0.0" }
 # Development-only. Depended on by xtask for the golden trace format, never
 # by a shipped crate; `cargo xtask ci` asserts that.
 tepsim-oracle = { path = "crates/tepsim-oracle", version = "0.0.0" }

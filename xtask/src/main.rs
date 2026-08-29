@@ -48,6 +48,7 @@ const SHIPPED_CRATES: &[&str] = &[
     "tepsim-cli",
     "tepsim-py",
     "tepsim-wasm",
+    "tepsim-operations",
 ];
 
 /// The marker that opens a provenance claim. Must be anchored at the start

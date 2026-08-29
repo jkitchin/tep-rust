@@ -374,6 +374,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "tepsim-operations"
+version = "0.0.0"
+dependencies = [
+ "tepsim",
+ "tepsim-core",
+]
+
+[[package]]
 name = "tepsim-oracle"
 version = "0.0.0"
 dependencies = [

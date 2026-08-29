@@ -2951,13 +2951,43 @@ Exit: Tier 11 shows a planned schedule beating a fixed operating point on a
 stated objective across the disturbance battery, and reconciliation reducing
 error against the true state that only the simulator knows.
 
-** NEXT B-0074 The operating cost of a run
+** DONE B-0074 The operating cost of a run
 :PROPERTIES:
 :ID:    B-0074
 :PHASE: 10
 :TIER:  11
 :DEPS:  B-0052
 :PLAN:  Operations > Economics
+:COMMIT: pending
+:RESULT: =tepsim-operations= exists and is shipped; =xtask ci='s isolation
+         check now reports *8* shipped crates and still passes. The cost rate
+         has four terms, each citing the =XMEAS= channel it reads and the
+         =teprob.f= line that defines that channel's unit.
+
+         *The unit conversions are asserted against the source, not assumed.*
+         Two tests read =teprob.f:688= and =teprob.f:695= out of the vendored
+         file, assert the line is literally what the conversion was derived
+         from, then round-trip a molar flow through the inverted conversion.
+         The product needed the liquid density, which is not measured, so it is
+         closed with the plant's own correlation from the product analyser and
+         the stripper temperature. Closing an unmeasured quantity with the model
+         is the first thing this layer is for.
+
+         *Nominal 48 h, 960 samples, unit prices*, so each term is the physical
+         rate: purge *386.483 kg/h*, product *17,020.989 kg/h*, compressor
+         *341.483 kWh/h*, steam *233.579 kg/h*. The compressor figure is the
+         strongest evidence the channels are wired correctly: the canonical base
+         case is about 341.4 kW and nothing here was fitted to it.
+
+         *Prices are an input and there is no default.* The Downs and Vogel
+         coefficients are in the paper, not in =reference/=, so nothing here can
+         assert them; see the open question in =PLAN.org=. =Prices::unit()= and
+         =Prices::free()= exist for reading the physical rates and for testing.
+
+         Nine tests, all passing first run. =mul_add= is used here and forbidden
+         in =tepsim-core=, and the contrast is commented at the call site: this
+         crate is not bit-matching Fortran, so a single rounding is simply more
+         accurate.
 :END:
 
 A new shipped crate =tepsim-operations=, and in it a cost rate in currency per
