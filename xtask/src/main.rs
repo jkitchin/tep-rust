@@ -28,6 +28,7 @@
 
 mod deltas;
 mod report;
+mod tier9;
 
 use std::fmt;
 use std::fmt::Write as _;
@@ -87,6 +88,7 @@ fn main() -> ExitCode {
         "provenance" => cmd_provenance(&root),
         "fidelity" => cmd_fidelity(&root).map(|_| ()),
         "validate" => cmd_validate(&root, flags),
+        "tier9" => tier9::cmd_tier9(&root, flags),
         "deltas" => deltas::cmd_deltas(&root),
         "python" => cmd_python(&root, true),
         "licences" => check_wheel_licences(&root),
@@ -120,6 +122,11 @@ usage: cargo xtask <command>
                 run the validation ladder at full volume, in release, and
                 write book/src/validation/ from what the tests printed
                 --smoke runs the reduced sweeps, and says so on the page
+  tier9 [--profiles release-wasm,release]
+                cross-platform determinism: run the committed digest table
+                natively, then again from a wasm32 build in a WebAssembly
+                runtime, and compare both against the committed constants.
+                Skipped, with the reason, without the target or a runtime
   deltas        cross-check the @delta markers against book/src/deltas.md,
                 and write book/src/validation/delta-index.md
   python        build the wheel, install it into a throwaway virtualenv, and
@@ -1050,6 +1057,14 @@ fn cmd_validate(root: &Path, flags: &[String]) -> Result<(), String> {
                     &[(TIER7_ENV, "full")],
                 )?;
             }
+            9 => {
+                // The one tier that needs no Fortran at all. What it compares
+                // is this build against constants committed to the repository,
+                // so it is meaningful on a machine that could not build the
+                // oracle, and it is the only tier a Windows runner could run.
+                println!("\n=== tier 9: cross-platform determinism ===");
+                tier9::cmd_tier9(root, &[])?;
+            }
             10 => {
                 if which("gfortran").is_none() {
                     return Err("tier 10 needs gfortran, which is not on PATH.".to_string());
@@ -1075,9 +1090,8 @@ fn cmd_validate(root: &Path, flags: &[String]) -> Result<(), String> {
                 )?;
             }
             other => println!(
-                "\n[skip] tier {other}: no harness yet. Tiers 8 and 9 are \
-                 differential fuzzing and cross-platform determinism; see \
-                 BACKLOG.org."
+                "\n[skip] tier {other}: no harness yet. Tier 8 is differential \
+                 fuzzing; see BACKLOG.org."
             ),
         }
     }
@@ -1110,16 +1124,16 @@ fn require_gfortran(tier: u8) -> Result<(), String> {
 
 /// The tiers `validate` writes a chapter for.
 ///
-/// Tiers 4 and 5 still *run*; they just do not write a page yet. Generating a
-/// chapter nobody has ever seen rendered, at the end of an hour-long Tier 5
-/// battery, is the wrong place to find out the renderer was wrong, so they wait
-/// for a session that can afford to run them. Tiers 6 to 10 have no harness at
-/// all. The index says both of these on the page rather than leaving a reader
-/// to infer it from an absence.
+/// Tiers 4 to 7, 9 and 10 still *run*; they just do not write a page yet.
+/// Generating a chapter nobody has ever seen rendered, at the end of an
+/// hour-long Tier 5 battery, is the wrong place to find out the renderer was
+/// wrong, so they wait for a session that can afford to run them. Tier 8 has no
+/// harness at all. The index says both of these on the page rather than leaving
+/// a reader to infer it from an absence.
 const GENERATED_TIERS: &[u8] = &[1, 2, 3];
 
 /// The tiers `validate` runs but writes no chapter for.
-const RUNNABLE_TIERS: &[u8] = &[4, 5];
+const RUNNABLE_TIERS: &[u8] = &[4, 5, 6, 7, 9, 10];
 
 /// Write one tier's chapter, and say which volume produced it.
 fn write_chapter(
@@ -1261,7 +1275,7 @@ fn write_validation_index(root: &Path, ran: &[u8], written: &[u8]) -> Result<(),
     let _ = writeln!(
         page,
         "\nThis run selected tier(s) {ran:?} and wrote chapter(s) for {written:?}. \
-         Tiers 4 and 5\nrun but do not write a chapter yet; tiers 6 to 10 have no \
+         Tiers 4 to 7, 9\nand 10 run but do not write a chapter yet; tier 8 has no \
          harness. The [delta\nindex](delta-index.md) is generated separately, by \
          `cargo xtask deltas`.\n"
     );

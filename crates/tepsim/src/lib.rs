@@ -36,6 +36,11 @@
 //! state, no global. The same scenario gives bit-identical output on x86-64,
 //! aarch64 and wasm32, which is what makes a recorded dataset reproducible from
 //! its description rather than from a file.
+//!
+//! That is a claim, so it is measured. [`tier9`] holds a table of fixed
+//! scenarios and the digest each is committed to produce, and every platform
+//! checks itself against the same committed constants. `cargo xtask tier9`
+//! runs the table natively and again on `wasm32-unknown-unknown`.
 
 #![no_std]
 #![forbid(unsafe_code)]
@@ -48,6 +53,7 @@ pub mod run;
 pub mod scenario;
 pub mod sim;
 pub mod text;
+pub mod tier9;
 
 pub use integrator::{Integrator, Step};
 pub use recorder::{Columnar, Csv, CsvString, Decimating, Recorder, Ring, Selecting};
