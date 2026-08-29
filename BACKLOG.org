@@ -1963,7 +1963,7 @@ Done when:
 :TIER:  5
 :DEPS:  B-0047b
 :PLAN:  Validation > Tier 5
-:COMMIT: pending
+:COMMIT: c58a314
 :RESULT: 21 scenarios by 100 seeds by 48 h on both sources, 4200 runs, 171
          minutes. *19 of 21 pass everything.* Paired mean power 0.0000 to
          0.0086, so the interval is under one percent of the margin; Frobenius
