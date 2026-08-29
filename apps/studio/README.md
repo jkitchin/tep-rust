@@ -184,11 +184,21 @@ simulator. `apps/studio/node/protocol.test.mjs` measures the same thing on a
 
 ## What has not been verified
 
-Nothing visual. The build succeeds, the protocol is driven under Node, the
-static structure of the built page is checked, and the numbers are asserted, but
-no browser has rendered this page. Layout, the flowsheet's appearance at real
-widths, canvas rendering, `ResizeObserver` behaviour, the clipboard fallback and
-the dark-mode palette are all unexercised.
+Nothing visual, by the test suite. The build succeeds, the protocol is driven
+under Node, the static structure of the built page is checked, and the numbers
+are asserted, but no test renders this page. Layout, canvas rendering,
+`ResizeObserver` behaviour, the clipboard fallback and the dark-mode palette are
+all unexercised by anything that runs in CI.
+
+The flowsheet is the exception, and only as a one-off: its layout was laid out
+against a rendered page rather than against its own source. Headless Chrome
+drew it in both themes, on the baseline plant and on a run that trips, and a
+script walked the rendered SVG asking whether any label sat outside the
+viewBox, touched another label, crossed a vessel border or was crossed by a
+pipe, including a pass with every readout forced to the widest string the
+formatter can produce. That is how the overlapping, clipped version was found:
+it read perfectly well as source. Anyone moving a readout should do the same,
+because the geometry that matters is the one the browser computes.
 
 The download is checked as far as it can be off a browser: the file is built,
 parsed back and compared against the run that produced it, and `saveCsv` is

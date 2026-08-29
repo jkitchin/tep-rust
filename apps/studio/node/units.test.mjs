@@ -11,7 +11,14 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { History } from "../dist/js/history.js";
-import { decimateMinMax, formatHours, formatValue, niceRange } from "../dist/js/format.js";
+import {
+  decimateMinMax,
+  formatHours,
+  formatReadout,
+  formatValue,
+  niceRange,
+  shortUnit,
+} from "../dist/js/format.js";
 import { decodeLink, encodeLink } from "../dist/js/share.js";
 import { READOUTS, columnOf } from "../dist/js/flowsheet.js";
 import { bindings } from "./harness.mjs";
@@ -91,6 +98,69 @@ test("formatValue keeps a column of readings scannable", () => {
   assert.equal(formatValue(0), "0");
   assert.equal(formatValue(Number.NaN), "-");
   assert.equal(formatValue(Number.POSITIVE_INFINITY), "-");
+});
+
+test("formatReadout is four significant figures and stays inside its box", () => {
+  // The nominal steady state, which is what the diagram shows for most of a
+  // fault-free run. Four figures each, and no unit is amputated to fit.
+  assert.equal(formatReadout(2705.0), "2705");
+  assert.equal(formatReadout(120.41), "120.4");
+  assert.equal(formatReadout(75.0), "75.00");
+  assert.equal(formatReadout(9.3477), "9.348");
+  assert.equal(formatReadout(0.25052), "0.2505");
+  // Below a tenth, four fixed decimals rather than four figures: the absolute
+  // size is the readable fact about a flow that has collapsed.
+  assert.equal(formatReadout(0.0012), "0.0012");
+  assert.equal(formatReadout(0.00034), "3.4e-4");
+  assert.equal(formatReadout(0), "0");
+  assert.equal(formatReadout(Number.NaN), "-");
+  assert.equal(formatReadout(Number.POSITIVE_INFINITY), "-");
+
+  // The width budget the layout is placed against. Six characters, plus a sign
+  // for the noisy near-zero readings a lost feed produces.
+  const worst = [
+    3200.5, 2705.0, 999.99, 120.41, 75.0, 26.902, 9.3477, 1.0, 0.25052, 0.0012,
+    0.00034, -0.0035, -120.41, 1e-9, 5e5,
+  ];
+  for (const v of worst) {
+    assert.ok(
+      formatReadout(v).length <= 7,
+      `formatReadout(${v}) is "${formatReadout(v)}", wider than the diagram budgets`,
+    );
+  }
+
+  // The table's formatter is untouched: it is right for a column of readings
+  // and this is a separate rule for a picture.
+  assert.equal(formatValue(0.25052), "0.25052");
+});
+
+test("shortUnit abbreviates what the bindings spell out, and nothing else", () => {
+  assert.equal(shortUnit("kPa gauge"), "kPa");
+  assert.equal(shortUnit("Deg C"), "°C");
+  assert.equal(shortUnit("Mole %"), "mol%");
+  assert.equal(shortUnit("kg/hr"), "kg/h");
+  assert.equal(shortUnit("m3/hr"), "m3/h");
+  // Already short, or not ours: passed through verbatim rather than mapped to
+  // a guess. This is what stops it from being a second table of units.
+  assert.equal(shortUnit("kscmh"), "kscmh");
+  assert.equal(shortUnit("%"), "%");
+  assert.equal(shortUnit("kW"), "kW");
+  assert.equal(shortUnit("furlongs per fortnight"), "furlongs per fortnight");
+});
+
+test("every unit the bindings produce fits the diagram once shortened", async () => {
+  // Against the bindings themselves, not against a list here: a unit added or
+  // respelled in `tepsim_core::variables` shows up as a failure rather than as
+  // a readout running off the edge of the picture.
+  const { columnUnits } = await bindings();
+  const units = columnUnits();
+  assert.ok(units.length > 50, `only ${units.length} units, the call is wrong`);
+  for (const unit of units) {
+    assert.ok(
+      shortUnit(unit).length <= 5,
+      `unit "${unit}" is "${shortUnit(unit)}" on the diagram, too wide for a readout`,
+    );
+  }
 });
 
 test("formatHours carries 59.7 minutes into the next hour", () => {
@@ -249,17 +319,66 @@ test("every flowsheet readout points at a real column", () => {
   }
 });
 
-test("the flowsheet shows every manipulated variable and every continuous measurement", () => {
-  // XMEAS(1..22) are the continuous plant readings and XMV(1..12) the valves:
-  // together they are the plant as an operator sees it, and a flowsheet that
-  // dropped one would be quietly incomplete. XMEAS(23..41) are the analysers,
-  // 19 compositions that belong on trends rather than on a diagram; two are
-  // shown where they are the point of the stream (purge B, product G and H).
+test("the flowsheet shows every continuous measurement", () => {
+  // XMEAS(1..22) are the continuous plant readings: the plant as an operator
+  // sees it, and a flowsheet that dropped one would be quietly incomplete.
+  // XMEAS(23..41) are the analysers, 19 compositions that belong on trends
+  // rather than on a diagram; three are shown where the composition is the
+  // point of the stream (purge B, product G and H).
   const shown = new Set(READOUTS.map(columnOf));
   for (let i = 1; i <= 22; i += 1) {
     assert.ok(shown.has(i), `XMEAS(${i}) is missing from the flowsheet`);
   }
-  for (let i = 1; i <= 12; i += 1) {
-    assert.ok(shown.has(41 + i), `XMV(${i}) is missing from the flowsheet`);
+  for (const composition of [30, 40, 41]) {
+    assert.ok(shown.has(composition), `XMEAS(${composition}) is missing`);
   }
+});
+
+// A valve earns a place on the diagram only where nothing else reports what it
+// does. Nine of the twelve sit directly upstream of a measurement that is
+// already drawn, so drawing both says the same thing twice and costs the space
+// the readable labels needed; the agitator moves no material and holds at 50%
+// in every published run. All twelve are on the trends and in the CSV.
+//
+// The table is the justification, written down. Adding a drop means naming
+// what covers it, and the test then checks that the cover is itself on the
+// diagram, so this cannot decay into a list of things quietly left out.
+const VALVE_COVERED_BY = new Map([
+  [1, 2], // D feed flow -> XMEAS(2) D feed
+  [2, 3], // E feed flow -> XMEAS(3) E feed
+  [3, 1], // A feed flow -> XMEAS(1) A feed
+  [4, 4], // A and C feed flow -> XMEAS(4) A and C feed
+  [6, 10], // purge valve -> XMEAS(10) purge rate
+  [7, 14], // separator pot liquid -> XMEAS(14) underflow
+  [8, 17], // stripper liquid product -> XMEAS(17) product rate
+  [9, 19], // stripper steam valve -> XMEAS(19) steam flow
+]);
+const VALVE_MOVES_NOTHING = new Set([12]); // agitator speed
+
+test("the flowsheet shows the valves nothing else reports, and covers the rest", () => {
+  const shown = new Set(READOUTS.map(columnOf));
+
+  for (let mv = 1; mv <= 12; mv += 1) {
+    const onDiagram = shown.has(41 + mv);
+    const covered = VALVE_COVERED_BY.get(mv);
+    if (covered !== undefined) {
+      assert.ok(!onDiagram, `XMV(${mv}) is drawn as well as XMEAS(${covered})`);
+      assert.ok(
+        shown.has(covered),
+        `XMV(${mv}) was dropped in favour of XMEAS(${covered}), which is not drawn either`,
+      );
+    } else if (VALVE_MOVES_NOTHING.has(mv)) {
+      assert.ok(!onDiagram, `XMV(${mv}) is drawn but was justified as a constant`);
+    } else {
+      assert.ok(onDiagram, `XMV(${mv}) is the only view of its flow and must be drawn`);
+    }
+  }
+
+  // The three that survive the rule, named so that removing one is a visible
+  // decision rather than an accident: the compressor recycle and the two
+  // cooling water flows.
+  assert.deepEqual(
+    [5, 10, 11].filter((mv) => shown.has(41 + mv)),
+    [5, 10, 11],
+  );
 });

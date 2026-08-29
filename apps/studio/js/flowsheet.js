@@ -18,7 +18,27 @@
 // the figure, and the stream labels here use the paper's numbers because those
 // are what the measurement descriptions use.
 //
-// # Where the numbers come from
+// The one that catches everybody: **stream 4, the mixed A and C feed, does not
+// enter the mixing zone.** `teprob.f:637-639` adds it to the stripper base,
+// where it is the stripping gas. It is drawn entering the stripper from below
+// for that reason, and the note beside it says so.
+//
+// # Two bands, and no pipe through a vessel
+//
+// The drawing is two horizontal bands. The top band is the vapour loop in the
+// order the fluid travels: feeds, mixing zone, reactor, condenser, separator,
+// with the compressor recycle and the purge running back along the header at
+// the top. The bottom band is the stripper, which the separator underflow
+// reaches by going round the right-hand side and which returns its overhead to
+// the mixing zone along a lane between the two bands.
+//
+// That lane exists so the return has somewhere to run. A flowsheet whose pipes
+// cross its vessels is not merely ugly: a line that appears to pass through the
+// separator is a claim about the plant, and it is false. Every pipe here is
+// orthogonal and every one of them stays in open space, which is checked by
+// eye at each change and is the reason the layout is as tall as it is.
+//
+// # Where the numbers come from, and which numbers
 //
 // A readout names a Fortran index and nothing else. The short caption beside it
 // is for the diagram; the authoritative description and unit come from
@@ -26,8 +46,19 @@
 // against the `teprob.f` header table, and they are attached as the hover
 // title. So a readout cannot claim to be something the bindings disagree with,
 // and there is no second table of units here to fall out of date.
+//
+// The diagram carries all 22 continuous measurements and exactly three of the
+// twelve valves. The rule is that a valve earns a place only where nothing else
+// reports what it does: `XMV(5)` the compressor recycle, `XMV(10)` the reactor
+// cooling water and `XMV(11)` the condenser cooling water move flows that no
+// `XMEAS` measures. The other nine each sit directly upstream of a measurement
+// that is already drawn (`XMV(1)` sets the D feed, and `XMEAS(2)` is the D
+// feed), except `XMV(12)`, the agitator, which moves no material and holds at
+// 50% in every published run. Space on a diagram is not free, and a number
+// nobody reads costs the readable ones the room they needed. All twelve are on
+// the trends, at full resolution, and all 53 channels are in the CSV.
 
-import { formatValue } from "./format.js";
+import { formatReadout, shortUnit } from "./format.js";
 
 const NS = "http://www.w3.org/2000/svg";
 
@@ -35,63 +66,62 @@ const NS = "http://www.w3.org/2000/svg";
 // `mv` a one-based `XMV` index; a packed row is `[hours, XMEAS(1..41),
 // XMV(1..12)]`, so the column is the index itself or 41 plus it.
 //
-// `x` and `y` are the anchor of the value text. `caption` is the short name
-// drawn to its left; the full description is the hover title.
+// `x` and `y` anchor the pair: the caption ends at `x`, the value starts just
+// after it. Readouts are grouped into blocks that sit in the open space beside
+// the unit they belong to, at a 18-point pitch, and the block is placed so that
+// the longest value it can ever show still clears whatever is next to it. The
+// widest is a feed in `kscmh`, which is "-0.2505 kscmh" if a lost feed goes
+// negative under noise: thirteen characters, about 94 units of width.
 const READOUTS = [
-  // The four feeds, along the left edge.
-  { meas: 2, caption: "D feed", x: 150, y: 44 },
-  { mv: 1, caption: "valve", x: 150, y: 58 },
-  { meas: 3, caption: "E feed", x: 150, y: 90 },
-  { mv: 2, caption: "valve", x: 150, y: 104 },
-  { meas: 1, caption: "A feed", x: 150, y: 136 },
-  { mv: 3, caption: "valve", x: 150, y: 150 },
+  // The three feeds that reach the mixing zone, each on its own line in the
+  // left margin. The fourth feed is at the stripper, below.
+  { meas: 1, caption: "A feed", x: 70, y: 161 },
+  { meas: 2, caption: "D feed", x: 70, y: 206 },
+  { meas: 3, caption: "E feed", x: 70, y: 251 },
 
-  // Mixing zone outlet, the reactor's inlet.
-  { meas: 6, caption: "feed rate", x: 296, y: 196 },
+  // Compressor and the recycle it drives, under the top header.
+  { meas: 20, caption: "work", x: 340, y: 82 },
+  { meas: 5, caption: "recycle", x: 340, y: 100 },
+  { mv: 5, caption: "recycle valve", x: 340, y: 118 },
 
-  // Reactor.
-  { meas: 7, caption: "P", x: 400, y: 150 },
-  { meas: 8, caption: "level", x: 400, y: 166 },
-  { meas: 9, caption: "T", x: 400, y: 182 },
-  { meas: 21, caption: "cw out", x: 400, y: 198 },
-  { mv: 10, caption: "cw flow", x: 400, y: 214 },
-  { mv: 12, caption: "agitator", x: 400, y: 230 },
+  // Purge, at the end of the header. The B reading is the reason the purge
+  // exists: it is the only exit for the inert.
+  { meas: 10, caption: "purge", x: 1010, y: 62 },
+  { meas: 30, caption: "purge B", x: 1010, y: 80 },
 
-  // Compressor and the recycle it drives.
-  { meas: 20, caption: "work", x: 560, y: 42 },
-  { meas: 5, caption: "recycle", x: 560, y: 58 },
-  { mv: 5, caption: "recycle valve", x: 560, y: 74 },
+  // Reactor. The first row is the mixing zone outlet, which is the reactor's
+  // inlet, and the last two are the cooling water that sets the temperature.
+  { meas: 6, caption: "feed rate", x: 370, y: 352 },
+  { meas: 7, caption: "P", x: 370, y: 370 },
+  { meas: 8, caption: "level", x: 370, y: 388 },
+  { meas: 9, caption: "T", x: 370, y: 406 },
+  { meas: 21, caption: "cw out", x: 370, y: 424 },
+  { mv: 10, caption: "cw valve", x: 370, y: 442 },
 
-  // Purge.
-  { meas: 10, caption: "purge", x: 916, y: 44 },
-  { mv: 6, caption: "valve", x: 916, y: 58 },
-  { meas: 30, caption: "purge B", x: 916, y: 72 },
-
-  // Separator.
-  { meas: 13, caption: "P", x: 700, y: 150 },
-  { meas: 12, caption: "level", x: 700, y: 166 },
-  { meas: 11, caption: "T", x: 700, y: 182 },
-  { meas: 22, caption: "cw out", x: 700, y: 198 },
-  { mv: 11, caption: "cw flow", x: 700, y: 214 },
-  { meas: 14, caption: "underflow", x: 700, y: 230 },
-  { mv: 7, caption: "valve", x: 700, y: 246 },
+  // Separator, with the condenser cooling water that feeds it. XMEAS(22) is
+  // "Separator Cooling Water Outlet Temp" and XMV(11) is "Condenser Cooling
+  // Water Flow": one circuit, and the hover titles carry both names.
+  { meas: 13, caption: "P", x: 700, y: 352 },
+  { meas: 12, caption: "level", x: 700, y: 370 },
+  { meas: 11, caption: "T", x: 700, y: 388 },
+  { meas: 14, caption: "underflow", x: 700, y: 406 },
+  { meas: 22, caption: "cw out", x: 700, y: 424 },
+  { mv: 11, caption: "cw valve", x: 700, y: 442 },
 
   // Stripper.
-  { meas: 16, caption: "P", x: 916, y: 258 },
-  { meas: 15, caption: "level", x: 916, y: 274 },
-  { meas: 18, caption: "T", x: 916, y: 290 },
-  { meas: 19, caption: "steam", x: 916, y: 306 },
-  { mv: 9, caption: "steam valve", x: 916, y: 322 },
+  { meas: 16, caption: "P", x: 360, y: 520 },
+  { meas: 15, caption: "level", x: 360, y: 538 },
+  { meas: 18, caption: "T", x: 360, y: 556 },
+  { meas: 19, caption: "steam", x: 360, y: 574 },
 
-  // The A and C feed enters the stripper, not the reactor.
-  { meas: 4, caption: "A+C feed", x: 660, y: 388 },
-  { mv: 4, caption: "valve", x: 660, y: 402 },
+  // The A and C feed, entering the stripper base.
+  { meas: 4, caption: "A+C feed", x: 300, y: 678 },
 
-  // Product, out of the stripper base.
-  { meas: 17, caption: "product", x: 916, y: 360 },
-  { mv: 8, caption: "valve", x: 916, y: 374 },
-  { meas: 40, caption: "G", x: 916, y: 390 },
-  { meas: 41, caption: "H", x: 916, y: 404 },
+  // Product, out of the stripper base, with the two components it is specified
+  // on.
+  { meas: 17, caption: "product", x: 950, y: 618 },
+  { meas: 40, caption: "G", x: 950, y: 640 },
+  { meas: 41, caption: "H", x: 950, y: 662 },
 ];
 
 /** Column of a readout in a packed row. */
@@ -104,95 +134,97 @@ function idOf(readout) {
   return readout.meas !== undefined ? `pfd-m${readout.meas}` : `pfd-v${readout.mv}`;
 }
 
-// The static drawing. Vessels, pipes, arrowheads and titles: everything that
+// The static drawing: vessels, pipes, arrowheads and titles, everything that
 // does not change while a run is going.
 //
-// Laid out left to right in the order the fluid travels: feeds, mixing zone,
-// reactor, condenser, separator, stripper, product. The recycle runs back along
-// the top, which is where a loop belongs on a flowsheet, and the stripper
-// overhead runs back along the bottom of the top band to the same mixing zone.
+// The coordinate system is the 1200 by 720 viewBox in index.html. Vessels
+// occupy y 140-330 in the top band and y 490-660 in the bottom one; the two
+// lanes at y 46 and y 478 carry the recycle and the stripper overhead. Numbers
+// live in the gaps that leaves, which is why they are where they are.
 const SKELETON = `
   <defs>
     <marker id="pfd-arrow" viewBox="0 0 10 10" refX="9" refY="5"
-            markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            markerWidth="7" markerHeight="7" markerUnits="userSpaceOnUse"
+            orient="auto-start-reverse">
       <path d="M 0 0 L 10 5 L 0 10 z" class="pfd-arrowhead" />
     </marker>
   </defs>
 
-  <!-- Feed lines into the mixing zone header. -->
-  <path class="pfd-pipe" d="M 40 50 H 232" marker-end="url(#pfd-arrow)" />
-  <path class="pfd-pipe" d="M 40 96 H 232" marker-end="url(#pfd-arrow)" />
-  <path class="pfd-pipe" d="M 40 142 H 232" marker-end="url(#pfd-arrow)" />
-  <text class="pfd-stream" x="44" y="40">stream 2</text>
-  <text class="pfd-stream" x="44" y="86">stream 3</text>
-  <text class="pfd-stream" x="44" y="132">stream 1</text>
+  <!-- The three feeds that enter the mixing zone. -->
+  <path class="pfd-pipe" d="M 24 170 H 190" marker-end="url(#pfd-arrow)" />
+  <path class="pfd-pipe" d="M 24 215 H 190" marker-end="url(#pfd-arrow)" />
+  <path class="pfd-pipe" d="M 24 260 H 190" marker-end="url(#pfd-arrow)" />
+  <text class="pfd-stream" x="24" y="185">stream 1</text>
+  <text class="pfd-stream" x="24" y="230">stream 2</text>
+  <text class="pfd-stream" x="24" y="275">stream 3</text>
 
-  <!-- Mixing zone. -->
-  <rect class="pfd-vessel" x="232" y="30" width="46" height="130" rx="6" />
-  <text class="pfd-unit" x="255" y="98" text-anchor="middle">mixing</text>
-  <text class="pfd-unit" x="255" y="112" text-anchor="middle">zone</text>
+  <!-- Mixing zone. Five things enter it: three feeds on the left, the recycle
+       from the top, the stripper overhead from below left. -->
+  <rect class="pfd-vessel" x="190" y="140" width="76" height="190" rx="6" />
+  <text class="pfd-unit" x="228" y="292" text-anchor="middle">mixing</text>
+  <text class="pfd-unit" x="228" y="308" text-anchor="middle">zone</text>
 
   <!-- Mixing zone to reactor, stream 6. -->
-  <path class="pfd-pipe" d="M 278 95 H 300 V 190 H 322" marker-end="url(#pfd-arrow)" />
-  <text class="pfd-stream" x="302" y="186">stream 6</text>
+  <path class="pfd-pipe" d="M 266 235 H 330" marker-end="url(#pfd-arrow)" />
+  <text class="pfd-stream" x="298" y="227" text-anchor="middle">stream 6</text>
 
-  <!-- Reactor. -->
-  <rect class="pfd-vessel" x="322" y="120" width="120" height="150" rx="10" />
-  <text class="pfd-unit" x="382" y="112" text-anchor="middle">reactor</text>
-  <line class="pfd-level" x1="322" y1="210" x2="442" y2="210" />
-  <path class="pfd-cooling" d="M 332 282 H 432" marker-end="url(#pfd-arrow)" />
-  <text class="pfd-stream" x="332" y="296">cooling water</text>
+  <!-- Reactor, with its level and its cooling coil. -->
+  <rect class="pfd-vessel" x="330" y="140" width="130" height="190" rx="10" />
+  <text class="pfd-unit" x="395" y="164" text-anchor="middle">reactor</text>
+  <line class="pfd-level" x1="330" y1="250" x2="460" y2="250" />
+  <path class="pfd-cooling" d="M 296 290 H 420 V 312 H 296" marker-end="url(#pfd-arrow)" />
+  <text class="pfd-stream" x="288" y="305" text-anchor="end">cw</text>
 
-  <!-- Reactor to condenser to separator, stream 7. -->
-  <path class="pfd-pipe" d="M 442 150 H 480" marker-end="url(#pfd-arrow)" />
-  <rect class="pfd-vessel" x="480" y="132" width="56" height="36" rx="6" />
-  <text class="pfd-unit" x="508" y="154" text-anchor="middle">cond</text>
-  <path class="pfd-pipe" d="M 536 150 H 596" marker-end="url(#pfd-arrow)" />
-  <text class="pfd-stream" x="446" y="144">stream 7</text>
+  <!-- Reactor through the condenser to the separator, stream 7. -->
+  <path class="pfd-pipe" d="M 460 180 H 500" marker-end="url(#pfd-arrow)" />
+  <rect class="pfd-vessel" x="500" y="160" width="80" height="40" rx="6" />
+  <text class="pfd-unit" x="540" y="185" text-anchor="middle">cond</text>
+  <path class="pfd-pipe" d="M 580 180 H 620" marker-end="url(#pfd-arrow)" />
+  <text class="pfd-stream" x="540" y="148" text-anchor="middle">stream 7</text>
+  <path class="pfd-cooling" d="M 540 246 V 200" marker-end="url(#pfd-arrow)" />
+  <text class="pfd-stream" x="548" y="230">cw</text>
 
   <!-- Separator. -->
-  <rect class="pfd-vessel" x="596" y="120" width="110" height="150" rx="10" />
-  <text class="pfd-unit" x="651" y="112" text-anchor="middle">separator</text>
-  <line class="pfd-level" x1="596" y1="216" x2="706" y2="216" />
-  <path class="pfd-cooling" d="M 606 282 H 696" marker-end="url(#pfd-arrow)" />
-  <text class="pfd-stream" x="606" y="296">cooling water</text>
+  <rect class="pfd-vessel" x="620" y="140" width="120" height="190" rx="10" />
+  <text class="pfd-unit" x="680" y="164" text-anchor="middle">separator</text>
+  <line class="pfd-level" x1="620" y1="250" x2="740" y2="250" />
 
-  <!-- Separator vapour to the compressor and back round as the recycle. -->
-  <path class="pfd-pipe" d="M 651 120 V 60 H 522" marker-end="url(#pfd-arrow)" />
-  <circle class="pfd-vessel" cx="500" cy="60" r="20" />
-  <text class="pfd-unit" x="500" y="64" text-anchor="middle">C</text>
-  <path class="pfd-pipe" d="M 480 60 H 255 V 30" marker-end="url(#pfd-arrow)" />
-  <text class="pfd-stream" x="560" y="94">stream 8, recycle</text>
+  <!-- The top header: separator vapour up, then west through the compressor
+       and back to the mixing zone, and east to the purge. -->
+  <path class="pfd-pipe" d="M 680 140 V 46" />
+  <path class="pfd-pipe" d="M 680 46 H 452" marker-end="url(#pfd-arrow)" />
+  <circle class="pfd-vessel" cx="430" cy="46" r="22" />
+  <text class="pfd-unit" x="430" y="51" text-anchor="middle">K</text>
+  <text class="pfd-unit" x="430" y="20" text-anchor="middle">compressor</text>
+  <path class="pfd-pipe" d="M 408 46 H 228 V 140" marker-end="url(#pfd-arrow)" />
+  <text class="pfd-stream" x="300" y="36" text-anchor="middle">stream 8, recycle</text>
+  <path class="pfd-pipe" d="M 680 46 H 900" marker-end="url(#pfd-arrow)" />
+  <text class="pfd-stream" x="790" y="36" text-anchor="middle">stream 9, purge</text>
 
-  <!-- Purge, off the separator vapour line. -->
-  <path class="pfd-pipe" d="M 720 60 H 846" marker-end="url(#pfd-arrow)" />
-  <path class="pfd-pipe" d="M 651 60 H 720" />
-  <text class="pfd-stream" x="770" y="52">stream 9, purge</text>
-
-  <!-- Separator underflow to the stripper, stream 10. -->
-  <path class="pfd-pipe" d="M 706 240 H 786" marker-end="url(#pfd-arrow)" />
-  <text class="pfd-stream" x="712" y="234">stream 10</text>
+  <!-- Separator underflow to the stripper, round the outside. -->
+  <path class="pfd-pipe" d="M 740 280 H 1000 V 560 H 590" marker-end="url(#pfd-arrow)" />
+  <text class="pfd-stream" x="1008" y="400">stream 10</text>
 
   <!-- Stripper. -->
-  <rect class="pfd-vessel" x="786" y="200" width="100" height="150" rx="10" />
-  <text class="pfd-unit" x="836" y="192" text-anchor="middle">stripper</text>
-  <line class="pfd-level" x1="786" y1="290" x2="886" y2="290" />
+  <rect class="pfd-vessel" x="470" y="490" width="120" height="170" rx="10" />
+  <text class="pfd-unit" x="530" y="514" text-anchor="middle">stripper</text>
+  <line class="pfd-level" x1="470" y1="590" x2="590" y2="590" />
+  <path class="pfd-cooling" d="M 330 620 H 470" marker-end="url(#pfd-arrow)" />
+  <text class="pfd-stream" x="322" y="624" text-anchor="end">steam</text>
 
-  <!-- The A and C feed enters the stripper base as the stripping gas. -->
-  <path class="pfd-pipe" d="M 700 394 H 836 V 350" marker-end="url(#pfd-arrow)" />
-  <text class="pfd-stream" x="660" y="374">stream 4</text>
-
-  <!-- Stripper overhead back to the mixing zone, stream 5. -->
-  <path class="pfd-pipe" d="M 786 214 H 760 V 176 H 255 V 160" marker-end="url(#pfd-arrow)" />
-  <text class="pfd-stream" x="560" y="172">stream 5, stripper overhead</text>
+  <!-- Stripper overhead back to the mixing zone, along the lane between the
+       two bands. This is the pipe that must not cross anything. -->
+  <path class="pfd-pipe" d="M 510 490 V 478 H 150 V 300 H 190"
+        marker-end="url(#pfd-arrow)" />
+  <text class="pfd-stream" x="330" y="470" text-anchor="middle">stream 5, stripper overhead</text>
 
   <!-- Product out of the stripper base, stream 11. -->
-  <path class="pfd-pipe" d="M 886 340 H 946" marker-end="url(#pfd-arrow)" />
-  <text class="pfd-stream" x="890" y="334">stream 11</text>
+  <path class="pfd-pipe" d="M 590 630 H 840" marker-end="url(#pfd-arrow)" />
+  <text class="pfd-stream" x="700" y="622" text-anchor="middle">stream 11, product</text>
 
-  <!-- Steam to the stripper reboiler. -->
-  <path class="pfd-cooling" d="M 786 320 H 700" marker-start="url(#pfd-arrow)" />
-  <text class="pfd-stream" x="700" y="334">steam</text>
+  <!-- The A and C feed enters the stripper base as the stripping gas. -->
+  <path class="pfd-pipe" d="M 200 690 H 490 V 660" marker-end="url(#pfd-arrow)" />
+  <text class="pfd-stream" x="200" y="708">stream 4, A and C feed, to the stripper base</text>
 `;
 
 /**
@@ -213,10 +245,13 @@ export function buildFlowsheet(svg, labels, units) {
     const group = document.createElementNS(NS, "g");
     group.classList.add("pfd-readout");
 
-    // The full description, from the bindings. A diagram short of space still
-    // has room for a tooltip, and this is where the honest label lives.
+    // The full description and the unit as the Fortran spells it. A diagram
+    // short of space still has room for a tooltip, and this is where the
+    // unabbreviated version lives.
     const title = document.createElementNS(NS, "title");
-    title.textContent = labels[col] ?? `column ${col}`;
+    const label = labels[col] ?? `column ${col}`;
+    const unit = units[col] ?? "";
+    title.textContent = unit ? `${label} (${unit})` : label;
     group.append(title);
 
     const caption = document.createElementNS(NS, "text");
@@ -235,7 +270,7 @@ export function buildFlowsheet(svg, labels, units) {
 
     group.append(caption, value);
     svg.append(group);
-    bound.push({ el: value, col, unit: units[col] ?? "" });
+    bound.push({ el: value, col, unit: shortUnit(unit) });
   }
 
   return {
@@ -246,7 +281,7 @@ export function buildFlowsheet(svg, labels, units) {
      */
     update(row) {
       for (const { el, col, unit } of bound) {
-        el.textContent = row ? `${formatValue(row[col])} ${unit}`.trim() : "-";
+        el.textContent = row ? `${formatReadout(row[col])} ${unit}`.trim() : "-";
       }
     },
 
