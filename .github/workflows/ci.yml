@@ -56,6 +56,8 @@ jobs:
   gate:
     name: gate (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    # A hung job bills until it is killed, and the default cap is six hours.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -97,6 +99,8 @@ jobs:
   oracle:
     name: oracle (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    # A hung job bills until it is killed, and the default cap is six hours.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -124,6 +128,8 @@ jobs:
   wasm:
     name: wasm32 build
     runs-on: ubuntu-latest
+    # A hung job bills until it is killed, and the default cap is six hours.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -149,6 +155,8 @@ jobs:
     name: miri (core, weekly)
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    # A hung job bills until it is killed, and the default cap is six hours.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 

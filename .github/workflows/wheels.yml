@@ -68,6 +68,8 @@ jobs:
   licences:
     name: licences (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    # A hung job bills until it is killed, and the default cap is six hours.
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -103,6 +105,8 @@ jobs:
     name: abi3 ${{ matrix.name }}
     needs: licences
     runs-on: ${{ matrix.os }}
+    # A hung job bills until it is killed, and the default cap is six hours.
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -190,6 +194,8 @@ jobs:
     name: ${{ matrix.python }} ${{ matrix.platform.name }}
     needs: licences
     runs-on: ${{ matrix.platform.os }}
+    # A hung job bills until it is killed, and the default cap is six hours.
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -236,6 +242,8 @@ jobs:
     name: sdist
     needs: licences
     runs-on: ubuntu-latest
+    # A hung job bills until it is killed, and the default cap is six hours.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -261,6 +269,8 @@ jobs:
     name: smoke ${{ matrix.name }} py${{ matrix.python }}
     needs: abi3
     runs-on: ${{ matrix.os }}
+    # A hung job bills until it is killed, and the default cap is six hours.
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       # Written out rather than crossed, because the combinations are not a
@@ -332,6 +342,8 @@ jobs:
     needs: licences
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    # A hung job bills until it is killed, and the default cap is six hours.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
@@ -381,6 +393,8 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [abi3, freethreaded, sdist, smoke]
     runs-on: ubuntu-latest
+    # A hung job bills until it is killed, and the default cap is six hours.
+    timeout-minutes: 15
     environment:
       name: pypi
       url: https://pypi.org/p/tepsim
