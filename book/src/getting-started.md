@@ -1,5 +1,10 @@
 # Getting started
 
+This page is the Rust API and the command line tool. If you want to drive the
+simulator from Python, [The Python package](python.md) is the equivalent page
+for the `tepsim` wheel, and the [tutorials](tutorials/first-run.md) and the
+notebooks they link to are all Python.
+
 ## Building
 
 The workspace pins its toolchain in `rust-toolchain.toml`, so a `rustup`

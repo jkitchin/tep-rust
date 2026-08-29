@@ -122,8 +122,12 @@ that actually ships.
 
 ## How to read this book
 
-[Getting started](getting-started.md) is the working API and the command line
-tool, and is the fastest way to a CSV of plant data. [The plant](process/plant.md)
+[Getting started](getting-started.md) is the working Rust API and the command
+line tool, and is the fastest way to a CSV of plant data.
+[The Python package](python.md) is the same ground for the `tepsim` wheel, with
+installation, a quickstart and the API reference, and the four
+[tutorials](tutorials/first-run.md) are the narrative around the executed
+notebooks in `notebooks/`. [The plant](process/plant.md)
 and [the right-hand side](process/rhs.md) explain how the fifty states, the
 thirteen internal streams and the six hundred lines of `TEFUNC` are organised
 here. The five unit-operation pages carry the governing equations, the variable

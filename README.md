@@ -64,6 +64,18 @@ run.measurement(7)    # XMEAS(7), reactor pressure
 run.outcome           # 'completed'
 ```
 
+The wheel is not on PyPI yet, so it installs from here and builds from source,
+which needs a Rust toolchain:
+
+```console
+$ pip install "git+https://github.com/jkitchin/tep-rust#subdirectory=crates/tepsim-py"
+```
+
+The four notebooks in [`notebooks/`](notebooks/) are the worked examples, from a
+first run through PCA fault detection to scheduled and partial faults. The
+book's [Python chapter](book/src/python.md) is installation, a quickstart and
+the API reference.
+
 The browser app is `apps/studio`: simulation on a Web Worker, charts and an SVG
 flowsheet on the main thread, scenarios shareable as a URL fragment. It is
 74,010 bytes gzipped, under 5% of the project's 1.5 MB budget, and runs between
@@ -141,7 +153,8 @@ reordered reductions, and no clock or randomness outside the seeded generator.
 | [`PLAN.org`](PLAN.org) | Design of record: architecture, validation strategy, roadmap |
 | [`BACKLOG.org`](BACKLOG.org) | Ordered work queue and current state |
 | [`LOG.org`](LOG.org) | Iteration history with the measured validation numbers |
-| [`book/`](book/) | mdBook: theory, unit operations, tutorials, delta register, generated validation report |
+| [`book/`](book/) | mdBook: theory, unit operations, the Python package, tutorials, delta register, generated validation report |
+| [`notebooks/`](notebooks/) | The worked examples, in Python, executed and committed with their outputs |
 | [`CLAUDE.md`](CLAUDE.md) | Development protocol for this repository |
 | [`NOTICE.md`](NOTICE.md) | Attribution, upstream license, and citation requirements |
 

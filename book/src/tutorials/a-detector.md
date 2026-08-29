@@ -1,216 +1,164 @@
 # Building a detector, and measuring it
 
-`tepsim-stats` carries the statistics the validation ladder runs on, and they
-are equally usable as a monitoring scheme. This tutorial fits a PCA model to a
-day of the fault-free plant, turns Hotelling's T-squared and the squared
-prediction error into alarms, and then measures what those alarms are worth.
+> **The worked example is
+> [notebook 2, Fault detection with PCA](../notebooks/02-fault-detection-pca.html),**
+> which fits the model, plots both statistics against their limits on fault-free
+> and faulted records, scores eight disturbances, and then diagnoses the one
+> limit that does not work. Its sequel,
+> [notebook 3, The three hard faults](../notebooks/03-hard-faults.html),
+> measures the benchmark's detectability floor three separate ways. Sources:
+> `notebooks/02-fault-detection-pca.ipynb` and `notebooks/03-hard-faults.ipynb`.
 
-`tepsim-stats` is a development-only crate. Nothing shipped depends on it and
-`cargo xtask ci` asserts that, so add it as a `dev-dependency` or use it from a
-separate crate of your own.
+This is the canonical Tennessee Eastman monitoring experiment. Fit a principal
+component model to a record of the fault-free plant, watch two statistics on new
+data, and raise an alarm when either leaves its control limit. Hotelling's
+T-squared measures distance from the training mean inside the subspace the model
+retained. The squared prediction error, written SPE or Q, measures how much of
+an observation the model could not reconstruct at all.
 
-The measurement is the point of the tutorial. Any detector can be made to look
-good by reporting only the faults it catches, so the program below reports the
-false alarm rate on held-out fault-free data alongside every detection rate, and
-one of the two statistics comes out badly.
+The detector is `notebooks/pcamon.py`, about four hundred lines of NumPy and the
+Python standard library with no SciPy and no scikit-learn: the
+eigendecomposition is `numpy.linalg.eigh`, the normal quantile is
+`statistics.NormalDist`, and the F quantile the T-squared limit needs is a
+continued-fraction incomplete beta with a bisection on top.
 
-```rust,ignore
-use tepsim::run::CHANNELS;
-use tepsim::{Run, Scenario, Simulation};
-use tepsim_stats::{Pca, Retention, alarms_above, detection_report};
+That file, rather than a crate, is deliberate. The repository has a Rust
+implementation of exactly this detector in `tepsim-stats`, and this page used to
+show it. `tepsim-stats` is development-only, and `cargo xtask ci` asserts that
+no shipped crate so much as names it, so a reader who installed `tepsim` and
+followed the page could not build what the page was teaching. Everything the
+notebooks do runs against the package you can install.
 
-/// A run flattened into the row-major matrix `Pca::fit` wants: `samples` rows
-/// of `CHANNELS` values, which is exactly `Sample::row` stacked.
-fn matrix(run: &Run) -> Vec<f64> {
-    let mut out = Vec::with_capacity(run.samples.len() * CHANNELS);
-    for sample in &run.samples {
-        out.extend_from_slice(&sample.row());
-    }
-    out
-}
+The two implementations agree. Notebook 2 opens by reproducing the Rust
+transcript, and every printed digit matches: the same 33 components, the same
+limits to three decimals, and the same four detection rates and delays, from a
+hand-written cyclic Jacobi sweep on one side and LAPACK on the other. What the
+notebook measures after that is therefore a property of the plant and the
+method, not of the linear algebra.
 
-/// The fault-free plant, with the driver's hour-eight IDV(12) switched off so
-/// that a long fault-free record really is fault free.
-fn clean(hours: f64, seed: f64) -> Scenario {
-    Scenario {
-        driver_forces_idv12: false,
-        ..Scenario::baseline()
-    }
-    .with_hours(hours)
-    .with_seed(seed)
-}
+## The measurement is the point
 
-/// Both monitoring statistics for every sample of a run.
-fn monitor(model: &Pca, run: &Run) -> (Vec<f64>, Vec<f64>) {
-    let mut t2 = Vec::with_capacity(run.samples.len());
-    let mut spe = Vec::with_capacity(run.samples.len());
-    for sample in &run.samples {
-        let s = model.statistics(&sample.row());
-        t2.push(s.t_squared);
-        spe.push(s.spe);
-    }
-    (t2, spe)
-}
+Any detector can be made to look good by reporting only the faults it catches.
+Every detection rate in the notebook is reported next to the false alarm rate on
+held-out fault-free data the model never saw, and one of the two statistics
+comes out badly.
 
-fn main() {
-    let hours = 24.0;
+Three numbers do the work, and each has a trap in it.
 
-    let training = Simulation::new(clean(hours, 4_651_207_995.0)).run();
-    let model = Pca::fit(
-        &matrix(&training),
-        training.samples.len(),
-        CHANNELS,
-        Retention::CumulativeVariance(0.9),
-    );
-    let limits = model.limits(0.99);
+The **fault detection rate** is the fraction of post-onset samples that raised
+an alarm. It is a rate over samples, not a per-run yes or no, so a detector that
+catches a fault and then loses it scores badly. That is the intent: a statistic
+that drops back inside its limit while the fault is still running is flickering,
+not detecting. Its complement, the missed detection rate, is what the tables in
+the literature report.
 
-    println!("--- the model ---");
-    println!("training samples:   {}", training.samples.len());
-    println!("variables:          {CHANNELS}");
-    println!("constant columns:   {:?}", model.constant_columns());
-    println!("components kept:    {}", limits.components);
-    println!("variance explained: {:.4}", model.explained_variance());
-    println!("T-squared limit:    {:.3}", limits.t_squared);
-    println!("SPE limit:          {:.3}", limits.spe);
+The **false alarm rate** is the same fraction over the pre-onset samples, and it
+is the number that makes a detection rate meaningful. A detector with a 20%
+false alarm rate that achieves a 20% detection rate has detected nothing.
 
-    // A second fault-free record, from a different seed, is the pre-fault half
-    // of every test below. It has to be data the model did not see, or the
-    // false alarm rate is a measurement of the fit and not of the detector.
-    let free = Simulation::new(clean(hours, 1_234_567_891.0)).run();
-    let (free_t2, free_spe) = monitor(&model, &free);
-    let onset = free.samples.len();
+The **detection delay** is the number of samples from the onset to the first run
+of three consecutive alarms. The persistence requirement is not decoration. With
+a run length of one the delay is just the first alarm after the onset, and on a
+detector with any false alarm rate at all that is mostly luck: at a 3% false
+alarm rate the first post-onset sample alarms by chance one time in thirty, and
+calling that a delay of zero flatters the detector. The literature uses three
+and six and does not agree, so the run length travels with the number. Delays
+are in samples, and one sample is three minutes.
 
-    println!();
-    println!("--- false alarms, on {onset} fault-free samples ---");
-    let free_t2_alarms = alarms_above(&free_t2, limits.t_squared);
-    let free_spe_alarms = alarms_above(&free_spe, limits.spe);
-    println!(
-        "  T-squared: {} alarms, FAR {:.4}",
-        free_t2_alarms.iter().filter(|a| **a).count(),
-        free_t2_alarms.iter().filter(|a| **a).count() as f64 / onset as f64,
-    );
-    println!(
-        "  SPE:       {} alarms, FAR {:.4}",
-        free_spe_alarms.iter().filter(|a| **a).count(),
-        free_spe_alarms.iter().filter(|a| **a).count() as f64 / onset as f64,
-    );
+## What the model does with a constant column
 
-    println!();
-    println!("--- detection, four disturbances ---");
-    println!("  fault     T2 FDR  T2 delay      Q FDR   Q delay");
-    for fault in [1, 3, 4, 11] {
-        let faulted = Simulation::new(clean(hours, 1_234_567_891.0).with_fault(fault)).run();
-        let (fault_t2, fault_spe) = monitor(&model, &faulted);
+`pcamon.fit` standardises each column to zero mean and unit sample variance
+before forming the correlation matrix. Standardisation rather than mere centring
+is not optional here: reactor pressure lives near 2705 kPa and a composition is
+a percentage, so a covariance model would be a model of the pressure and nothing
+else.
 
-        // The record the literature builds: fault-free samples, then faulted
-        // ones, with the onset at the join.
-        let mut t2 = free_t2.clone();
-        t2.extend_from_slice(&fault_t2);
-        let mut spe = free_spe.clone();
-        spe.extend_from_slice(&fault_spe);
-
-        let t2_report = detection_report(&alarms_above(&t2, limits.t_squared), onset, 3);
-        let spe_report = detection_report(&alarms_above(&spe, limits.spe), onset, 3);
-        let delay = |d: Option<usize>| d.map_or("never".into(), |d| format!("{d}"));
-        println!(
-            "  IDV({fault:>2})   {:>7.3}  {:>8}   {:>8.3}  {:>8}",
-            t2_report.fault_detection_rate,
-            delay(t2_report.detection_delay),
-            spe_report.fault_detection_rate,
-            delay(spe_report.detection_delay),
-        );
-    }
-}
-```
-
-```text
---- the model ---
-training samples:   480
-variables:          53
-constant columns:   [52]
-components kept:    33
-variance explained: 0.9110
-T-squared limit:    60.386
-SPE limit:          10.481
-
---- false alarms, on 480 fault-free samples ---
-  T-squared: 10 alarms, FAR 0.0208
-  SPE:       98 alarms, FAR 0.2042
-
---- detection, four disturbances ---
-  fault     T2 FDR  T2 delay      Q FDR   Q delay
-  IDV( 1)     0.994         3      0.998         1
-  IDV( 3)     0.025     never      0.210       182
-  IDV( 4)     0.502        29      0.998         1
-  IDV(11)     0.492        18      0.731         8
-```
-
-## What the model did
-
-`Pca::fit` standardises each column to zero mean and unit variance, forms the
-correlation matrix, and diagonalises it with a cyclic Jacobi sweep, which is
-deterministic to the last bit on every architecture. `Retention` names the rule
-for how many components to keep, and it is a named enum rather than a bare `k`
+How many components to keep is passed as a named rule rather than a bare `k`,
 because two detectors that retain different numbers of components are different
-detectors: a report that does not say which rule produced it cannot be
-reproduced. Here `CumulativeVariance(0.9)` kept 33 of 53 components, which
-together explain 91.1% of the variance.
+detectors and a result that does not say which rule produced it cannot be
+reproduced. At 90% of the variance the notebook keeps 33 of 52 components. That
+is two thirds of them, and it is worth pausing on: the largest eigenvalue is
+5.910, only 11.4% of the total of 52, so this plant has no small handful of
+dominant directions and a monitoring scheme on it works in a fairly
+high-dimensional retained subspace.
 
-`constant_columns()` reports `[52]`, the zero-based position of `XMV(12)`. The
-agitator speed never moves, so its standard deviation is zero and it cannot be
-standardised. Rather than divide by zero or quietly drop the column,
-`tepsim-stats` records it and excludes it from the model, and says so when
-asked. A silent drop here is how a 53-variable model becomes a 52-variable model
-that nobody can reproduce.
-
-## What the alarms are worth
-
-`alarms_above` thresholds a statistic into a boolean series, strictly greater
-than the limit. `detection_report` then computes three numbers from that series
-and an onset index: the fault detection rate over the post-onset samples, the
-false alarm rate over the pre-onset ones, and the detection delay, which is the
-first run of `consecutive` alarms after the onset. Three was used above.
-
-The persistence requirement matters. With `consecutive = 1` the delay is the
-first alarm after the onset, and on a detector with any false alarm rate at all
-that is mostly luck: at a 2% false alarm rate the first post-onset sample
-alarms by chance one time in fifty, and calling that a delay of zero flatters
-the detector. The literature uses three and six and does not agree, so the run
-length is a parameter and the report carries the value it was measured with.
-
-`IDV(1)`, the A/C feed ratio step, is caught by both statistics almost
-immediately and stays caught: a detection rate of 0.994 means the alarm was up
-for essentially the whole record rather than flickering. `IDV(3)`, the D feed
-temperature step, is caught by neither, which is the expected answer: it is one
-of the three faults the TEP literature reports as effectively undetectable by
-PCA monitoring, and a detection rate of 0.025 against a false alarm rate of
-0.021 is a detector producing noise. `IDV(4)` is the case the previous tutorial
-looked at by hand: the residual subspace sees it at once, and T-squared, which
-lives in the subspace the training data actually spans, only catches it half the
-time.
-
-Delays are in samples. The cadence is 180 steps, so one sample is three minutes
-and the T-squared delay of 3 on `IDV(1)` is nine minutes. The 182 on `IDV(3)`
-is nine hours, which is not a detection.
+`XMV(12)`, the agitator speed, never moves, so its standard deviation is zero
+and it cannot be standardised. Rather than divide by zero or quietly drop the
+column, `pcamon` records its index, zeroes its row and column of the correlation
+matrix, and says so when asked. A silent drop here is how a 53-variable model
+becomes a 52-variable model that nobody can reproduce.
 
 ## The number the detector would rather you did not see
 
-The SPE limit was drawn at 99% confidence and produced alarms on 20.4% of
-held-out fault-free samples. That is a factor of twenty, and it is not a bug in
-`spe_limit`, which computes exactly the Jackson and Mudholkar expression it
-claims to.
+Both limits are drawn at 99% confidence, so the nominal false alarm rate is 1%.
+On a fresh 48-hour fault-free run the model never saw, T-squared alarms on 32 of
+960 samples, a rate of 0.0333, which is high but recognisable. SPE alarms on 174
+of 960, a rate of 0.1812. That is a factor of eighteen.
 
-It is the assumption underneath that expression failing. The limit is derived
-for residuals that are normal and independent, and the plant's are neither. The
-feed compositions are driven by slow random walks, so a 24-hour record wanders
-somewhere a different 24-hour record did not, and every sample in the excursion
-alarms together. The T-squared limit, drawn from an F distribution over the
-retained subspace, holds up much better at 2.1% against a nominal 1%.
+It is not an arithmetic error. `pcamon.spe_limit` computes the
+Jackson-Mudholkar expression exactly as stated. It is the assumption underneath
+the expression failing: the limit is derived for residuals that are normal and
+independent, and the plant's are neither. Several feed conditions are driven by
+slow random walks that never stop, so a 48-hour record wanders somewhere a
+25-hour training record did not go, and when it does, every sample in the
+excursion alarms together. The notebook's plot shows exactly that shape, with
+the SPE alarms arriving in long blocks rather than as isolated points.
 
-This is the reason `tepsim-stats` reports counts alongside rates everywhere: 98
-alarms out of 480 can be compared against the next run and "the detector had a
-high false alarm rate" cannot. The fix, if you want one, is more training data,
-a limit estimated empirically from the training residuals rather than
-analytically, or `dpca`, which augments the matrix with lagged copies and models
-the serial correlation instead of assuming it away. That is a different tutorial
-and a real research question, which is rather the point of the simulator.
+The tempting response is to lower the confidence level until the number looks
+right. The notebook does the experiment instead, holding everything else fixed
+and lengthening the training record:
+
+| Training record | Samples | SPE false alarm rate |
+|---|---|---|
+| 25 hours | 500 | 0.1812 |
+| 100 hours | 2000 | 0.0219 |
+| 200 hours | 4000 | 0.0177 |
+| 500 hours | 10000 | 0.0115 |
+
+That settles it. With enough fault-free training data both statistics land on
+the nominal 1%, so Jackson-Mudholkar was never the problem. A 25-hour record
+simply does not contain the tails of a process whose feed conditions are driven
+by random walks that never stop, and the limit it produces is therefore too
+tight.
+
+This has a direct consequence for the literature, and not a comfortable one. The
+published training file `d00` holds 500 samples, which at a three-minute
+interval is exactly 25 hours: the first row of that table. Every SPE false alarm
+rate reported for static PCA on the published Tennessee Eastman data inherits
+this.
+
+Estimating the limit empirically from the training residuals is the usual
+advice, and the notebook checks that too rather than assuming it. It does not
+help: the empirical SPE limit gives 0.1448 against the analytic 0.1812, and the
+empirical T-squared limit is markedly *worse* than the analytic one at 0.1042
+against 0.0333. Both are drawn from the same 25 hours that were too short in the
+first place, and neither can know about the excursions it never saw.
+
+The fix is more data, or a method that models the serial correlation rather than
+assuming it away. Dynamic PCA, which augments each observation with lagged
+copies of itself, and canonical variate analysis are the two the literature
+reaches for, and Russell, Chiang and Braatz's 2000 comparison of both against
+static PCA is on exactly these files.
+
+## The floor under the benchmark
+
+Notebook 3 is about the best known empirical result on this problem: `IDV(3)`,
+`IDV(9)` and `IDV(15)` are effectively undetectable by these methods. It
+measures that on the published `d00` through `d21` files, on simulated runs at
+the seeds those files record, and over a ten-seed ensemble, and the three
+measurements agree.
+
+The plainest form of the result is distributional. The median post-onset
+T-squared for those three faults is within one percent of the fault-free median,
+and their median SPE within four percent, on quantities whose fault-free values
+span two orders of magnitude. No threshold separates them because there is
+nothing to separate.
+
+That is worth stating carefully, because it reads like a criticism of PCA and is
+not one. The plant really is running normally under those three disturbances. A
+detector that alarmed on them would be reporting a fault with no consequence,
+and the correct behaviour for a monitoring scheme is what it does. What the
+result measures is that this benchmark has a detectability floor set by the
+process rather than by the method, which is part of what makes it a good
+benchmark: any paper claiming to detect all twenty is claiming something about
+its false alarm rate that it has probably not measured.
