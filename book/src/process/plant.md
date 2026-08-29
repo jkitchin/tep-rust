@@ -5,6 +5,30 @@ components, the fifty states, and the thirteen internal streams. All three are
 recovered from `teprob.f` rather than from the 1993 paper, because on two of the
 three the paper and the source disagree.
 
+The flowsheet is the map for all of it. The mixing zone, the reactor, the
+separator and the stripper are the four vessels that hold state, and the state
+table below is their contents; the condenser and the compressor hold none.
+Every solid line is one of the thirteen `FTM` entries the stream table
+enumerates, and every tag is an `XMEAS` or `XMV` index whose `teprob.f` line is
+cited on the [instrumentation page](../units/instrumentation.md). Nothing on the
+drawing was taken from the paper's figure. Where a stream carries two numbers
+they are both shown, because that disagreement is the subject of the third
+section of this page.
+
+<figure style="margin: 1.5rem 0;">
+{{#include ../images/tep-flowsheet.svg}}
+<figcaption style="font-size: 0.9em; opacity: 0.8; margin-top: 0.6em;">The Tennessee Eastman Process as <code>teprob.f</code> wires it. Solid lines are the thirteen internal streams, each labelled with its Fortran <code>FTM</code> index and, where one exists, the stream number of the paper. Dashed lines are utilities: cooling water through the reactor coil and the condenser, and steam to the stripper reboiler. Beside each vessel are the <code>XMEAS</code> instruments and <code>XMV</code> valves that sit on it, and the three <code>AT</code> bubbles mark the streams the composition analysers sample.</figcaption>
+</figure>
+
+Three things on it are worth reading twice, because each is a place the source
+and the received description of the plant part company. The mixed A and C feed,
+stream 4, does not reach the mixing zone at all: it enters the stripper base as
+the stripping gas (`teprob.f:614-662`). The pressure published as stripper
+pressure, `XMEAS(16)`, is the mixing zone's `PTV` (`teprob.f:694`), because the
+model carries no separate stripper vapour space. And `FTM(12)`, the liquid that
+fails to strip out and falls into the stripper sump, has no number in the paper
+at all.
+
 ## Components
 
 Eight, `A` through `H`. `A`, `B` and `C` are non-condensible and are treated as
