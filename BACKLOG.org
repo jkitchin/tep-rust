@@ -3087,6 +3087,62 @@ Done when:
 - [ ] A worked example in the book and a notebook
 
 
+** DONE B-0078 Similarity figures for the validation chapters
+:PROPERTIES:
+:ID:    B-0078
+:PHASE: 9
+:TIER:  none
+:DEPS:  B-0059
+:PLAN:  Validation > Validation report
+:COMMIT: pending
+:RESULT: Seven generated SVGs in =book/src/validation/figures/=, written by a
+         new =xtask/src/plot.rs= with =format!= exactly as =report.rs= writes
+         markdown. *No plotting dependency*: the book still builds with
+         =mdbook build= alone, which =pages.yml= depends on. Inlined with
+         ={{#include}}= and drawn in =currentColor=, so they follow both
+         themes; verified in headless Chrome, light and dark, on every figure.
+
+         Four kinds. Every comparison against its gate as a log strip plot with
+         a separate lane for the exactly-zero ones; ULP histograms grouped by
+         libm build; Tier 4 trajectory error in units of =XNS(i)= with the band
+         at 1; and *the Tier 5 calibration plot*, cross-source against the
+         within-source null on log-log axes where the diagonal is equality.
+         That last one is the strongest single image the project has: the black
+         points sit far above the diagonal, meaning the port differs from the
+         Fortran by less than the Fortran differs from itself, and the
+         battery's own ten-sigma positive control lands below the diagonal on
+         the same axes, so the plot demonstrates it can see a real difference.
+
+         *Every figure is live*, drawn from that run's own stdout. Nothing is
+         transcribed from =LOG.org=.
+
+         Two properties keep them evidence rather than decoration. A marker is
+         coloured because its value is past a gate, never because a test was
+         recognised by name, so a regression and a positive control are drawn
+         identically. And each caption states the condition that would falsify
+         it, plus the command, commit and iteration behind it.
+
+         Measured: Tier 1 14 comparisons, 13 bit-identical; Tier 2 141
+         comparisons, 115 bit-identical, platform libm *1,535,225 of 1,535,225
+         at 0 ULP*; Tier 3 6 comparisons all zero; Tier 4 21 of 42 runs
+         bit-identical, worst 2.450e-5 of =XNS=; Tier 5 Frobenius cross ~4e-12
+         against a within-source null of ~1e1. Tier 5 at smoke size, 3
+         scenarios by 4 seeds by 2 h, which the figure's own subtitle says.
+
+         Two findings the pictures surfaced and a table had hidden.
+         =tier1 heat QUS= sits at *9.572e-13* against a 1e-12 gate, which a
+         table of maxima cannot show. And the generated SVGs were not
+         well-formed XML at first: an XML comment may not contain =--=, and
+         every generating command has =--tiers= in it. mdBook inlines them so
+         the book looked fine, but the copies served alongside it were a parse
+         error. Provenance moved into an SVG =<metadata>= element, with a test.
+
+         Not done: the Tier 5 forest plot of paired difference over margin, and
+         an ECDF overlay. Neither is reachable without changing =crates/=,
+         because the battery prints TOST verdicts rather than the per-variable
+         difference, and nothing prints per-sample data.
+:END:
+
 * Blocked
 
 Items parked on a decision. Move them back into their phase when answered.
