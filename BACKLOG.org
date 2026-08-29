@@ -14,8 +14,8 @@ earlier phases will change what the right decomposition is.
 
 Rewrite this block at the end of every iteration. Keep it to five lines.
 
-- Phase: Phases 0-9 are complete. *Phase 10, the operations layer, is open*:
-  B-0074 is NEXT, B-0075 to B-0077 follow it
+- Phase: Phases 0-9 complete except B-0079, which is NEXT. Phase 10, the
+  operations layer, is open: B-0075 to B-0077 follow B-0074
 - Last completed: B-0062 (Tier 8 fuzzing), B-0063 (Tier 9 determinism), B-0064
   (=tep dataset=), B-0065/B-0066/B-0067 (the three sign-offs), B-0068 (the
   book's tutorials pinned to compiled examples)
@@ -3142,6 +3142,41 @@ Done when:
          because the battery prints TOST verdicts rather than the per-variable
          difference, and nothing prints per-sample data.
 :END:
+
+** NEXT B-0079 The Tier 5 forest plot: every variable against its margin
+:PROPERTIES:
+:ID:    B-0079
+:PHASE: 9
+:TIER:  5
+:DEPS:  B-0078
+:PLAN:  Validation > Validation report
+:END:
+
+B-0078 could not draw this one, and said so rather than approximating it: the
+battery computes each variable's paired mean difference and its equivalence
+margin, and `tier5_battery` prints neither. It prints the five worst variables
+by TOST p-value, which is a verdict rather than a measurement.
+
+This is the figure that states what Tier 5 actually claims. A p-value says a
+test did not reject; the difference over the margin says *how far inside the
+margin the port sits*, which is the thing a reader wants and the thing that
+moves if fidelity degrades.
+
+Done when:
+- [ ] `tier5_battery` prints a machine-readable line per variable carrying the
+      paired difference and the margin, alongside the existing human table
+- [ ] Variables the moment gate does not apply to are marked rather than
+      dropped: a `constant` reference variable has no meaningful mean test, and
+      a stuck valve is judged on its distribution instead (B-0047d). Silently
+      omitting either would overstate the result
+- [ ] `xtask` draws it, in `plot.rs`, with no new dependency, one lane per
+      scenario as `tier4-noise-band` does
+- [ ] The gate at 1.0 is drawn and the region past it shaded, and a marker is
+      coloured by its value rather than by which variable it is
+- [ ] The caption states what would falsify it and at what battery size it was
+      drawn
+- [ ] Numbers in `LOG.org`: the worst difference-over-margin and which variable
+      and scenario it belongs to
 
 * Blocked
 
