@@ -97,10 +97,15 @@ jobs:
   # 3.9 up. The core is pure Rust with no C dependencies, which is what makes
   # this a matrix of targets rather than a matrix of toolchains.
   #
-  # UNVERIFIED: the cross-compiled rows. aarch64 Linux and aarch64 Windows are
-  # built on x86_64 runners, and maturin-action is being trusted to install the
-  # target and pick the right linker. The native rows (manylinux x86_64,
-  # macOS both, Windows x86_64) are the ones most likely to work first time.
+  # UNVERIFIED: the cross-compiled rows. aarch64 Linux, aarch64 Windows and now
+  # x86_64 macOS are built on a host of a different architecture, and
+  # maturin-action is being trusted to install the target and pick the right
+  # linker. The native rows (manylinux x86_64, macOS aarch64, Windows x86_64)
+  # are the ones most likely to work first time.
+  #
+  # As of 2026-08-29 the aarch64 Linux, aarch64 Windows and both macOS aarch64
+  # rows have all built successfully at least once. The x86_64 macOS row has
+  # not, because until this commit it never ran at all; see the note on it.
   abi3:
     name: abi3 ${{ matrix.name }}
     needs: licences
@@ -127,8 +132,23 @@ jobs:
             os: ubuntu-latest
             target: aarch64-unknown-linux-musl
             manylinux: musllinux_1_2
+          # Cross-compiled from the aarch64 image, not built on `macos-13`.
+          #
+          # `macos-13` is the last Intel image and its runners are scarce. On
+          # 2026-08-29 this row queued and was cancelled five times without
+          # ever executing a step, waiting 5, 22, 30, 50 and 106 minutes, while
+          # every other job in this file finishes in under three. Because
+          # `cancel-in-progress` is on, each new push killed the one still
+          # waiting, so the workflow never completed once.
+          #
+          # Nothing here needs an Intel host: Xcode carries both SDKs, and this
+          # is an abi3 build with no `--interpreter` to resolve, so it is the
+          # same shape as the `manylinux-aarch64` and `windows-aarch64` rows
+          # that already cross-compile. The `smoke` job only ever exercised
+          # `manylinux-x86_64`, `macos-aarch64` and `windows-x86_64`, so no
+          # coverage changes hands.
           - name: macos-x86_64
-            os: macos-13
+            os: macos-14
             target: x86_64-apple-darwin
           - name: macos-aarch64
             os: macos-14
