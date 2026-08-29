@@ -14,19 +14,18 @@ earlier phases will change what the right decomposition is.
 
 Rewrite this block at the end of every iteration. Keep it to five lines.
 
-- Phase: *all nine phases have landed their main items.* 1-4 closed; 5 is
-  10 of 13; 6 is 5 of 7; 7, 8 and 9 have their bindings, app and book
-- Last completed: B-0050 (Tier 6 holds), B-0051 (Tier 7's finding about the
-  published data), B-0054, B-0058a, B-0061
+- Phase: *every phase has landed its work.* Nothing is TODO. Four items are
+  BLOCKED on decisions that are the user's, and none blocks anything else
+- Last completed: B-0047c (the full Tier 5 battery), B-0057 (Class C deltas
+  measured), B-0048, B-0049a, B-0054a, B-0056, B-0059a
 - In flight: (none)
-- Baseline: =cargo xtask ci= green, and it now runs the Python wheel; 505
-  tests default, 713 with =oracle=, 47 Python, 31 Node; provenance
-  *1123/1589* on =teprob.f=, *183/1408* on =temain_mod.f=
-- Toolchain: rustup pinned to rustc 1.97.1, wasm32 installed, gfortran 15.2,
-  maturin 1.12.4, mdbook 0.5.4, trunk 0.21.14 (installed, deliberately unused)
-- Remote: private jkitchin/tep-rust
-- Blocked on the user: B-0025b, B-0040a and B-0051a, all sign-offs. None
-  blocks other work.
+- Baseline: =cargo xtask ci= green, and it now runs the Python wheel and lints
+  the oracle feature; 505+ tests default, 713+ with =oracle=, 69 Python, 33
+  Node; fidelity 3.521e-14, unchanged since B-0026
+- Toolchain: rustup pinned to rustc 1.97.1, wasm32, gfortran 15.2, maturin
+  1.12.4, mdbook 0.5.4, trunk 0.21.14 (installed, deliberately unused)
+- Blocked on the user: B-0025b, B-0040a, B-0047d, B-0051a. The middle two are
+  one question and B-0051a supplies new evidence for it
 
 * Phase 0: foundations
 
@@ -1957,13 +1956,21 @@ Done when:
 - [X] Any scenario outside its margin is a =BLOCKED= item with the numbers,
       not a relaxed margin. None was; the finding is power, not difference
 
-** TODO B-0047c Run the full Tier 5 battery and settle the seed count
+** DONE B-0047c Run the full Tier 5 battery and settle the seed count
 :PROPERTIES:
 :ID:    B-0047c
 :PHASE: 5
 :TIER:  5
 :DEPS:  B-0047b
 :PLAN:  Validation > Tier 5
+:COMMIT: pending
+:RESULT: 21 scenarios by 100 seeds by 48 h on both sources, 4200 runs, 171
+         minutes. *19 of 21 pass everything.* Paired mean power 0.0000 to
+         0.0086, so the interval is under one percent of the margin; Frobenius
+         cross 2.8e-5 to 1.9e-2 against within-source maxima of 5 to 8, three
+         orders inside. Every calibrated statistic p = 1.0000 on every
+         scenario. The seed count stays at 100: see the decision of
+         2026-08-28. The two that do not pass are B-0047d.
 :END:
 
 The machinery is done and =ci= exercises it. This is the *run*: 21 scenarios
@@ -2129,7 +2136,65 @@ Done when:
           default was *not* changed: it still reproduces the driver as shipped.
 :END:
 
-** TODO B-0051a What the Tier 7 evidence implies for the default
+** BLOCKED B-0047d The sticking-valve faults do not meet the Tier 5 margin
+:PROPERTIES:
+:ID:    B-0047d
+:PHASE: 5
+:TIER:  5
+:DEPS:  B-0047c
+:PLAN:  Validation > Tier 5
+:QUESTION: Is a macroscopic difference under the *vendored* libm, on the three
+           faults that make a valve stick, acceptable? It is not a defect in
+           the algebra, and it is not present in the configuration that is
+           bit-exact, but it is outside the equivalence margin.
+:END:
+
+Of twenty-one scenarios, nineteen pass every gate. Two do not, and they are
+=IDV(14)= and =IDV(19)=. The channels affected are *precisely the valves those
+faults stick*:
+
+| scenario | paired power | undecided channels        | worst gap | frobenius |
+|----------+--------------+---------------------------+-----------+-----------|
+| IDV(14)  |       1.4271 | XMV(10), XMV(11), XMV(5)  | 1.114 mar | 3.002     |
+| IDV(19)  |       1.2117 | XMV(5)                    | 0.702 mar | 2.176     |
+
+=teprob.f:793-796= maps them: =IVST(10) = IDV(14)=, =IVST(5,7,8,9) = IDV(19)=.
+
+*The cause is established, not guessed.* =teprob.f:801= moves a valve only when
+the command differs from its current position by more than the stick threshold:
+
+: IF(TIME.EQ.0 .OR. DABS(VCV(I)-XMV(I)).GT.VST(I)*IVST(I)) VCV(I)=XMV(I)
+
+That is a discontinuous branch on a floating-point comparison. Under the
+vendored libm the two implementations differ by an ULP or so, and sooner or
+later that puts them on opposite sides of the threshold: one valve moves and
+the other does not, for a whole control period, and the difference becomes
+macroscopic. Measured at 1.016e-1 relative on =XMV(10)= at sample 31 of a
+2-hour =IDV(14)= run.
+
+*Under =libm-system= all five tested scenarios, these two included, are
+bit-identical: 0.000e0.* So there is nothing here but transcendental rounding
+meeting a discrete decision. Same mechanism as the strict-comparison finding of
+B-0021 and B-0022.
+
+The margin was *not* widened and the port was *not* changed. What needs
+deciding is which of these the project wants to claim:
+
+1. Accept it, and state the equivalence claim as holding for the eighteen
+   scenarios without a sticking valve, plus bit-exactness under =libm-system=
+   for all twenty-one.
+2. Ship =libm-system= as the default, which would make the claim unconditional
+   and cost cross-platform determinism, a hard invariant. Almost certainly the
+   wrong trade.
+3. Exclude the manipulated variables of a stuck valve from the mean test on
+   the grounds that a bimodal variable has no meaningful mean, and gate them
+   on the distribution statistics only, which already pass at p = 1.0000.
+
+Option 3 is the most defensible and is a change to what is measured rather than
+to a threshold, but it is a change to the equivalence claim and so needs a
+decision.
+
+** BLOCKED B-0051a What the Tier 7 evidence implies for the default
 :PROPERTIES:
 :ID:    B-0051a
 :PHASE: 5

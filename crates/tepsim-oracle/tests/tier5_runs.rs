@@ -249,7 +249,24 @@ fn the_two_sources_agree_over_a_whole_run() {
     let mut oracle = Oracle::lock();
     let start = start(&mut oracle);
 
-    for scenario in [Scenario::NOMINAL, Scenario::fault(1), Scenario::fault(13)] {
+    // 14 and 19 are the sticking-valve faults, and they are here deliberately.
+    // `teprob.f:801` moves a valve only when the command differs from its
+    // current position by more than the stick threshold, which is a
+    // discontinuous branch on a floating-point comparison. Under the vendored
+    // libm the two implementations can land on opposite sides of it, and the
+    // full Tier 5 battery measured exactly that: `IDV(14)` and `IDV(19)` are
+    // the only two of twenty-one scenarios whose manipulated variables do not
+    // agree, and the channels affected are precisely the valves those faults
+    // stick. This checks the other half of the attribution: with identical
+    // transcendentals there is no difference to be amplified, so the branch is
+    // never taken differently and the runs are bit-identical.
+    for scenario in [
+        Scenario::NOMINAL,
+        Scenario::fault(1),
+        Scenario::fault(13),
+        Scenario::fault(14),
+        Scenario::fault(19),
+    ] {
         let ours = run_port(&start, scenario, seed(0), HOURS);
         let theirs = run_fortran(&mut oracle, &start, scenario, seed(0), HOURS);
 
@@ -279,12 +296,51 @@ fn the_two_sources_agree_over_a_whole_run() {
         );
         assert_eq!(ours.tripped, theirs.tripped, "{}", scenario.label());
 
+        // The three faults that make a valve stick. `teprob.f:793-796` maps
+        // them: IVST(10) = IDV(14), IVST(11) = IDV(15), and IVST(5), (7), (8)
+        // and (9) all = IDV(19).
+        let sticks_a_valve = matches!(scenario.fault, 14 | 15 | 19);
+
         if math::USES_SYSTEM_LIBM {
+            // Identical transcendentals, so nothing to amplify and no branch
+            // can be taken differently. This holds for the sticking faults
+            // too, and that is the whole attribution.
             assert_eq!(
                 worst.0,
                 0.0,
                 "{}: the harness does not drive the two sources identically",
                 scenario.label()
+            );
+        } else if sticks_a_valve {
+            // `teprob.f:801` moves a valve only when the command differs from
+            // its current position by more than the stick threshold:
+            //
+            //     IF(TIME.EQ.0 .OR. DABS(VCV(I)-XMV(I)).GT.VST(I)*IVST(I))
+            //
+            // That is a discontinuous branch on a floating-point comparison.
+            // With the vendored libm the two implementations differ by an ULP
+            // or so, and sooner or later that puts them on opposite sides of
+            // the threshold at some step: one valve moves and the other does
+            // not, for a whole control period, and the difference is then
+            // macroscopic rather than in the last bits.
+            //
+            // This is not a defect and it is not unbounded. It is the same
+            // mechanism as the strict-comparison finding of B-0021 and B-0022,
+            // and the run above under `libm-system` is the proof: with
+            // identical `exp` and `pow` these scenarios are bit-identical, so
+            // there is nothing here but transcendental rounding meeting a
+            // discrete decision.
+            //
+            // The full Tier 5 battery measured the consequence: of
+            // twenty-one scenarios, `IDV(14)` and `IDV(19)` are the only two
+            // whose manipulated variables do not agree, and the channels
+            // affected are precisely the valves those faults stick.
+            assert!(
+                worst.0 < 1.0,
+                "{}: {:.3e} is a whole-scale divergence, not a valve landing \
+                 on the other side of its stick threshold",
+                scenario.label(),
+                worst.0
             );
         } else {
             assert!(
@@ -369,4 +425,58 @@ fn the_battery_sizes_are_what_they_claim() {
 
     // Selected from the environment, defaulting to smoke.
     assert_eq!(Battery::selected(), smoke, "TEP_TIER5 should be unset here");
+}
+
+/// The sticking-valve divergence is entirely the transcendentals.
+///
+/// The claim made in `the_two_sources_agree_over_a_whole_run` is that
+/// `IDV(14)`'s macroscopic difference under the vendored libm is a one-ULP
+/// `exp` difference amplified through `teprob.f:801`'s stick threshold, and
+/// not an error in the algebra. The evidence is that it vanishes entirely when
+/// the two sides are given the same `exp`.
+///
+/// That is only evidence if the divergence is actually *there* in the other
+/// configuration, so this test asserts the configuration it is compiled for
+/// and the pair of runs is what carries the argument.
+#[test]
+fn the_sticking_valve_divergence_is_the_transcendentals() {
+    let mut oracle = Oracle::lock();
+    let start = start(&mut oracle);
+    let scenario = Scenario::fault(14);
+
+    let ours = run_port(&start, scenario, seed(0), HOURS);
+    let theirs = run_fortran(&mut oracle, &start, scenario, seed(0), HOURS);
+
+    // Channel 51 is XMV(10), the reactor cooling water valve, which is the one
+    // IDV(14) sticks (`teprob.f:793`).
+    let valve = 50;
+    let worst = ours
+        .samples
+        .iter()
+        .zip(&theirs.samples)
+        .map(|(a, b)| (a[valve] - b[valve]).abs())
+        .fold(0.0_f64, f64::max);
+
+    println!(
+        "IDV(14), XMV(10): worst absolute difference {worst:.3e} with the {} libm",
+        if math::USES_SYSTEM_LIBM {
+            "platform"
+        } else {
+            "vendored"
+        }
+    );
+
+    if math::USES_SYSTEM_LIBM {
+        assert_eq!(
+            worst, 0.0,
+            "the same exp on both sides still left a difference, so the \
+             divergence is not attributable to the transcendentals after all"
+        );
+    } else {
+        assert!(
+            worst > 1e-3,
+            "the vendored libm no longer diverges here, so the contrast this \
+             attribution rests on has disappeared and it needs re-establishing"
+        );
+    }
 }
