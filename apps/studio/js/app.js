@@ -38,6 +38,7 @@ import init, {
 } from "./tepsim_wasm.js";
 
 import { History } from "./history.js";
+import { Recorder, csvParts, downloadName, exportMeta, saveCsv } from "./csv.js";
 import { TrendGrid } from "./chart.js";
 import { buildFlowsheet } from "./flowsheet.js";
 import { decodeLink, encodeLink } from "./share.js";
@@ -353,6 +354,15 @@ function refreshScenarioReadout() {
 // ---------------------------------------------------------------------------
 
 let history = new History(ROW_WIDTH);
+// The same chunks, kept whole. `History` decimates so the charts stay cheap;
+// this keeps every sample so the download is the run rather than a picture of
+// it. It holds the chunk arrays the worker transferred, so the second store
+// costs references and not copies. See `js/csv.js`.
+let recorder = new Recorder(ROW_WIDTH);
+// The "started" message of the run being recorded, which is what a saved file
+// is labelled with. Not `state`: the panel can be edited mid-run, and then the
+// panel is describing a run that is not this one.
+let run = null;
 let worker = null;
 let workerReady = false;
 let queuedStart = false;
@@ -372,6 +382,9 @@ function statsReset() {
   $("stat-checksum").textContent = "-";
   $("stat-outcome").textContent = "-";
   $("stat-truth").textContent = "-";
+  $("stat-recorded").textContent = "-";
+  // Nothing has been recorded of this run yet, so there is nothing to save.
+  $("download").disabled = true;
 }
 
 function ensureWorker() {
@@ -443,7 +456,9 @@ function onWorkerMessage(data) {
   }
 
   if (data.type === "started") {
+    run = data;
     history = new History(data.rowWidth);
+    recorder = new Recorder(data.rowWidth);
     trends.setHours(data.hours);
     trends.setSelection(state.channels);
     flowsheet.update(null);
@@ -471,8 +486,11 @@ function onWorkerMessage(data) {
 
   if (data.type === "chunk") {
     // `data.values` arrived by transfer: this thread now owns the buffer and
-    // the worker's view of it is detached.
+    // the worker's view of it is detached. `History` copies out of it and the
+    // recorder keeps it, so the order of these two does not matter and neither
+    // of them costs a second buffer.
     history.append(data.values);
+    recorder.append(data.values, data.emittedBefore, data.activeFaults, data.faultAges);
     chunks += 1;
     lastMessage = data;
     dirty = true;
@@ -531,6 +549,16 @@ function drawStats(data) {
     history.decimation === 1
       ? `${history.count.toLocaleString()} rows, full resolution`
       : `${history.count.toLocaleString()} rows, every ${history.decimation}th kept`;
+
+  // And so is a record that stopped short. The two readouts differ on purpose:
+  // "retained" is what the charts are drawing and "recorded" is what the
+  // download would contain, and after 20,000 samples they are not the same
+  // thing.
+  $("stat-recorded").textContent = recorder.truncated
+    ? `${recorder.count.toLocaleString()} rows, then the ceiling; ` +
+      `${recorder.dropped.toLocaleString()} not recorded`
+    : `${recorder.count.toLocaleString()} rows, full resolution`;
+  $("download").disabled = recorder.count === 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -593,6 +621,14 @@ $("reset").addEventListener("click", () => {
   onSettingChanged();
   start();
 });
+$("download").addEventListener("click", () => {
+  // The button is disabled in both of these cases; the guard is here because a
+  // disabled button is a display property and this is the invariant.
+  if (!run || recorder.count === 0) return;
+  const meta = exportMeta(run, lastMessage, recorder, version());
+  saveCsv(csvParts(recorder, meta), downloadName(meta));
+});
+
 $("copy-share").addEventListener("click", async () => {
   const button = $("copy-share");
   try {

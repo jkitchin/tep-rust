@@ -170,6 +170,26 @@ async function start(request) {
   await startWith(buildScenario(request));
 }
 
+// Ground truth for a chunk: which disturbances were on at its last sample, and
+// how long each had been on by then.
+//
+// The ages are what make a saved file's label column worth anything. This
+// thread reports ground truth once per chunk, and a chunk can be hours of
+// plant; attributing the chunk's flags to every row in it would move an onset
+// earlier by up to a chunk, which is the very number a detection-delay figure
+// measures. With the age, the page decides each row against its own clock.
+//
+// Ages rather than absolute onset times, and that is not a detail. Both this
+// side and the page would have to subtract to get from one to the other, and a
+// row landing exactly on the onset (the driver forces IDV(12) at eight hours,
+// which is a sampling instant) would then fall on the wrong side of the
+// comparison by one ulp. Ages keep the boundary exact: see `labelAt` in
+// `js/csv.js`.
+function groundTruth(sim) {
+  const faults = [...sim.activeFaults];
+  return { faults, ages: faults.map((id) => sim.hoursSinceOnset(id) ?? 0) };
+}
+
 async function startWith(scenario) {
   running = false;
   await yieldToEventLoop();
@@ -194,7 +214,16 @@ async function startWith(scenario) {
     totalSamples: sim.totalSamples,
     totalSteps: sim.totalSteps,
     hours: scenario.hours,
+    // The scenario as the bindings serialise it, so anything the page saves out
+    // of this run carries the run itself rather than a description of it. It is
+    // sent here, from the scenario actually handed to the constructor, because
+    // the panel can be edited while a run is in flight and then the panel's
+    // scenario is not this one.
+    scenarioText: scenario.text,
     scenarioDigest: scenario.digest(),
+    // A sample lands on every `sampleEvery`th integrator step, so this is what
+    // turns an emission index back into `Sample::step`.
+    sampleEvery: scenario.sampleEvery,
     isFaithful: scenario.isFaithful,
     faults: [...scenario.activeFaults],
   });
@@ -213,6 +242,7 @@ async function startWith(scenario) {
   while (running && sim === mine && !sim.isFinished) {
     const emittedBefore = sim.emittedSamples;
     const values = sim.stepChunk(chunkSamples);
+    const truth = groundTruth(sim);
 
     self.postMessage(
       {
@@ -223,7 +253,8 @@ async function startWith(scenario) {
         total: sim.totalSamples,
         hours: sim.hours,
         checksum: sim.checksum(),
-        activeFaults: sim.activeFaults,
+        activeFaults: truth.faults,
+        faultAges: truth.ages,
         finished: sim.isFinished,
         outcome: sim.outcome,
         tripHours: sim.tripHours,
