@@ -6,6 +6,16 @@
 # validation chapters and `cargo xtask deltas` writes the delta marker index,
 # and both are committed, so mdBook alone is enough.
 #
+# The notebooks are the book's worked examples, and they need no toolchain
+# either, deliberately. They are committed with their outputs and plots, and
+# `nbconvert --to html` renders exactly what is committed. It is NOT given
+# `--execute`: doing so would drag in the whole wheel build, Rust and all, to
+# recompute results that are already in the file, and it would let a CI run
+# silently publish numbers that differ from the ones the author reviewed. What
+# guards the committed outputs instead is `book_examples.rs`, which fails if a
+# notebook was committed with its cells unexecuted and, under `TEP_BOOK=1`,
+# re-executes all four against the current build.
+#
 # The studio does need one: `apps/studio/dist` is gitignored on purpose, so
 # what gets deployed is built here from `crates/tepsim-wasm` rather than from
 # a checked-in artifact that could silently drift from the source.
@@ -23,6 +33,7 @@ on:
     # Only when something the site is made of moves.
     paths:
       - 'book/**'
+      - 'notebooks/**'
       - 'apps/studio/**'
       - 'crates/tepsim-wasm/**'
       - 'crates/tepsim/**'
@@ -72,6 +83,24 @@ jobs:
 
       - name: Build the book
         run: mdbook build book
+
+      # --- the notebooks ------------------------------------------------
+
+      # Render only. No kernel is started and no cell is run, so this needs
+      # neither the wheel nor Rust nor numpy, and it takes seconds. See the
+      # header of this file for why executing here would be worse rather than
+      # more thorough.
+      - name: Install nbconvert
+        run: pip install --disable-pip-version-check nbconvert
+
+      - name: Render the notebooks
+        run: |
+          set -euo pipefail
+          jupyter nbconvert --version
+          jupyter nbconvert --to html \
+            --output-dir _notebooks \
+            notebooks/*.ipynb
+          ls -l _notebooks
 
       # --- the studio ---------------------------------------------------
 
@@ -130,10 +159,16 @@ jobs:
 
       # --- assemble -----------------------------------------------------
 
-      # The book at the root and the studio one level down, so the published
-      # URLs are `<site>/` and `<site>/studio/`. `book.toml` sets `site-url`
-      # to match, which is what makes the book's 404 page resolve correctly
-      # from a subpath.
+      # The book at the root, the studio and the notebooks one level down, so
+      # the published URLs are `<site>/`, `<site>/studio/` and
+      # `<site>/notebooks/`. `book.toml` sets `site-url` to match, which is what
+      # makes the book's 404 page resolve correctly from a subpath.
+      #
+      # `<site>/notebooks/` is the path the book's links assume, and
+      # `book_examples.rs::every_notebook_link_resolves` resolves each link
+      # against the page carrying it and asserts it lands exactly there. That
+      # matters because the same notebook is `notebooks/x.html` from
+      # `python.html` and `../notebooks/x.html` from `tutorials/x.html`.
       - name: Assemble the site
         run: |
           set -euo pipefail
@@ -142,16 +177,26 @@ jobs:
           cp -r book/book/. _site/
           mkdir -p _site/studio
           cp -r apps/studio/dist/. _site/studio/
+          mkdir -p _site/notebooks
+          cp -r _notebooks/. _site/notebooks/
 
-      # Both halves have to be there, and the studio has to have its wasm.
+      # All three parts have to be there, and the studio has to have its wasm.
       # Without this a broken build publishes an empty directory and the only
-      # symptom is a 404 that nobody sees until they visit.
-      - name: The site has both halves
+      # symptom is a 404 that nobody sees until they visit. The notebook count
+      # is asserted rather than eyeballed for the same reason: the book links
+      # to every one of them by name, so a render that quietly dropped one
+      # would publish four dead links.
+      - name: The site has all three parts
         run: |
           set -euo pipefail
           test -f _site/index.html
+          test -f _site/python.html
           test -f _site/studio/index.html
           test -f _site/studio/js/tepsim_wasm_bg.wasm
+          notebooks=$(find _site/notebooks -name '*.html' | wc -l)
+          sources=$(find notebooks -name '*.ipynb' | wc -l)
+          echo "$notebooks rendered notebook(s) from $sources source(s)"
+          test "$notebooks" -eq "$sources"
           pages=$(find _site -name '*.html' | wc -l)
           wasm=$(du -h _site/studio/js/tepsim_wasm_bg.wasm | cut -f1)
           echo "$pages HTML page(s); wasm module $wasm"

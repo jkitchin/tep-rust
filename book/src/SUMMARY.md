@@ -6,6 +6,7 @@
 # Using the simulator
 
 - [Getting started](getting-started.md)
+- [The Python package](python.md)
 - [The twenty disturbances](disturbances.md)
 
 # Tutorials

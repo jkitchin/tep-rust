@@ -5,10 +5,18 @@ repository, to run the Tennessee Eastman Process and to reproduce results from
 its literature. They are committed with their outputs, so they can be read
 without running anything.
 
+**These are the book's worked examples.** The four tutorial pages under
+`book/src/tutorials/` are the narrative around them and carry no code of their
+own, and `.github/workflows/pages.yml` renders these notebooks to HTML beside
+the published book so that a link from a page reaches a rendered notebook rather
+than a raw `.ipynb`. `crates/tepsim/tests/book_examples.rs` checks that every
+notebook a page links to exists at the depth the link claims, and that no
+notebook was committed with its outputs cleared.
+
 | Notebook | What it covers |
 |---|---|
-| `01-getting-started.ipynb` | Running the plant, the 41 measurements and 12 manipulated variables, the twenty faults and what each one really does, injecting a fault, reading the ground-truth labels, reproducibility from a seed, and what a trip looks like. |
-| `02-fault-detection-pca.ipynb` | The standard PCA monitoring scheme: T-squared and SPE, their control limits, false alarm rate, detection rate and detection delay. Checked digit for digit against the Rust reference implementation in `book/src/tutorials/a-detector.md`. |
+| `01-getting-started.ipynb` | Running the plant, the 41 measurements and 12 manipulated variables, how a row is timed, the twenty faults and what each one really does, injecting a fault, the driver's forced `IDV(12)`, reading the ground-truth labels, reproducibility from a seed, and what a trip looks like. |
+| `02-fault-detection-pca.ipynb` | The standard PCA monitoring scheme: T-squared and SPE, their control limits, false alarm rate, detection rate and detection delay. Checked digit for digit against the Rust implementation in the `tepsim-stats` crate. |
 | `03-hard-faults.ipynb` | The best known empirical result about this benchmark, that `IDV(3)`, `IDV(9)` and `IDV(15)` are effectively undetectable by these methods, measured three ways: on the published `d00`-`d21` files, on simulated runs at the seeds those files were generated with, and over a ten-seed ensemble. |
 | `04-custom-scenarios.ipynb` | What this port can express that the original cannot: scheduled faults that arrive and clear, composed faults, continuous fault magnitudes, a choice of integrator, and the scenario text and digest that make a run reproducible from its description alone. |
 
@@ -23,10 +31,13 @@ incomplete beta with a bisection on top.
 The notebooks need `tepsim`, `numpy`, `matplotlib` and `jupyter`. Nothing else:
 no SciPy, no scikit-learn, no pandas.
 
-If you have installed `tepsim` from a wheel, add the notebook tools and go:
+`tepsim` is not on PyPI yet, so it installs from this repository and builds
+from source, which needs a Rust toolchain. See
+[The Python package](../book/src/python.md) for the detail:
 
 ```bash
-pip install tepsim jupyter matplotlib
+pip install "git+https://github.com/jkitchin/tep-rust#subdirectory=crates/tepsim-py"
+pip install jupyter matplotlib
 jupyter lab notebooks/
 ```
 
