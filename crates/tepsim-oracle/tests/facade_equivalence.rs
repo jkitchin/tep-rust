@@ -83,13 +83,15 @@ fn the_facade_reproduces_the_validated_loop() {
         };
         let theirs = run_port(&start, tier, seed(0), HOURS);
 
-        let scenario = if fault == 0 {
-            Scenario::baseline()
-        } else {
-            Scenario::fault(fault)
+        // `faithful`, because that is what `run_port` builds: this test exists
+        // to show the two loops are one computation, and it can only show that
+        // if both sides carry the same Class C flags.
+        let mut scenario = Scenario::faithful()
+            .with_hours(HOURS as f64)
+            .with_seed(seed(0));
+        if fault != 0 {
+            scenario = scenario.with_fault(fault);
         }
-        .with_hours(HOURS as f64)
-        .with_seed(seed(0));
         let ours = Simulation::new(scenario).run();
 
         assert_eq!(
@@ -132,7 +134,7 @@ fn the_priming_measurements_are_never_read() {
 
     // `run_port` primes from `TEINIT`; the facade primes from zeros.
     let primed = run_port(&start, TierScenario::NOMINAL, seed(3), 1);
-    let unprimed = Simulation::new(Scenario::baseline().with_hours(1.0).with_seed(seed(3))).run();
+    let unprimed = Simulation::new(Scenario::faithful().with_hours(1.0).with_seed(seed(3))).run();
 
     assert!(
         start.measurements.iter().any(|m| *m != 0.0),

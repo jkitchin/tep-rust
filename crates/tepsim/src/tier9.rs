@@ -221,32 +221,57 @@ impl Case {
     }
 }
 
+/// The baseline with every Class C flag pinned to the value these digests were
+/// measured under.
+///
+/// # Why the table cannot inherit the defaults
+///
+/// A Tier 9 digest answers one question: does this machine compute the same
+/// numbers as that one. It can only answer it if both machines ran the same
+/// scenario. A case that inherited [`Scenario::baseline`]'s Class C flags would
+/// move whenever a default moved, and the failure would read as a
+/// cross-platform disagreement rather than as the deliberate change it was.
+///
+/// That is not hypothetical. Both flags below were flipped by the sign-off of
+/// 2026-08-28, after these six numbers were measured, and pinning them is why
+/// none of the six had to be re-baselined. Two of the cases exist precisely to
+/// digest the paths the flags control, so they have to be set the reproducing
+/// way whatever the default is.
+fn pinned() -> Scenario {
+    let mut scenario = Scenario::faithful();
+    // `open-loop-4h` trips at 3.06 h and exists to cover `teprob.f:807-811`,
+    // the frozen-plant path. It cannot cover it with the fix on.
+    debug_assert!(!scenario.quirks.trip_ends_the_run);
+    // `baseline-9h` runs to nine hours to cross `temain_mod.f:367`.
+    debug_assert!(scenario.driver_forces_idv12);
+    scenario.hours = 1.0;
+    scenario
+}
+
 fn baseline_1h() -> Scenario {
-    Scenario::baseline().with_hours(1.0)
+    pinned().with_hours(1.0)
 }
 
 fn fault_1_2h() -> Scenario {
-    Scenario::fault(1).with_hours(2.0)
+    pinned().with_hours(2.0).with_fault(1)
 }
 
 fn open_loop_4h() -> Scenario {
-    Scenario::baseline().with_hours(4.0).open_loop()
+    pinned().with_hours(4.0).open_loop()
 }
 
 fn rk4_1h() -> Scenario {
-    Scenario::baseline()
-        .with_hours(1.0)
-        .with_integrator(Integrator::Rk4)
+    pinned().with_hours(1.0).with_integrator(Integrator::Rk4)
 }
 
 fn dormand_prince_1h() -> Scenario {
-    Scenario::baseline()
+    pinned()
         .with_hours(1.0)
         .with_integrator(Integrator::DormandPrince)
 }
 
 fn baseline_9h() -> Scenario {
-    Scenario::baseline().with_hours(9.0)
+    pinned().with_hours(9.0)
 }
 
 /// The Tier 9 table.

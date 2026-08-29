@@ -131,9 +131,11 @@ $ tep run --fault 4 --hours 24 --labels
 or, from Rust, `Scenario::fault(4)` and `Scenario::baseline().with_fault(4)`.
 Faults can be combined; the flags are independent.
 
-One caveat that is not the caller's doing. The driver switches `IDV(12)` on at
-eight hours whatever the scenario asked for (`temain_mod.f:366-368`), because
-that is what the original driver does and what every published dataset longer
-than eight hours contains. It is delta D-011, the `Scenario` field
-`driver_forces_idv12` turns it off, and the ground-truth labels record it, so a
-"fault-free" 48-hour run is visibly fault-free for eight hours and then not.
+One caveat, though it is no longer the default. The original driver switches
+`IDV(12)` on at eight hours whatever the scenario asked for
+(`temain_mod.f:366-368`). That is delta D-011, and it is **off** here: Tier 7
+established that the published files were generated with that line replaced
+rather than kept, so a request for `IDV(4)` gets `IDV(4)` and nothing else.
+`Scenario::faithful()` and the `driver_forces_idv12` field turn it back on, and
+the ground-truth labels record it either way, so a run carrying it is visibly
+fault-free for eight hours and then not.

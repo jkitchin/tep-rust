@@ -420,7 +420,12 @@ pub fn generate_without_forced_idv12(file: &Published, seed: f64, protocol: &Pro
 }
 
 fn run_under(file: &Published, seed: f64, protocol: &Protocol, forced_idv12: bool) -> Run {
-    let mut described = tepsim::Scenario::baseline()
+    // `faithful`: four of the forty-four published files carry a frozen tail
+    // from `teprob.f:807-811`, 1,832 rows in total and 75.6% of `d06.dat`, so a
+    // build that ended the run at the trip would have nothing to compare them
+    // against. D-011 is then set from the argument, because which way it went is
+    // the question this function exists to answer.
+    let mut described = tepsim::Scenario::faithful()
         .with_hours(protocol.hours)
         .with_seed(seed);
     described.driver_forces_idv12 = forced_idv12;

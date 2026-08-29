@@ -93,11 +93,11 @@ pub enum Outcome {
     Completed,
     /// The plant tripped.
     ///
-    /// The run *continues* by default, because `teprob.f:807-811` freezes the
-    /// plant rather than stopping it and the samples after a trip are part of
-    /// the behaviour under test. Set
-    /// [`tepsim_core::QuirkFixes::trip_ends_the_run`] to stop instead; that is
-    /// delta D-007 and it is blocked on sign-off.
+    /// The run *stops* here by default. `teprob.f:807-811` instead freezes the
+    /// plant and keeps reporting, which is what [`crate::Scenario::faithful`]
+    /// and a cleared [`tepsim_core::QuirkFixes::trip_ends_the_run`] give, and
+    /// what any comparison against published data needs. Delta D-007, signed
+    /// off 2026-08-28.
     Tripped {
         /// The step it tripped at.
         step: usize,

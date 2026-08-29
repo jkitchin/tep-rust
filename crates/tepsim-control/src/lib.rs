@@ -1170,8 +1170,10 @@ pub const STEADY_STATE_STEPS: usize = 3600 * 8;
 
 /// Which Class C quirks of the *driver* are fixed rather than reproduced.
 ///
-/// All off by default, so the default driver reproduces `temain_mod.f`. This
-/// mirrors [`tepsim_core::QuirkFixes`], which does the same job for the plant.
+/// Mirrors [`tepsim_core::QuirkFixes`], which does the same job for the plant.
+/// The default here is still the reproducing one, because this type describes
+/// the driver in isolation. The signed-off default lives one layer up, in
+/// `tepsim::Scenario`, which sets `only_the_requested_disturbances`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct DriverQuirks {
@@ -1180,8 +1182,9 @@ pub struct DriverQuirks {
     /// `temain_mod.f:366-368` does.
     ///
     /// When `true`, the requested scenario is the scenario. That is a genuine
-    /// behaviour change and it is **blocked on sign-off**; see B-0040a and
-    /// delta D-011.
+    /// behaviour change, and since the sign-off of 2026-08-28 it is what a
+    /// default `tepsim::Scenario` asks for; see B-0066 and delta D-011.
+    /// `tepsim::Scenario::faithful` asks for the other one.
     pub only_the_requested_disturbances: bool,
 }
 

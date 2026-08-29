@@ -307,9 +307,10 @@ impl Scenario {
     /// Whether the driver forces `IDV(12)` on at eight hours regardless of what
     /// was asked for, as `temain_mod.f:366-368` does.
     ///
-    /// `true` by default, because every published dataset longer than eight
-    /// hours carries it. Delta D-011. Turning it off is a departure from every
-    /// number in the literature.
+    /// `false` by default: Tier 7 established that the published `dNN_te`
+    /// files were generated with `temain_mod.f:367` replaced rather than kept,
+    /// so forcing it is a departure from them rather than a match. Delta D-011,
+    /// signed off 2026-08-28.
     #[wasm_bindgen(getter, js_name = driverForcesIdv12)]
     #[must_use]
     pub fn driver_forces_idv12(&self) -> bool {
@@ -324,9 +325,9 @@ impl Scenario {
 
     /// Whether a trip ends the run rather than freezing the plant.
     ///
-    /// `false` by default, which is what `teprob.f:807-811` does: the plant
-    /// freezes and keeps reporting, and those frozen samples are in every
-    /// published dataset. Delta D-007, blocked on sign-off.
+    /// `true` by default. Setting it `false` gives what `teprob.f:807-811`
+    /// does: the plant freezes and keeps reporting, which is three quarters of
+    /// `d06.dat`. Delta D-007, signed off 2026-08-28.
     #[wasm_bindgen(getter, js_name = tripEndsTheRun)]
     #[must_use]
     pub fn trip_ends_the_run(&self) -> bool {

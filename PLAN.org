@@ -335,8 +335,9 @@ without an explicit intrinsic, so operation fusion is not a risk, but CI asserts
 it anyway. There is no SIMD, no rayon, and no reordered reduction inside the
 core; parallelism happens one level up, across independent runs.
 
-The determinism gate in CI is concrete: hash the full state vector every hundred
-steps across a 48-hour run into a BLAKE3 digest, and assert the same digest on
+The determinism gate in CI is concrete: hash the recorded output of six fixed
+scenarios into a committed digest each (see the Tier 9 decision of 2026-08-29 on
+why FNV-1a rather than BLAKE3), and assert the same digests on
 Linux x86-64, macOS aarch64, Windows x86-64, and wasm32 under both Node and
 headless Chrome. If the digests ever diverge, the build fails and we know
 immediately.
@@ -673,9 +674,32 @@ the regression suite. This is how we find the branch we did not think to test.
 
 ** Tier 9: cross-platform determinism
 
-Golden BLAKE3 digests asserted equal across every target in the CI matrix,
-including wasm32 executed in a real headless browser rather than only in Node,
-since the browser is where users will actually run it.
+Golden digests asserted equal across every target in the CI matrix, including
+wasm32 executed in a real headless browser rather than only in Node, since the
+browser is where users will actually run it.
+
+*** Decision 2026-08-29 (B-0063): FNV-1a over =f64::to_bits=, not BLAKE3
+
+This section said BLAKE3. It is FNV-1a, and the reason is where the digest has
+to be *computed* rather than what it has to resist.
+
+The digest must be taken inside the wasm module. A digest computed after the
+numbers cross the boundary is a digest of what crossed the boundary, and the
+packing, chunking and =Float64Array= transfer are exactly the layer a
+cross-platform check should not be trusting. That puts it in a =no_std= crate
+under a 1.5 MB bundle budget. Moving BLAKE3 into =xtask= instead would leave it
+hashing a =u64= that =xtask= already has, which makes the comparison no
+stronger and the dependency pure cost.
+
+FNV-1a over =f64::to_bits= is integer arithmetic end to end, so the digest
+cannot itself become a source of the floating-point disagreement it exists to
+detect. It is not cryptographic and not collision-resistant against an
+adversary; there is no adversary here, only drift, and drift is what it
+catches. Six committed constants are checked rather than one, so a collision
+would have to happen six times on the same build.
+
+=crates/tepsim/src/tier9.rs= carries the table; =cargo xtask tier9= compares
+native against wasm32.
 
 ** Tier 10: delta validation for every quirk fix
 

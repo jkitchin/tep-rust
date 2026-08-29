@@ -338,7 +338,9 @@ fn a_fault_changes_the_run_and_is_labelled() {
 /// this is the only place these bindings surface it.
 #[test]
 fn the_drivers_forced_idv12_shows_up_in_the_labels() {
-    let scenario = Scenario::baseline().with_hours(9.0);
+    // `faithful`, because forcing it is the quirk and since 2026-08-28 it is
+    // off by default. The browser still has to be able to show it happening.
+    let scenario = Scenario::faithful().with_hours(9.0);
     let mut run = runner(scenario);
     assert!(
         run.scenario().active_faults().next().is_none(),
@@ -351,6 +353,14 @@ fn the_drivers_forced_idv12_shows_up_in_the_labels() {
         vec![12],
         "the driver switched IDV(12) on unasked at hour eight"
     );
+    // And a default run really is left alone, which is the other half.
+    let mut plain = runner(Scenario::baseline().with_hours(9.0));
+    let _ = plain.run_to_end();
+    assert!(
+        plain.labels().faults().next().is_none(),
+        "the default still switched IDV(12) on unasked"
+    );
+
     let since = hours_since_onset(run.labels(), 12).expect("an onset");
     assert!(
         (0.0..1.5).contains(&since),
@@ -518,12 +528,12 @@ fn the_scenario_digest_covers_every_field() {
         ("controlled", base.open_loop()),
         ("driver_forces_idv12", {
             let mut s = base;
-            s.driver_forces_idv12 = false;
+            s.driver_forces_idv12 = !s.driver_forces_idv12;
             s
         }),
         ("trip_ends_the_run", {
             let mut s = base;
-            s.quirks.trip_ends_the_run = true;
+            s.quirks.trip_ends_the_run = !s.quirks.trip_ends_the_run;
             s
         }),
         ("integrator", base.with_integrator(Integrator::Rk4)),
@@ -574,12 +584,25 @@ fn an_open_loop_run_trips_and_says_so() {
     }
     assert_eq!(run.outcome_name(), Some("tripped"));
 
-    // The default is D-007 off: the plant freezes and keeps reporting, exactly
-    // as teprob.f:807-811 does, so every planned sample still arrives.
-    assert_eq!(
+    // The default is D-007 on: the run ends at the trip, so fewer than the
+    // planned samples arrive. `teprob.f:807-811`'s freeze is one flag away and
+    // then every planned sample arrives, which is the other half of the claim.
+    assert!(
+        run.emitted_samples() < run.plan().samples,
+        "the run continued past the trip: {} of {} samples",
         run.emitted_samples(),
-        run.plan().samples,
-        "a trip must not truncate the run while D-007 is off"
+        run.plan().samples
+    );
+    let mut frozen = runner({
+        let mut s = *run.scenario();
+        s.quirks.trip_ends_the_run = false;
+        s
+    });
+    let _ = frozen.run_to_end();
+    assert_eq!(
+        frozen.emitted_samples(),
+        frozen.plan().samples,
+        "the faithful configuration truncated the run"
     );
 }
 

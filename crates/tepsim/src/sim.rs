@@ -272,9 +272,9 @@ impl Simulation {
                 hours: self.hours,
                 cause: signals.shutdown.first(),
             });
-            // Whether it *ends* the run is delta D-007, off by default. With
-            // the default the plant freezes and keeps reporting, which is what
-            // the original does and what every published dataset contains.
+            // Whether it *ends* the run is delta D-007, on by default since
+            // 2026-08-28. Cleared, the plant freezes and keeps reporting, which
+            // is what the original does and what four published files contain.
             self.halted = self.scenario.quirks.trip_ends_the_run;
         }
 

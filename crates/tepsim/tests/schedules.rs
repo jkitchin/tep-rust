@@ -326,12 +326,12 @@ fn the_digest_covers_every_field_that_changes_a_run() {
         ("extension", base.with_continuous_disturbances()),
         ("quirk", {
             let mut s = base;
-            s.quirks.trip_ends_the_run = true;
+            s.quirks.trip_ends_the_run = false;
             s
         }),
         ("forced idv12", {
             let mut s = base;
-            s.driver_forces_idv12 = false;
+            s.driver_forces_idv12 = true;
             s
         }),
     ];

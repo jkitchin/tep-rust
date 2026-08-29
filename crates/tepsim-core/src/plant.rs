@@ -136,13 +136,14 @@ impl Inputs {
 /// Capabilities the original does not have.
 ///
 /// Distinct from [`QuirkFixes`], and the distinction is the point. A quirk fix
-/// changes behaviour the original got *wrong*, so it is off by default and
-/// needs sign-off. An extension adds behaviour the original never had, so
+/// changes behaviour the original got *wrong*, so it needs a measured delta and
+/// a sign-off before it can be the default. An extension adds behaviour the
+/// original never had, so
 /// enabling one is not a claim that the original was mistaken: it is a
 /// statement that this run is no longer trying to reproduce it.
 ///
-/// Everything here is off by default, and with everything off the port is
-/// bit-identical to the Fortran.
+/// Everything here is off by default, and no signed-off default will ever turn
+/// one on: an extension is always something a caller asked for.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Extensions {
@@ -332,7 +333,23 @@ impl Default for Plant {
         Self {
             valve_command: [0.0; 12],
             seeds: TemperatureSeeds::default(),
-            quirks: QuirkFixes::default(),
+            // `QuirkFixes::faithful`, deliberately *not* `QuirkFixes::default`,
+            // and this is the one place in the project where the two disagree.
+            //
+            // `trip_ends_the_run` is a promise the caller has to keep: with it
+            // set, the derivatives come back un-zeroed and whoever asked for
+            // them is expected to notice `Balances::shutdown` and stop. A bare
+            // `Plant` has no run to end. A caller who took the default here and
+            // ignored the flag would integrate straight through a trip, which
+            // is neither the original's behaviour nor the signed-off one.
+            //
+            // `tepsim::Simulation` is the caller that can keep the promise, and
+            // it assigns `scenario.quirks` over this, so the facade's default is
+            // unaffected. What this protects is a differential harness built
+            // directly on `Plant`, whose whole purpose is to be `teprob.f`.
+            // `the_plants_own_default_is_faithful` asserts the divergence
+            // rather than leaving it to be rediscovered.
+            quirks: QuirkFixes::faithful(),
             extensions: Extensions::none(),
             walks: WalkInputs::default(),
             channels: Walks::default(),
@@ -343,7 +360,12 @@ impl Default for Plant {
 }
 
 impl Plant {
-    /// A plant with nothing latched yet.
+    /// A plant with nothing latched yet, with every Class C quirk *reproduced*.
+    ///
+    /// See the comment in `Default::default` for why this is
+    /// [`QuirkFixes::faithful`] and not [`QuirkFixes::default`].
+    /// `tepsim::Simulation` overwrites it from the scenario, so a facade user
+    /// gets the signed-off defaults.
     #[must_use]
     pub fn new() -> Self {
         Self::default()
@@ -734,6 +756,29 @@ pub fn assert_derivatives_are_pure(plant: &Plant, t: SimTime, y: &State, u: &Inp
 
 #[cfg(test)]
 mod tests {
+
+    /// The plant's own default reproduces the quirks; `QuirkFixes::default`
+    /// fixes them. That divergence is deliberate and is the only one.
+    ///
+    /// It exists because `trip_ends_the_run` is a promise about what the
+    /// *caller* does after a trip, and a bare `Plant` has no caller to speak
+    /// of. Without this test the two would silently reconverge the next time
+    /// someone tidied the constructor, and every differential harness built on
+    /// `Plant` would start disagreeing with the Fortran on all fifty
+    /// components for every tripping state, which is exactly how it was found.
+    #[test]
+    fn the_plants_own_default_is_faithful() {
+        let plant = Plant::new();
+        assert_eq!(plant.quirks, QuirkFixes::faithful());
+        assert!(!plant.quirks.trip_ends_the_run);
+        assert_ne!(
+            plant.quirks,
+            QuirkFixes::default(),
+            "the plant's default and the scenario's have reconverged; if that \
+             is intended, the comment in `Default::default` has to go too"
+        );
+        assert_eq!(Plant::new().quirks, Plant::default().quirks);
+    }
     use super::*;
 
     /// The plant's nominal operating point, from `TEINIT`.

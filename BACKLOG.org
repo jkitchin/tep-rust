@@ -14,18 +14,20 @@ earlier phases will change what the right decomposition is.
 
 Rewrite this block at the end of every iteration. Keep it to five lines.
 
-- Phase: *every phase has landed its work.* Nothing is TODO. Four items are
-  BLOCKED on decisions that are the user's, and none blocks anything else
-- Last completed: B-0047c (the full Tier 5 battery), B-0057 (Class C deltas
-  measured), B-0048, B-0049a, B-0054a, B-0056, B-0059a
+- Phase: *every phase has landed its work, and every decision has been taken.*
+  Nothing is TODO and nothing is BLOCKED
+- Last completed: B-0062 (Tier 8 fuzzing), B-0063 (Tier 9 determinism), B-0064
+  (=tep dataset=), B-0065/B-0066/B-0067 (the three sign-offs), B-0068 (the
+  book's tutorials pinned to compiled examples)
 - In flight: (none)
-- Baseline: =cargo xtask ci= green, and it now runs the Python wheel and lints
-  the oracle feature; 505+ tests default, 713+ with =oracle=, 69 Python, 33
-  Node; fidelity 3.521e-14, unchanged since B-0026
+- Baseline: =cargo xtask ci= green; it now runs the Python wheel and lints the
+  oracle feature *and* =libm-system=; fidelity 3.521e-14, unchanged since
+  B-0026; Tier 9 suite digest =953892e861fd5e68= on aarch64 and wasm32
 - Toolchain: rustup pinned to rustc 1.97.1, wasm32, gfortran 15.2, maturin
-  1.12.4, mdbook 0.5.4, trunk 0.21.14 (installed, deliberately unused)
-- Blocked on the user: B-0025b, B-0040a, B-0047d, B-0051a. The middle two are
-  one question and B-0051a supplies new evidence for it
+  1.12.4, mdbook 0.5.4, node 25.1.0, trunk 0.21.14 (installed, unused)
+- Open findings, not blockers: Tier 8 =fuzz#863105= (=YP(9)= at 4.607e-12 of
+  scale after 973 h of =IDV(13)= drift, bit-identical under =libm-system=);
+  Tier 9 has no x86-64 or real-browser leg
 
 * Phase 0: foundations
 
@@ -1040,7 +1042,7 @@ acceptance criterion.
 - [X] =xtask validate --tiers 2= runs it, and the fidelity preflight diffs the
       golden trace for real: 100 of 100 steps, worst 3.521e-14
 
-** BLOCKED B-0025b Sign-off: should a shutdown end the run instead of freezing it?
+** DONE B-0025b Sign-off: should a shutdown end the run instead of freezing it?
 :PROPERTIES:
 :ID:       B-0025b
 :PHASE:    6
@@ -1051,6 +1053,21 @@ acceptance criterion.
            requires. It cannot become the default without a Tier 5 and Tier 6
            delta report, which is Phase 5. Carried here so the question is not
            lost; it is *not* blocking Phase 2.
+:RESULT: *A shutdown ends the run.* Signed off 2026-08-28 by the user, on the
+         reasoning that a freeze preserves nothing: the plant cannot be
+         restarted either way, so the freeze only withholds the fact that the
+         run is over. =QuirkFixes::new= and so =QuirkFixes::default= now set
+         =trip_ends_the_run=; =QuirkFixes::faithful= and =Scenario::faithful=
+         reproduce =teprob.f:807-811= and are what =tier5::run_port=,
+         =tier7::run_under= and =published::File::scenario= pin. Two
+         measurements decided it. The fix is pure truncation:
+         =d007_changes_nothing_before_the_trip= shows every sample up to the
+         trip is bit-identical either way. And the frozen tail is large: 4 of
+         the 44 published files carry one, *1,832 rows*, 75.6% of =d06.dat=
+         (363 of 480) and 71.0% of =d06_te.dat= (682 of 960), across which 21
+         continuous channels repeat identical five-digit values because the
+         noise at =teprob.f:711-716= is inside the shutdown guard too.
+         Implemented in B-0065.
 :END:
 
 =teprob.f:807-811= zeroes all fifty derivatives on any shutdown, freezing the
@@ -1656,7 +1673,7 @@ Done when:
 - [X] A =BLOCKED= item for the sign-off, with the measured delta (B-0040a)
 - [X] Delta register entry (D-011)
 
-** BLOCKED B-0040a Sign-off: should the driver's IDV(12) stay the default?
+** DONE B-0040a Sign-off: should the driver's IDV(12) stay the default?
 :PROPERTIES:
 :ID:    B-0040a
 :PHASE: 6
@@ -1666,6 +1683,9 @@ Done when:
 :QUESTION: Should =DriverQuirks::only_the_requested_disturbances= default to
            =true=, so a scenario means what it says, or stay =false=, so the
            driver reproduces =temain_mod.f= and the published datasets?
+:RESULT: *The default no longer forces IDV(12).* Signed off 2026-08-28,
+         together with B-0051a, which is the same question. See B-0051a for the
+         evidence and B-0066 for the implementation.
 :END:
 
 Class C, delta D-011. =temain_mod.f:366-368= switches =IDV(12)= on at step
@@ -2136,7 +2156,7 @@ Done when:
           default was *not* changed: it still reproduces the driver as shipped.
 :END:
 
-** BLOCKED B-0047d The sticking-valve faults do not meet the Tier 5 margin
+** DONE B-0047d The sticking-valve faults do not meet the Tier 5 margin
 :PROPERTIES:
 :ID:    B-0047d
 :PHASE: 5
@@ -2147,6 +2167,22 @@ Done when:
            faults that make a valve stick, acceptable? It is not a defect in
            the algebra, and it is not present in the configuration that is
            bit-exact, but it is outside the equivalence margin.
+:RESULT: *A stuck valve is judged on its distribution, not on its mean.*
+         Signed off 2026-08-28. =teprob.f:793-798= widens a valve's dead band
+         under IDV(14), IDV(15) and IDV(19), and =teprob.f:801= then moves that
+         valve only when =DABS(VCV(I)-XMV(I)).GT.VST(I)*IVST(I)=: a
+         discontinuous branch on a floating-point comparison. One ULP of =exp=,
+         which Tier 2 accepts on ~10% of arguments, decides which side it lands
+         on and the valve then holds a different position for the rest of the
+         run. The series is plateaux, so its 48-hour mean is an artefact of how
+         long it sat on each one. =Report::failures= now skips the mean and
+         variance gates for those variables and relies on the four calibrated
+         distributional statistics, which already ran and still run.
+         *No margin was widened and no tolerance loosened*: every other
+         variable is judged exactly as before, and
+         =a_stuck_valve_is_still_judged_on_its_distribution= injects a
+         ten-sigma shift into XMV(10) under IDV(14) and requires KS and energy
+         distance to exceed every within-source split. Implemented in B-0067.
 :END:
 
 Of twenty-one scenarios, nineteen pass every gate. Two do not, and they are
@@ -2194,7 +2230,7 @@ Option 3 is the most defensible and is a change to what is measured rather than
 to a threshold, but it is a change to the equivalence claim and so needs a
 decision.
 
-** BLOCKED B-0051a What the Tier 7 evidence implies for the default
+** DONE B-0051a What the Tier 7 evidence implies for the default
 :PROPERTIES:
 :ID:    B-0051a
 :PHASE: 5
@@ -2204,6 +2240,20 @@ decision.
 :QUESTION: B-0051 shows the published datasets were made with
            =temain_mod.f:367= replaced rather than kept. Does that change the
            answer to B-0040a?
+:RESULT: *Reproduce the data, not the shipped line.*
+         =Scenario::driver_forces_idv12= now defaults to =false=. Three
+         grounds. The evidence is one-sided: the only argument for forcing was
+         that =temain_mod.f:367= contains =IDV(12)=1=, and Tier 7 established
+         that the published files were generated with that line *replaced* (
+         every =dNN_te= except =d12_te= sits at the nominal operating point
+         across row 160). The prose at =temain_mod.f:101-102= says to "go to
+         line 367" and put your own disturbance there, which is an instruction
+         to replace. And the cost of being wrong is asymmetric: a caller who
+         asks for IDV(4) and silently also gets IDV(12) cannot notice, while a
+         caller who wants the shipped driver asks for it by name.
+         =Scenario::faithful=, =tep run --force-idv12= and
+         =driver_forces_idv12=True= all still give it, and =tier5::run_port=
+         pins it on so no differential can lose it. Implemented in B-0066.
 :END:
 
 B-0040a asks whether =driver_forces_idv12= should stay the default, and the
@@ -2639,13 +2689,266 @@ by =xtask validate=, as should the delta register from the =@delta= markers,
 so neither can drift from what the code actually measures. That is the same
 work as B-0048.
 
+
+** DONE B-0062 Tier 8: differential fuzzing
+:PROPERTIES:
+:ID:    B-0062
+:PHASE: 5
+:TIER:  8
+:DEPS:  B-0026
+:PLAN:  Validation > Tier 8
+:COMMIT: 28fed23
+:RESULT: =tier8.rs= plus =tier8_fuzz.rs=. =Generator::tuple(index)= is a pure
+         function of =(seed, index)= rather than a stream, so any finding
+         replays standalone; it re-seeds the existing SplitMix64 =tier1::Sampler=
+         and adds no dependency. Four tuple shapes are mixed: =Sparse= 40%,
+         =Jitter= 25%, =LogScale= 25%, =Wild= 10%, over three slot populations
+         (holdups/energies multiplicative, the two coolant temperatures
+         additive over 0-200 C, the twelve valves uniform 0-100 and out of
+         range under =Wild=). *5,000,000 tuples at seed 0x7E2_0062: 2,551,618
+         compared (51.0%)*, 2,263,855 frozen by the shutdown, 184,526 lost to
+         =TESUB2= falling through, *0* where the port failed and the Fortran
+         converged. 240,773,700 component comparisons, 0 non-finite either
+         side, worst agreeing error 4.674e-13 of scale. Default =TEP_TIER8=
+         size is 400 tuples, 0.74 s.
+
+         *Teeth measured, not hoped for*: an injected error of 1e-11 of a
+         balance's scale is found and 1e-13 is not, both asserted. A term
+         behind =teprob.f:615= (=TCC > 170 C=), reached by 25 of 10,222
+         compared tuples, is shrunk from 18 knobs to 1 in 21 evaluations.
+
+         *One counterexample in five million*, =fuzz#863105=, shrunk from 22
+         knobs to 3: nominal state, =IDV(13)=, =G=985491900=,
+         =TIME=973.308134169278=. =YP(9)= misses by 4.607e-12 of the scale of
+         its terms. It is the vendored libm and not the algebra, proved rather
+         than asserted: bit-identical in all fifty components under
+         =libm-system=. 973 hours of IDV(13)'s kinetic walk leaves the drift at
+         3e7 and the rates at 1.1e10, so one ULP of =exp= is 1.2e-6 against
+         balance terms of 5.2e4. No Tier 2 pool state has a drift factor above
+         about one, which is the argument for this tier in one sentence. *The
+         gate was not touched*: =TEP_TIER8=full= reports and fails, and it is
+         not in the per-commit gate.
+
+         Two harness bugs surfaced and fixed: =configure= must read =VCV= after
+         the call (=teprob.f:799-805= latches it immediately before =YP(I+38)=,
+         and with random =XMV= all twelve valve derivatives disagreed on every
+         tuple), and the base must come from =init_cold= because =TEINIT= never
+         assigns =TCR/TCS/TCC/TCV=, so a warm start was leaking between tests.
+:END:
+
+Run by =cargo test -p tepsim-oracle --features oracle --test tier8_fuzz=, with
+=TEP_TIER8= selecting the size as =TEP_TIER5= and =TEP_TIER7= do.
+
+** DONE B-0063 Tier 9: cross-platform determinism
+:PROPERTIES:
+:ID:    B-0063
+:PHASE: 8
+:TIER:  9
+:DEPS:  B-0060
+:PLAN:  Validation > Tier 9
+:COMMIT: 85fec15
+:RESULT: =tepsim::tier9::CASES=, six committed digests plus a suite digest, and
+         =cargo xtask tier9= to check them natively and on wasm32. Six rather
+         than one because a short fault-free run leaves most of the arithmetic
+         untested: =baseline-1h= c8a26889992f1719, =fault-1-2h= 29ff575a59cffd30,
+         =open-loop-4h= 50e714b2b49ace16 (trips at 3.06 h, so it covers the
+         frozen-plant path), =rk4-1h= a6a677f8c0a7cebe, =dormand-prince-1h=
+         92a055e5c4c25017, =baseline-9h= ce523c2364991886, *suite
+         953892e861fd5e68*. Case 0 reproduces the browser app's pre-existing
+         number exactly.
+
+         *Compared*: aarch64-apple-darwin native in debug and release, and
+         wasm32-unknown-unknown under node v25.1.0 in three profiles
+         (=release-wasm= 533,025 B, =release= 684,550 B, =dev= 8,946,582 B).
+         All seven digests identical in every one. The chunked browser
+         transport path reproduces all six independently through
+         =tests/determinism.rs=, so the packed-row layout agrees with the
+         library's streaming digest.
+
+         *Not compared*: x86-64 at all, Windows, aarch64 Linux, and a real
+         browser. The table is committed constants rather than a value computed
+         twice in one process, precisely so that running =cargo xtask tier9= on
+         an x86-64 machine completes the claim with no code change.
+
+         Node rather than wasmtime or wasmer, and not only because neither is
+         installed: the module declares eight =__wbindgen_placeholder__=
+         imports that an embedder must supply, which neither CLI can be told to
+         do from the command line. The generated driver stubs each with a
+         function that *throws*, so a digest path that ever reached into
+         JavaScript would fail loudly. No =wasm-bindgen-cli= is needed; the
+         export is plain =extern "C"=.
+
+         =xtask tier9= also checks the three JS and HTML files that hard-code
+         =c8a26889992f1719= against the Rust table. Nothing checked those
+         before, so a re-baseline would have silently left the page reporting a
+         false failure. Teeth proven by flipping one constant by a bit and
+         watching both legs fail.
+
+         FNV-1a rather than =PLAN.org='s BLAKE3, recorded as a decision in
+         =PLAN.org=: the digest has to be computed *inside* the wasm module or
+         it is a digest of what crossed the boundary, which puts it in a
+         =no_std= crate under a size budget.
+:END:
+
+** DONE B-0064 =tep dataset=: generate a d00-d21 shaped dataset
+:PROPERTIES:
+:ID:    B-0064
+:PHASE: 6
+:TIER:  none
+:DEPS:  B-0052
+:PLAN:  Command-line interface
+:COMMIT: 4fa8b38
+:RESULT: =tepsim::published= carries the geometry, the 44 seeds and the column
+         order; =tests/published.rs= asserts every one against
+         =reference/fortran/teprob.f= and =temain_mod.f= rather than trusting
+         the transcription, and a one-digit change to any seed fails it. The
+         seed parser accepts =.DO= as well as =.D0= because =d19_te= is written
+         with a letter O in the source, and asserts it found all 57 labelled
+         seeds so the check cannot go vacuous.
+
+         *The layout was got wrong first.* The shipped files look like three
+         spaces and a =%.7e= number, and that reading is one byte too wide on
+         every line containing a negative; they are fixed sixteen-column
+         fields, which is why every published line is exactly 832 bytes.
+         =the_generated_layout_is_the_published_layout= takes 3,840 shipped
+         lines apart into numbers and requires the formatter to give the bytes
+         back.
+
+         The subcommand refuses to pretend: it prints on stderr every run that
+         the output is published-*shaped* and not the published data, refuses
+         =d21= (whose disturbance is not in this revision), and names the
+         training protocol as a hypothesis, since 25 h with the first hour
+         discarded is the only one that explains =d00.dat='s 500 rows and the
+         other files' 480 at once.
+:END:
+
+** DONE B-0065 Sign-off implemented: a shutdown ends the run
+:PROPERTIES:
+:ID:    B-0065
+:PHASE: 6
+:TIER:  10
+:DEPS:  B-0025b
+:PLAN:  Quirk and delta register
+:COMMIT: pending
+:RESULT: =QuirkFixes::new= now sets =trip_ends_the_run=, and =QuirkFixes::faithful=
+         and =Scenario::faithful= are the reproducing configuration. Every
+         differential pins =faithful=: =tier5::run_port= (which Tiers 5, 6 and 7
+         all route through), =tier7::run_under=, =facade_equivalence=, and
+         =published::File::scenario=. =tier9::pinned= pins both Class C flags so
+         the six determinism digests did not move, which is also independent
+         confirmation that the flip changed no arithmetic. The canonical
+         scenario text re-baselined from =idv12=1;trip=0= to =idv12=0;trip=1=
+         with *no format version bump*, because every field is written out
+         explicitly, and =an_old_text_still_names_the_scenario_it_always_named=
+         asserts a pre-sign-off link still parses to =Scenario::faithful= and
+         re-renders as itself.
+
+         One consequence the gate caught rather than review: flipping
+         =QuirkFixes::default= moved =Plant::default= with it, and Tier 2 failed
+         on its thirteen tripping states. =Plant= now defaults to
+         =QuirkFixes::faithful=, deliberately diverging from
+         =QuirkFixes::default= and the only such divergence in the project,
+         because =trip_ends_the_run= is a promise about what the caller does
+         after a trip and a bare =Plant= has no run to end.
+         =the_plants_own_default_is_faithful= asserts it.
+:END:
+
+** DONE B-0066 Sign-off implemented: the driver no longer forces IDV(12)
+:PROPERTIES:
+:ID:    B-0066
+:PHASE: 6
+:TIER:  10
+:DEPS:  B-0040a B-0051a
+:PLAN:  Quirk and delta register
+:COMMIT: pending
+:RESULT: =Scenario::driver_forces_idv12= defaults to =false=. Reachable four
+         ways: =Scenario::faithful=, =tep run --force-idv12= (which replaces
+         =--no-forced-idv12=, along with new =--freeze-on-trip= and
+         =--faithful=), =driver_forces_idv12=True= from Python, and the =idv12=
+         field of the scenario text. =tier5::run_port= pins it on so no
+         differential can lose it, and
+         =both_class_c_fixes_are_on_by_default_and_faithful_turns_them_off=
+         asserts both halves and that the two configurations really do produce
+         different runs.
+:END:
+
+** DONE B-0067 Sign-off implemented: a stuck valve is judged on its distribution
+:PROPERTIES:
+:ID:    B-0067
+:PHASE: 5
+:TIER:  5
+:DEPS:  B-0047d
+:PLAN:  Validation > Tier 5
+:COMMIT: pending
+:RESULT: =battery::sticks_this_valve= reads the map from =tepsim_core::FAULTS=,
+         and =the_sticking_map_is_the_fortrans= parses the six =IVST(n)=IDV(m)=
+         assignments out of =teprob.f:793-798= and checks all 20 x 53
+         combinations against it. =VariableReport::stuck_valve= then makes
+         =Report::failures= skip the mean and variance gates for those
+         variables while the four calibrated distributional statistics keep
+         running, and =Report::stuck_valves= reports the substitution rather
+         than leaving it silent. *Nothing was loosened*: the margin is
+         unchanged, every other variable is judged as before, and
+         =a_stuck_valve_is_still_judged_on_its_distribution= injects a
+         ten-sigma shift into XMV(10) under IDV(14) and requires three things
+         at once, each ruling out a different mistake: the mean statistic still
+         computes and sees the shift, =failures()= does not report it, and KS
+         and energy distance both exceed every within-source split.
+
+         Also closed a gap the Tier 8 work surfaced: =clippy::suboptimal_flops=
+         fires only under =libm-system= (=no_std= has no =f64::mul_add= to
+         suggest), and nothing linted that configuration. It is now a third
+         clippy pass in =xtask ci=, and the lint is allowed in =tepsim-core=
+         with the reason: =mul_add= is *fused*, one rounding where the Fortran
+         does two, so taking the suggestion would move the port off =teprob.f=
+         silently.
+:END:
+
+** DONE B-0068 The book's tutorials are the examples they show
+:PROPERTIES:
+:ID:    B-0068
+:PHASE: 9
+:TIER:  none
+:DEPS:  B-0059
+:PLAN:  Documentation
+:COMMIT: pending
+:RESULT: Three tutorials carried a =rust,ignore= listing and a transcript pasted
+         beside it. Nothing compiled either, so when B-0065 and B-0066 moved the
+         defaults, =scheduling-a-fault.md= went on showing =active [4, 12]= from
+         a forced =IDV(12)= that no longer happens, and
+         =injecting-a-fault.md='s last block demonstrated a contrast that had
+         stopped existing. Both were found by grep, not by a test.
+
+         The listings are now =crates/tepsim/examples/{scheduling,injecting}_a_fault.rs=
+         and =crates/tepsim-stats/examples/a_detector.rs=, which =cargo test=
+         compiles, and =crates/tepsim/tests/book_examples.rs= pins each page to
+         its file byte for byte and its transcript to the output that file
+         produces. The detector example is in =tepsim-stats= because it uses
+         that crate and =xtask ci='s isolation check forbids =tepsim/Cargo.toml=
+         from so much as naming a dev-only crate, dev-dependency included.
+
+         Compiling them immediately found an =unwrap()= in
+         =injecting-a-fault.md= that the workspace's =clippy::unwrap_used= would
+         always have rejected, and which had shipped in the book because nothing
+         ever built it.
+
+         The transcript half costs ~64 s in a debug build (=a_detector= alone is
+         43 s), so it is behind =TEP_BOOK=1= and runs in =xtask validate=, not
+         in =ci=. The source pin is a file comparison, is instant, and runs on
+         every commit. Same split as =xtask fidelity= against the live oracle
+         diff.
+
+         =a-detector.md= turned out to be unaffected by the flips, because it
+         already set =driver_forces_idv12: false=; verified rather than assumed.
+:END:
+
 * Blocked
 
 Items parked on a decision. Move them back into their phase when answered.
 
-- *B-0025b*, in Phase 6. Should a shutdown end the run instead of freezing the
-  plant? Delta D-007 is implemented and off by default, as =PLAN.org= requires;
-  it cannot become the default before Tier 5 exists. Not blocking anything now.
+*Empty.* The last four were answered on 2026-08-28: B-0025b and B-0040a /
+B-0051a by the user, and B-0047d by the user choosing between three options
+with the evidence in front of them. See B-0065, B-0066 and B-0067.
 
 * Decisions
 

@@ -66,9 +66,10 @@
 //!
 //! `PLAN.org` classes this C, "behaviour-defining and benchmark-relevant", and
 //! says each such entry "gets a full Tier 5 and Tier 6 delta report and an
-//! explicit sign-off *before it becomes the default*". The thing needing
-//! sign-off is the **fix**, so the faithful freeze is what ships until then and
-//! [`QuirkFixes::trip_ends_the_run`] is off by default.
+//! explicit sign-off *before it becomes the default*". Both arrived on
+//! 2026-08-28, so [`QuirkFixes::trip_ends_the_run`] is **on** by default and
+//! [`QuirkFixes::faithful`] is the freeze. Every differential against the
+//! Fortran runs the latter.
 //!
 //! That is also the only reading Tier 2 can live with: the adversarial pool
 //! contains states that trip, and a port that did not freeze would disagree
@@ -158,28 +159,75 @@ pub const VALVE_STICTION: f64 = 2.0;
 
 /// Which Class C quirks are fixed rather than reproduced.
 ///
-/// Every field is off by default, which is the faithful configuration.
-/// `PLAN.org` requires a Tier 5 and Tier 6 delta report and an explicit
-/// sign-off before any of these becomes the default.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+/// [`QuirkFixes::new`] is the signed-off configuration and the default.
+/// [`QuirkFixes::faithful`] reproduces every quirk instead, and is what every
+/// comparison against the Fortran or against published data must use.
+///
+/// # Why there are two constructors rather than one default
+///
+/// A Class C quirk is behaviour the original has that nobody would choose. The
+/// project's rule is that fixing one needs a measured delta and a sign-off, and
+/// once it has both there are still two legitimate configurations: the one a
+/// user of the simulator wants, and the one a differential test against
+/// `teprob.f` needs. Collapsing them into a single default would mean either
+/// shipping the quirk forever or breaking every oracle comparison, so both are
+/// named.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct QuirkFixes {
-    /// When `false` (the default), a shutdown zeroes all fifty derivatives,
-    /// exactly as `teprob.f:807-811` does.
+    /// When `false`, a shutdown zeroes all fifty derivatives, exactly as
+    /// `teprob.f:807-811` does: the plant freezes in place and keeps reporting
+    /// for the rest of the run.
     ///
-    /// When `true`, the derivatives are returned un-zeroed and the caller is
-    /// expected to end the run on [`Balances::shutdown`]. That is `PLAN.org`'s
-    /// `SimulationOutcome::Trip`, and it is a genuine behaviour change: it is
-    /// **blocked on sign-off**, see B-0025b.
+    /// When `true`, which is the default, the derivatives are returned
+    /// un-zeroed and the caller ends the run on [`Balances::shutdown`].
+    ///
+    /// # The delta, and why the default is the fix
+    ///
+    /// Delta D-007. `tier10_quirk_deltas.rs` measures it, and it is *pure
+    /// truncation*: `d007_changes_nothing_before_the_trip` shows every sample
+    /// up to the trip is bit-identical either way, so the flag decides how many
+    /// numbers there are and never what they are.
+    ///
+    /// The frozen tail is not a small artefact. Four of the forty-four
+    /// published files carry one, totalling 1,832 rows, and in `d06.dat` it is
+    /// 75.6% of the file: 363 of 480 rows in which twenty-one continuous
+    /// channels repeat the same five-digit values without change, because the
+    /// noise at `teprob.f:711-716` is inside the shutdown guard and stops too.
+    /// Data that looks like an unusually steady process and is actually a
+    /// stopped one is worse than no data, and a detector trained on `d06`
+    /// spends three quarters of its evidence on it.
+    ///
+    /// Signed off 2026-08-28. A run that must reproduce the original's row
+    /// counts, which is every published-data comparison, sets
+    /// [`QuirkFixes::faithful`] instead.
     pub trip_ends_the_run: bool,
 }
 
+impl Default for QuirkFixes {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl QuirkFixes {
-    /// Every quirk reproduced rather than fixed, which is the default.
+    /// Every signed-off fix applied. The default.
     ///
     /// A `const` constructor as well as `Default`, so a scenario can be built
     /// in a `const fn`.
     #[must_use]
     pub const fn new() -> Self {
+        Self {
+            trip_ends_the_run: true,
+        }
+    }
+
+    /// Every quirk reproduced rather than fixed.
+    ///
+    /// This is what a differential against `teprob.f` runs, and what
+    /// regenerating anything published-shaped runs. It is not the default,
+    /// because the quirks it reproduces are ones the sign-off decided against.
+    #[must_use]
+    pub const fn faithful() -> Self {
         Self {
             trip_ends_the_run: false,
         }
@@ -558,7 +606,7 @@ mod tests {
         let tripped = measured.shutdown;
         assert!(tripped.is_tripped());
 
-        let b = solve(&f, tripped, QuirkFixes::default());
+        let b = solve(&f, tripped, QuirkFixes::faithful());
         assert!(b.frozen);
         assert_eq!(b.shutdown, tripped);
         for (slot, value) in b.derivative.to_flat().iter().enumerate() {
@@ -571,10 +619,10 @@ mod tests {
         }
     }
 
-    /// The fix returns the un-frozen derivative and is not the default.
-    /// `PLAN.org` requires sign-off before it becomes one.
+    /// The fix returns the un-frozen derivative, and since the sign-off of
+    /// 2026-08-28 it is what `QuirkFixes::default` gives.
     #[test]
-    fn the_fix_is_off_by_default_and_changes_the_answer_when_on() {
+    fn the_fix_is_the_default_and_changes_the_answer_when_on() {
         let f = plant();
         let tripped = measurements(
             &f.y,
@@ -587,8 +635,13 @@ mod tests {
         .shutdown;
 
         assert!(
-            !QuirkFixes::default().trip_ends_the_run,
-            "the default is faithful"
+            QuirkFixes::default().trip_ends_the_run,
+            "the default applies the signed-off fix"
+        );
+        assert!(
+            !QuirkFixes::faithful().trip_ends_the_run,
+            "and `faithful` still reproduces the quirk, which is what every \
+             oracle differential runs"
         );
 
         let fixed = solve(
@@ -620,7 +673,7 @@ mod tests {
         let healthy = Shutdown::default();
         assert!(!healthy.is_tripped());
         for fixes in [
-            QuirkFixes::default(),
+            QuirkFixes::faithful(),
             QuirkFixes {
                 trip_ends_the_run: true,
             },
@@ -636,7 +689,7 @@ mod tests {
     #[test]
     fn the_inert_has_no_reaction_term_in_the_reactor_balance() {
         let f = plant();
-        let b = solve(&f, Shutdown::default(), QuirkFixes::default());
+        let b = solve(&f, Shutdown::default(), QuirkFixes::faithful());
         let flat = b.derivative.to_flat();
         assert_exact(
             flat[Component::B.index()],
@@ -653,7 +706,7 @@ mod tests {
     #[test]
     fn each_vessel_balances_its_own_streams() {
         let f = plant();
-        let b = solve(&f, Shutdown::default(), QuirkFixes::default());
+        let b = solve(&f, Shutdown::default(), QuirkFixes::faithful());
         let flat = b.derivative.to_flat();
         let c = Component::D;
         // Reactor: YP(4).
@@ -677,7 +730,7 @@ mod tests {
     #[test]
     fn the_valve_lags_use_per_valve_time_constants() {
         let f = plant();
-        let b = solve(&f, Shutdown::default(), QuirkFixes::default());
+        let b = solve(&f, Shutdown::default(), QuirkFixes::faithful());
         let flat = b.derivative.to_flat();
         for i in 0..12 {
             assert_exact(
@@ -708,7 +761,7 @@ mod tests {
             Shutdown::default(),
             CoolantInlet::default(),
             &f.y.valve_pos,
-            QuirkFixes::default(),
+            QuirkFixes::faithful(),
         );
         for value in &b.derivative.to_flat()[38..N_STATES] {
             assert_exact(*value, 0.0, "a valve at its command should be still");
@@ -729,7 +782,7 @@ mod tests {
             (1.0e6, 1.0e6, 1.0e6),
         )
         .shutdown;
-        let b = solve(&f, tripped, QuirkFixes::default());
+        let b = solve(&f, tripped, QuirkFixes::faithful());
         assert!(b.frozen);
         assert!(b.shutdown.first().is_some());
         assert!(

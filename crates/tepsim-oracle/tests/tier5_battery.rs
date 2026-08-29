@@ -25,6 +25,7 @@ use tepsim_core::math;
 use tepsim_oracle::Oracle;
 use tepsim_oracle::tier5::battery::{
     ALPHA, CALIBRATION_SPLITS, MEAN_MARGIN_FRACTION, Report, VARIANCE_MARGIN_LOG, compare,
+    sticks_this_valve,
 };
 use tepsim_oracle::tier5::{Battery, Scenario, VARIABLES, run_fortran, run_port, seed, start};
 
@@ -457,4 +458,204 @@ fn the_battery_rejects_a_source_that_is_actually_different() {
             other.variable + 1
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// B-0047d: a stuck valve is judged on its distribution
+// ---------------------------------------------------------------------------
+
+/// The sticking map is read out of `teprob.f`, not transcribed.
+///
+/// `teprob.f:793-798` is six assignments of the form `IVST(valve)=IDV(fault)`.
+/// This parses them and requires `sticks_this_valve` to agree on all
+/// 20 x 53 combinations, so neither a wrong valve number nor a wrong fault
+/// number nor an off-by-one in the `XMEAS`/`XMV` split can survive.
+#[test]
+fn the_sticking_map_is_the_fortrans() {
+    let text = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../reference/fortran/teprob.f"),
+    )
+    .expect("teprob.f");
+
+    let mut recorded: Vec<(usize, usize)> = Vec::new();
+    for line in text.lines() {
+        if line.starts_with('C') || line.starts_with('c') {
+            continue;
+        }
+        let Some((left, right)) = line.split_once('=') else {
+            continue;
+        };
+        let Some(valve) = left
+            .trim()
+            .strip_prefix("IVST(")
+            .and_then(|v| v.strip_suffix(')'))
+        else {
+            continue;
+        };
+        let Some(fault) = right
+            .trim()
+            .strip_prefix("IDV(")
+            .and_then(|v| v.strip_suffix(')'))
+        else {
+            continue;
+        };
+        let (Ok(valve), Ok(fault)) = (valve.trim().parse(), fault.trim().parse::<usize>()) else {
+            continue;
+        };
+        recorded.push((fault, valve));
+    }
+    recorded.sort_unstable();
+    println!("teprob.f:793-798 records {recorded:?}");
+    assert_eq!(
+        recorded,
+        vec![(14, 10), (15, 11), (19, 5), (19, 7), (19, 8), (19, 9)],
+        "the parse found a different set of IVST assignments than expected, so \
+         every assertion below is against the wrong table"
+    );
+
+    // 41 measurements then 12 valves, and the oracle's row layout has to agree
+    // with the facade's or the variable index means something else.
+    assert_eq!(tepsim::MEASUREMENTS, 41);
+    assert_eq!(VARIABLES, tepsim::CHANNELS);
+
+    for fault in 0..=20 {
+        for variable in 0..VARIABLES {
+            let scenario = if fault == 0 {
+                Scenario::NOMINAL
+            } else {
+                Scenario::fault(fault)
+            };
+            let expected = variable >= tepsim::MEASUREMENTS
+                && recorded.contains(&(fault, variable - tepsim::MEASUREMENTS + 1));
+            assert_eq!(
+                sticks_this_valve(scenario, variable),
+                expected,
+                "IDV({fault}) and variable {}",
+                variable + 1
+            );
+        }
+    }
+}
+
+/// The substitution is not a free pass: the distributional gates stay live on
+/// exactly the variables whose moment gates were dropped.
+///
+/// A shift is injected into `XMV(10)` under `IDV(14)`, which is the valve that
+/// fault sticks. Three things then have to hold at once, and each rules out a
+/// different way of getting this wrong: the mean statistic still *computes*
+/// (so nothing was skipped by accident), `failures()` does not report it (so
+/// the substitution happened), and the KS and energy statistics *see* the shift
+/// (so what replaced it can fail).
+#[test]
+fn a_stuck_valve_is_still_judged_on_its_distribution() {
+    let mut oracle = Oracle::lock();
+    let battery = Battery::SMOKE;
+    let start = start(&mut oracle);
+    let scenario = Scenario::fault(14);
+
+    // `XMV(10)`, the valve `teprob.f:793` sticks under `IDV(14)`.
+    let variable = tepsim::MEASUREMENTS + 9;
+    assert!(sticks_this_valve(scenario, variable));
+
+    let reference: Vec<_> = (0..battery.seeds)
+        .map(|s| run_fortran(&mut oracle, &start, scenario, seed(s), battery.hours))
+        .collect();
+    let mut shifted = reference.clone();
+
+    let spread = tepsim_stats::Summary::of(
+        &reference
+            .iter()
+            .flat_map(|r| r.series(variable))
+            .collect::<Vec<f64>>(),
+    )
+    .sd();
+    // Ten standard deviations: far outside anything the two implementations do
+    // to each other, so a statistic that cannot see this can see nothing.
+    let shift = 10.0 * spread;
+    for run in &mut shifted {
+        for sample in &mut run.samples {
+            sample[variable] += shift;
+        }
+    }
+
+    let report = compare(scenario, &reference, &shifted);
+    let stuck = &report.variables[variable];
+    println!(
+        "XMV(10) under IDV(14): sd {spread:.6}, shifted {shift:.6}\n  \
+         paired mean difference {:.6}, equivalent {}\n  \
+         KS cross {:.4} vs within {:?}\n  energy cross {:.6} vs within {:?}",
+        stuck.paired.welch.difference,
+        stuck.paired.equivalent,
+        stuck.ks.cross,
+        stuck.ks.within.last(),
+        stuck.energy.cross,
+        stuck.energy.within.last()
+    );
+
+    assert!(stuck.stuck_valve, "the variable was not marked stuck");
+    assert!(
+        !stuck.constant,
+        "the reference valve never moved, so this test compares nothing"
+    );
+
+    // 1. The mean statistic still computes, and sees the shift.
+    assert!(
+        (stuck.paired.welch.difference - shift).abs() < 1e-9,
+        "the paired difference is {}, not the {shift} injected",
+        stuck.paired.welch.difference
+    );
+    assert!(
+        !stuck.paired.equivalent,
+        "ten standard deviations was declared equivalent by the mean test"
+    );
+
+    // 2. And `failures` does not report it, because a stuck valve's mean is
+    //    not a statistic about the process.
+    assert!(
+        !report
+            .failures()
+            .iter()
+            .any(|(v, what)| *v == variable + 1 && (*what == "mean" || *what == "variance")),
+        "the moment gate still fired on a stuck valve: {:?}",
+        report.failures()
+    );
+    assert!(
+        report
+            .stuck_valves()
+            .iter()
+            .any(|(v, _, _)| *v == variable + 1),
+        "the substitution was not reported"
+    );
+
+    // 3. What replaced it can fail. The permutation calibration has no power at
+    //    four seeds, so this asserts on the measured distances rather than on a
+    //    verdict: the cross-source statistic has to exceed every within-source
+    //    one, which is what a verdict would test at scale.
+    let worst_within_ks = stuck
+        .ks
+        .within
+        .iter()
+        .fold(f64::NEG_INFINITY, |a, b| a.max(*b));
+    let worst_within_energy = stuck
+        .energy
+        .within
+        .iter()
+        .fold(f64::NEG_INFINITY, |a, b| a.max(*b));
+    assert!(
+        stuck.ks.cross > worst_within_ks,
+        "KS did not see a ten-sigma shift: cross {} vs worst within {worst_within_ks}",
+        stuck.ks.cross
+    );
+    assert!(
+        stuck.energy.cross > worst_within_energy,
+        "energy distance did not see a ten-sigma shift: cross {} vs worst \
+         within {worst_within_energy}",
+        stuck.energy.cross
+    );
+
+    // And an unstuck valve under the same fault is judged the old way, so the
+    // exemption is not blanket.
+    let unstuck = tepsim::MEASUREMENTS; // XMV(1)
+    assert!(!sticks_this_valve(scenario, unstuck));
+    assert!(!report.variables[unstuck].stuck_valve);
 }

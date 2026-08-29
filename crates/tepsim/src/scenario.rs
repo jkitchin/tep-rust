@@ -62,14 +62,35 @@ pub struct Scenario {
     pub controlled: bool,
     /// Which Class C quirks are fixed rather than reproduced.
     ///
-    /// All off by default, so a default scenario reproduces the original. See
-    /// `book/src/deltas.md`.
+    /// [`QuirkFixes::default`] applies every signed-off fix;
+    /// [`QuirkFixes::faithful`] reproduces the original instead, and is what
+    /// [`Scenario::faithful`] uses. See `book/src/deltas.md`.
     pub quirks: QuirkFixes,
     /// Whether the driver forces `IDV(12)` on at eight hours, as
     /// `temain_mod.f:366-368` does, regardless of what was asked for.
     ///
-    /// `true` by default, because every published dataset longer than eight
-    /// hours carries it. Delta D-011.
+    /// **`false` by default.** Delta D-011.
+    ///
+    /// # Why the default is off when the driver's source says on
+    ///
+    /// `temain_mod.f:367` is literally `IDV(12)=1`, inside
+    /// `IF (I.GE.SSPTS)`. Read alone it says every run past eight hours carries
+    /// the condenser cooling-water disturbance. The prose at
+    /// `temain_mod.f:101-102` says something else: *"Go to line 367, implement
+    /// any of the 21 programmed disturbances"*, which reads as an instruction
+    /// to replace that line rather than to add beside it.
+    ///
+    /// The source does not decide between the two readings and the published
+    /// bytes do. Every `dNN_te.dat` except `d12_te.dat` sits at the nominal
+    /// operating point straight across row 160, which is hour eight, and it
+    /// could not if `IDV(12)` had switched on there. Tier 7's
+    /// `the_published_files_were_not_generated_with_the_forced_idv12` is that
+    /// measurement.
+    ///
+    /// So the shipped line is an example, the files were made with it replaced,
+    /// and the default follows the files. Signed off 2026-08-28.
+    /// [`Scenario::faithful`] and `tep run --force-idv12` reproduce the driver
+    /// as shipped.
     pub driver_forces_idv12: bool,
     /// Events on a schedule: faults that arrive, clear, or change magnitude
     /// part way through, and setpoint moves.
@@ -112,11 +133,33 @@ impl Scenario {
             disturbances: [false; DISTURBANCES],
             controlled: true,
             quirks: QuirkFixes::new(),
-            driver_forces_idv12: true,
+            driver_forces_idv12: false,
             schedule: Schedule::new(),
             extensions: Extensions::none(),
             integrator: Integrator::Euler,
         }
+    }
+
+    /// The baseline with every Class C quirk reproduced rather than fixed.
+    ///
+    /// This is what a differential against `teprob.f` runs, and what
+    /// regenerating anything published-shaped runs. Two flags separate it from
+    /// [`Scenario::baseline`]: the plant freezes on a trip instead of the run
+    /// ending ([`QuirkFixes::trip_ends_the_run`], delta D-007), and the driver
+    /// forces `IDV(12)` on at eight hours ([`Scenario::driver_forces_idv12`],
+    /// delta D-011). Both defaults were decided against on 2026-08-28, on
+    /// evidence recorded at each field.
+    ///
+    /// It is a separate constructor rather than the default because the two
+    /// configurations answer different questions. A user of the simulator wants
+    /// a trip to stop the run; a test asking whether this port *is*
+    /// `teprob.f` cannot afford a single deliberate difference.
+    #[must_use]
+    pub const fn faithful() -> Self {
+        let mut scenario = Self::baseline();
+        scenario.quirks = QuirkFixes::faithful();
+        scenario.driver_forces_idv12 = true;
+        scenario
     }
 
     /// Add an event to the schedule.

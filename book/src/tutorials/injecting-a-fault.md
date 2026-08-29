@@ -56,9 +56,7 @@ fn main() {
     for i in [0, 1, 2, 3, 4, 6, 9, 14, 19] {
         println!(
             "  {:>6.3} h   XMEAS(9) {:>8.4}   XMV(10) {:>7.3}",
-            faulted.samples[i].hours,
-            temp[i],
-            valve[i]
+            faulted.samples[i].hours, temp[i], valve[i]
         );
     }
 
@@ -73,29 +71,27 @@ fn main() {
     println!("  since onset:  {:?} h", first.labels.since_onset[3]);
 
     println!();
-    println!("--- the driver switches IDV(12) on at hour eight ---");
-    let long = Simulation::new(Scenario::fault(4).with_hours(9.0)).run();
-    for sample in &long.samples {
+    println!("--- the driver's IDV(12), which is no longer the default ---");
+    let forced = Simulation::new(Scenario::faithful().with_hours(9.0).with_fault(4)).run();
+    for sample in &forced.samples {
         let faults: Vec<usize> = sample.labels.faults().collect();
         if faults.len() > 1 {
-            println!("  first sample with two faults: {:.3} h {faults:?}", sample.hours);
+            println!(
+                "  faithful: first sample with two faults at {:.3} h {faults:?}",
+                sample.hours
+            );
             break;
         }
     }
-    let quiet = Scenario::fault(4).with_hours(9.0);
-    let quiet = Scenario {
-        driver_forces_idv12: false,
-        ..quiet
-    };
-    let quiet = Simulation::new(quiet).run();
-    let ever: Vec<usize> = quiet
+    let plain = Simulation::new(Scenario::fault(4).with_hours(9.0)).run();
+    let ever: Vec<usize> = plain
         .samples
         .last()
-        .unwrap()
+        .expect("a run has samples")
         .labels
         .faults()
         .collect();
-    println!("  with driver_forces_idv12 = false, at 9 h: {ever:?}");
+    println!("  default:  at 9 h, still only {ever:?}");
 }
 ```
 
@@ -122,9 +118,9 @@ samples: 160 each
   faults:       [4]
   since onset:  Some(0.04972222222222225) h
 
---- the driver switches IDV(12) on at hour eight ---
-  first sample with two faults: 8.000 h [4, 12]
-  with driver_forces_idv12 = false, at 9 h: [4]
+--- the driver's IDV(12), which is no longer the default ---
+  faithful: first sample with two faults at 8.000 h [4, 12]
+  default:  at 9 h, still only [4]
 ```
 
 ## The fault is in the valve, not in the temperature
@@ -164,20 +160,27 @@ Note the value: 0.04972222222222225 hours at the first sample. That is not
 same simulated clock the row does, so it is 179 seconds. Precision here is what
 lets a delay of one sample be distinguished from a delay of zero.
 
-## The disturbance you did not ask for
+## The disturbance you did not ask for, and no longer get
 
-Run for nine hours instead of eight and a second fault appears at hour eight
-without being asked for. That is not a bug in the scheduler; it is
-`temain_mod.f:366-368`, which switches `IDV(12)` on at eight hours whatever the
-scenario said. Every published dataset longer than eight hours carries it, which
-is why it is on by default here: reproducing `d01` through `d21` requires it.
+Run `Scenario::faithful()` for nine hours instead of eight and a second fault
+appears at hour eight without being asked for. That is not a bug in the
+scheduler; it is `temain_mod.f:366-368`, which switches `IDV(12)` on at eight
+hours whatever the scenario said.
 
-It is delta D-011 in the register, and it is the single most common way a
-comparison against the published files goes quietly wrong. If you want a clean
-long run, set `driver_forces_idv12` to `false`, as the last block above does, and
-say so when you report the numbers. The labels make the difference visible
-either way, which is the point of recording ground truth rather than assuming
-it.
+It was the default here until 2026-08-28, on the belief that reproducing `d01`
+through `d21` required it. Tier 7 showed the opposite: every `dNN_te` file
+except `d12_te` sits at the nominal operating point straight across row 160,
+which is hour eight, so the published files were made with that line replaced.
+The default now follows the files, and the driver's version is a named
+constructor away.
+
+It is delta D-011 in the register, and it used to be the single most common way
+a comparison against the published files went quietly wrong, because it was the
+default. It is not any more: since 2026-08-28 a request for `IDV(4)` gets
+`IDV(4)`, and `Scenario::faithful()` is how you ask for the driver's version, as
+the last block above does. Say which one you used when you report numbers. The
+labels make the difference visible either way, which is the point of recording
+ground truth rather than assuming it.
 
 ## From the command line
 

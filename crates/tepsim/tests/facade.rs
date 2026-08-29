@@ -169,16 +169,17 @@ fn the_controlled_plant_survives_and_the_open_loop_one_does_not() {
     assert!(hours < 4.0);
 }
 
-/// A trip freezes the plant rather than stopping the run, and the frozen
-/// samples keep coming.
+/// Under `Scenario::faithful` a trip freezes the plant rather than stopping the
+/// run, and the frozen samples keep coming.
 ///
-/// `teprob.f:807-811` zeroes all fifty derivatives. Discarding what follows
-/// would hide the difference between a port that trips where the original does
-/// and one that does not, and every published dataset of a tripped run contains
-/// exactly these constant rows.
+/// `teprob.f:807-811` zeroes all fifty derivatives. This is what made the
+/// frozen tails in four of the forty-four published files, so a comparison
+/// against any of them has to reproduce it: `d06.dat` is 363 frozen rows out of
+/// 480, and a run that stopped at the trip would have nothing to line up
+/// against them. Delta D-007.
 #[test]
-fn a_trip_freezes_the_plant_rather_than_ending_the_run() {
-    let scenario = Scenario::baseline().with_hours(4.0).open_loop();
+fn a_trip_freezes_the_plant_under_the_faithful_configuration() {
+    let scenario = Scenario::faithful().with_hours(4.0).open_loop();
     let run = Simulation::new(scenario).run();
     let trip = run.tripped_at().expect("it trips");
 
@@ -212,22 +213,34 @@ fn a_trip_freezes_the_plant_rather_than_ending_the_run() {
     );
 }
 
-/// And with the Class C fix on, it stops instead. Delta D-007.
+/// And by default the run stops at the trip. Delta D-007, signed off
+/// 2026-08-28.
 #[test]
-fn the_quirk_fix_ends_the_run_at_a_trip() {
-    let mut scenario = Scenario::baseline().with_hours(4.0).open_loop();
-    scenario.quirks.trip_ends_the_run = true;
+fn the_default_ends_the_run_at_a_trip() {
+    let scenario = Scenario::baseline().with_hours(4.0).open_loop();
+    assert!(
+        scenario.quirks.trip_ends_the_run,
+        "the default no longer applies the fix"
+    );
     let run = Simulation::new(scenario).run();
 
     assert!(matches!(run.outcome, Outcome::Tripped { .. }));
     assert!(
         run.samples.len() < scenario.samples(),
-        "the run continued past the trip with the fix on"
+        "the run continued past the trip"
     );
+
+    // Every row the default keeps is bit-identical to the faithful run's, which
+    // is what makes this truncation and not a different simulation.
+    let frozen = Simulation::new(Scenario::faithful().with_hours(4.0).open_loop()).run();
+    for (index, (a, b)) in run.samples.iter().zip(&frozen.samples).enumerate() {
+        assert_eq!(a.row(), b.row(), "sample {index} differs before the trip");
+    }
     println!(
-        "with trip_ends_the_run: {} rows instead of {}",
+        "the run ends at {} rows; the faithful configuration reports {} more \
+         from the frozen plant",
         run.samples.len(),
-        scenario.samples()
+        frozen.samples.len() - run.samples.len()
     );
 }
 
@@ -259,7 +272,10 @@ fn a_requested_fault_is_labelled_from_the_first_sample() {
 /// D-011.
 #[test]
 fn the_drivers_forced_disturbance_is_labelled_with_its_own_onset() {
-    let scenario = Scenario::baseline().with_hours(9.0);
+    // `faithful`, not `baseline`: forcing IDV(12) is the quirk, and since
+    // 2026-08-28 it is off by default. Delta D-011.
+    let scenario = Scenario::faithful().with_hours(9.0);
+    assert!(scenario.driver_forces_idv12);
     let run = Simulation::new(scenario).run();
 
     let before = run
@@ -283,9 +299,12 @@ fn the_drivers_forced_disturbance_is_labelled_with_its_own_onset() {
     );
     assert!(since > 0.0 && since < 0.2);
 
-    // Turning the quirk off leaves the run genuinely fault-free.
-    let mut honest = scenario;
-    honest.driver_forces_idv12 = false;
+    // The default leaves the run genuinely fault-free.
+    let honest = Scenario::baseline().with_hours(9.0);
+    assert!(
+        !honest.driver_forces_idv12,
+        "the default still forces IDV(12)"
+    );
     let clean = Simulation::new(honest).run();
     assert!(
         clean.samples.iter().all(|s| !s.labels.faulted()),

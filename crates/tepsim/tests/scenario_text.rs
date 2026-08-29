@@ -31,13 +31,39 @@ use tepsim_scenario::{Invalid, MAX_EVENTS};
 /// and has to be a decision. Every link and every dataset header in circulation
 /// is this string with values substituted.
 const BASELINE_TEXT: &str = "tepsim.scenario.v1;seed=4651207995;hours=48;\
-     step=2.777777777777778e-4;every=180;faults=;controlled=1;idv12=1;trip=0;\
+     step=2.777777777777778e-4;every=180;faults=;controlled=1;idv12=0;trip=1;\
      continuous=0;integrator=euler;events=";
+
+/// The same string as it rendered before the sign-off of 2026-08-28.
+///
+/// Kept because links and dataset headers carrying it are in circulation. The
+/// format is unversioned-bumped on purpose: every field is written out
+/// explicitly, so an old text still names exactly the scenario it always named.
+/// What changed is which scenario the *defaults* render to, and
+/// `an_old_text_still_names_the_scenario_it_always_named` is the assertion.
+const PRE_SIGNOFF_BASELINE_TEXT: &str = "tepsim.scenario.v1;seed=4651207995;\
+     hours=48;step=2.777777777777778e-4;every=180;faults=;controlled=1;\
+     idv12=1;trip=0;continuous=0;integrator=euler;events=";
 
 #[test]
 fn the_baseline_text_is_every_field_written_out() {
     assert_eq!(Scenario::baseline().to_text(), BASELINE_TEXT);
     assert_eq!(Scenario::from_text(BASELINE_TEXT), Ok(Scenario::baseline()));
+}
+
+/// A text written before the defaults changed still parses to the scenario it
+/// described, which is why the format did not need a version bump.
+#[test]
+fn an_old_text_still_names_the_scenario_it_always_named() {
+    assert_ne!(PRE_SIGNOFF_BASELINE_TEXT, BASELINE_TEXT);
+    assert_eq!(
+        Scenario::from_text(PRE_SIGNOFF_BASELINE_TEXT),
+        Ok(Scenario::faithful()),
+        "an old link no longer means what it meant"
+    );
+    // And it re-renders as itself, so a round trip through this build does not
+    // silently rewrite someone's saved scenario into the new defaults.
+    assert_eq!(Scenario::faithful().to_text(), PRE_SIGNOFF_BASELINE_TEXT);
 }
 
 /// A schedule holding exactly [`MAX_EVENTS`] events, one of every action.
@@ -82,16 +108,14 @@ fn edge_cases() -> Vec<(&'static str, Scenario)> {
         (
             "no driver IDV(12)",
             Scenario {
-                driver_forces_idv12: false,
+                driver_forces_idv12: true,
                 ..Scenario::baseline()
             },
         ),
         (
             "trip ends the run",
             Scenario {
-                quirks: tepsim::tepsim_core::QuirkFixes {
-                    trip_ends_the_run: true,
-                },
+                quirks: tepsim::tepsim_core::QuirkFixes::faithful(),
                 ..Scenario::baseline()
             },
         ),
@@ -261,7 +285,7 @@ fn every_field_of_a_scenario_reaches_the_text() {
     } = base;
 
     let mut with_trip = base;
-    with_trip.quirks.trip_ends_the_run = true;
+    with_trip.quirks = tepsim::tepsim_core::QuirkFixes::faithful();
 
     let changed: [(&str, Scenario); 11] = [
         ("seed", base.with_seed(1.0)),
@@ -280,7 +304,7 @@ fn every_field_of_a_scenario_reaches_the_text() {
         (
             "driver_forces_idv12",
             Scenario {
-                driver_forces_idv12: false,
+                driver_forces_idv12: true,
                 ..base
             },
         ),

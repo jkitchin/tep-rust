@@ -101,11 +101,24 @@ either half is missing or if the two disagree about the class. The collected
 table is [the delta marker index](validation/delta-index.md). Generating the
 register's prose itself is still a Phase 9 item.
 
-## Two items awaiting sign-off
+## The two Class C quirks, and what a default `Scenario` now does
 
-Two Class C quirks are implemented, measured, and deliberately **not** the
-default, because `CLAUDE.md` requires an explicit sign-off before a
-behaviour-defining fix ships. B-0025b covers the shutdown freeze
-(`teprob.f:807-811`, delta D-007) and B-0040a covers the driver's hard-coded
-`IDV(12)` (`temain_mod.f:366-368`, delta D-011). Neither blocks other work. The
-faithful behaviour is what a default `Scenario` gives you.
+Both were signed off on 2026-08-28, so a default `Scenario` **fixes** them and
+`Scenario::faithful()` reproduces them.
+
+A trip ends the run (delta D-007, `teprob.f:807-811`). The original freezes the
+plant and keeps reporting, which is where four of the forty-four published files
+get their frozen tails: 1,832 rows in total, and 363 of `d06.dat`'s 480. The fix
+is pure truncation, since every sample before the trip is bit-identical either
+way, and the argument for keeping the freeze was that it preserved an option it
+does not preserve, because the plant cannot be restarted in either case.
+
+The driver does not force `IDV(12)` at hour eight (delta D-011,
+`temain_mod.f:366-368`). Tier 7 established that the published files were
+generated with that line replaced rather than kept: every `dNN_te` except
+`d12_te` sits at the nominal operating point straight across row 160.
+
+Every comparison against the Fortran or against published data runs
+`Scenario::faithful()`, and `tier5::run_port` pins it so no differential can
+lose it. From the command line the flags are `tep run --faithful`, or
+`--force-idv12` and `--freeze-on-trip` individually.

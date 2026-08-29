@@ -42,12 +42,14 @@ from when it arrives.
 Read this section before re-litigating a quirk. It is the list of things that
 have been *noticed* but not yet *decided*.
 
-- **D-007 is open, and blocks Tier 2 acceptance.** Not the quirk itself, which
-  is decided and reproduced, but the *measure*: `PLAN.org`'s "rel err < 1e-12"
-  cannot be read as relative-to-result for a balance equation. See B-0026a in
-  `BACKLOG.org` and the module documentation of
+- **Nothing is open.** D-001 through D-011 are all decided and measured. The
+  last three decisions were taken on 2026-08-28: D-007 (B-0065), D-011
+  (B-0066), and what the Tier 5 battery does about a stuck valve (B-0067).
+- D-007's *measure* question, which was open here, was settled on 2026-08-27:
+  Tier 2 measures error against the scale of the terms entering a balance, not
+  against the balance's result, because a balance is inflow minus outflow and
+  cancels. See B-0026a and the module documentation of
   `crates/tepsim-oracle/tests/tier2_balances.rs`, which carries the numbers.
-- D-001 through D-006 are decided and measured.
 
 ---
 
@@ -447,8 +449,8 @@ against the oracle, and is bit-identical under `libm-system`.
 
 ## D-007 — a shutdown freezes the plant instead of stopping it
 
-**Class C.** `teprob.f:807-811`, in `TEFUNC`. **Reproduced by default; the fix
-is blocked on sign-off (B-0025b).**
+**Class C.** `teprob.f:807-811`, in `TEFUNC`. **Fixed by default since the
+sign-off of 2026-08-28 (B-0065); reproduced by `QuirkFixes::faithful`.**
 
 ### What the original does
 
@@ -480,10 +482,45 @@ infer a freeze from a vector of zeros. B-0024a's typed
 [`tepsim_core::measurements::ShutdownCause`] means it can also say *which*
 limit fired, which the original cannot.
 
-The fix is [`tepsim_core::balances::QuirkFixes::trip_ends_the_run`], **off by
-default**. `PLAN.org` requires "a full Tier 5 and Tier 6 delta report and an
-explicit sign-off before it becomes the default", and Tier 5 does not exist
-until Phase 5.
+The fix is [`tepsim_core::balances::QuirkFixes::trip_ends_the_run`], **on by
+default since 2026-08-28**. `PLAN.org` required "a full Tier 5 and Tier 6 delta
+report and an explicit sign-off before it becomes the default"; both are below.
+
+Reproducing the quirk is one call: `QuirkFixes::faithful()`, or
+`Scenario::faithful()` for a whole run, or `tep run --freeze-on-trip`. Every
+comparison against the Fortran or against published data uses it, and
+`tier5::run_port` pins it so no differential can accidentally run the fix.
+
+### The sign-off, and what decided it
+
+Two facts, one from the delta measurement and one from the published files.
+
+The fix is **pure truncation**. `d007_changes_nothing_before_the_trip` shows
+every sample up to the trip is bit-identical either way, so the flag decides
+how many numbers there are and never what they are. That removes the usual
+worry about a Class C fix, which is that it quietly changes results.
+
+And the frozen tail is not a small artefact. Four of the forty-four published
+files carry one, 1,832 rows in total:
+
+| file | rows | frozen tail | share | from row |
+|---|---|---|---|---|
+| `d06_te.dat` | 960 | 682 | 71.0% | 278 |
+| `d06.dat` | 480 | 363 | 75.6% | 117 |
+| `d18_te.dat` | 960 | 571 | 59.5% | 389 |
+| `d18.dat` | 480 | 216 | 45.0% | 264 |
+
+Across those rows twenty-one continuous channels repeat the same five-digit
+values without any change at all, because the measurement noise at
+`teprob.f:711-716` is inside the shutdown guard and stops with everything else.
+Only the three dead-time analysers keep moving. So three quarters of `d06.dat`
+is a stopped plant that reads as an unusually steady one, and a detector
+trained on that file spends most of its evidence on it. Data that cannot be
+told apart from good data, and is not, is worse than no data.
+
+The counter-argument was restartability, and it does not survive contact: the
+plant cannot be restarted after a freeze either. The freeze does not preserve
+an option, it only withholds the fact that the run is over.
 
 Note that B-0025's backlog entry originally said the freeze should *not* be the
 default. That is the opposite of what `PLAN.org` says, and `PLAN.org` is the
@@ -493,12 +530,17 @@ freeze would disagree with the oracle on all fifty components for each of them.
 
 ### Measured effect
 
-The delta itself is Phase 6 work. What is measured now:
-
 - The freeze fires on exactly the states the Fortran freezes, over all three
   pools: 2,412 running and 13 frozen, with no disagreement.
 - Turning the fix on changes the derivative on all 8 tripping adversarial
   boundaries and on none of the 17 that do not trip.
+- Every sample before the trip is bit-identical with the fix on and off, so
+  the delta is entirely truncation. `tier10_quirk_deltas.rs` tabulates which
+  scenarios trip, at which step, and what fraction of the run is discarded.
+- The Tier 5 battery **cannot** measure this delta, and that is a property of
+  the delta rather than of the battery: every statistic compares two ensembles
+  of the same shape, and the fix makes one of them shorter. A KS statistic
+  between a 960-sample run and a 278-sample one measures the truncation.
 
 ### A second, open question this exposed
 
@@ -734,8 +776,9 @@ orderings to give *different* answers before checking which one is right.
 
 ## D-011 — the driver switches `IDV(12)` on eight hours in, whatever you asked for
 
-**Class C. Reproduced by default; the fix is behind a flag and blocked on
-sign-off (B-0040a).** `temain_mod.f:366-368`, with `SSPTS` at line 226.
+**Class C. Not reproduced by default since the sign-off of 2026-08-28 (B-0066);
+reproduced by `Scenario::faithful`.** `temain_mod.f:366-368`, with `SSPTS` at
+line 226.
 
 ### What the original does
 
@@ -790,10 +833,13 @@ visible onset is not at the eight-hour mark, and it moves with the seed.
 
 ### What this port does
 
-Reproduces it. [`tepsim_control::Driver`] forces `IDV(12)` on at
-[`tepsim_control::STEADY_STATE_STEPS`], and
+Can do either, and does not by default. [`tepsim_control::Driver`] forces
+`IDV(12)` on at [`tepsim_control::STEADY_STATE_STEPS`], and
 [`tepsim_control::DriverQuirks::only_the_requested_disturbances`] turns that
-off. The flag defaults to `false`, so the default driver is the published one.
+off; [`tepsim::Scenario::driver_forces_idv12`] is the facade's control and is
+`false` by default. `Scenario::faithful()` and `tep run --force-idv12` reproduce
+the driver as shipped, and `tier5::run_port` pins it on so every differential
+against the Fortran carries it.
 [`tepsim_control::Driver::scenario_is_overridden`] reports when the driver has
 gone beyond what was asked for, so a caller never has to infer it.
 
@@ -812,12 +858,13 @@ fixed, everything else identical:
 Ten percent on a product-composition measurement is not a rounding difference.
 It is a different experiment.
 
-### What the sign-off has to answer
+### The sign-off, and what decided it
 
-Whether the shipped default should be `temain_mod.f`'s behaviour or the
-caller's scenario.
+The question was whether the shipped default should be `temain_mod.f`'s
+behaviour or the caller's scenario. Decided on 2026-08-28: **the caller's
+scenario.**
 
-**One of the two original arguments has since been shown to be false.** The
+**One of the two original arguments had already been shown to be false.** The
 case for keeping the quirk was that reproducing published data requires it.
 Tier 7 (B-0051) established that the published `d00` through `d21` files carry
 `IDV(12)` only in `d12` and `d12_te`: they were generated with
@@ -839,16 +886,26 @@ and convenience:
 - **Reproduce the data.** Most people who use the Tennessee Eastman problem use
   the published datasets, not the driver. Matching them means turning it off.
 
-The port currently does the first. The second is one field away
-(`Scenario::driver_forces_idv12`), and Tier 7's test uses it.
+The second was chosen, on three grounds. The evidence is one-sided: the only
+argument for forcing was that the shipped line exists, and the published bytes
+say the line was replaced when the data was made. The prose at
+`temain_mod.f:101-102` agrees, telling the reader to "go to line 367" and put
+their own disturbance there, which is an instruction to replace. And the cost
+of being wrong is asymmetric: a caller who asks for `IDV(4)` and silently gets
+`IDV(4)` and `IDV(12)` has no way to notice, whereas a caller who wants the
+shipped driver's behaviour asks for it by name and gets exactly that.
 
-Whichever is chosen, the other must stay reachable and documented, because both
-are things a user legitimately wants. The remaining question is only which one
-a caller gets without asking.
+Both remain reachable, which was the one firm constraint: `Scenario::faithful`,
+`tep run --force-idv12`, `driver_forces_idv12=True` from Python, and the
+`idv12` field of the scenario text, which still parses old links to the
+scenario they always named.
 
-The numbers above are Tier 4. The Tier 5 battery, which is what `PLAN.org`
-asks for on a Class C delta, does not exist yet, so the statistical half of
-this measurement is deferred to B-0040a rather than claimed.
+The numbers above are Tier 4. The Tier 5 measurement `PLAN.org` asks for on a
+Class C delta is `d011_the_forced_disturbance_moves_the_plant_by_a_tenth` in
+`crates/tepsim-oracle/tests/tier10_quirk_deltas.rs`, which runs the paired
+battery with the flag on and off and requires the shift to exceed a tenth of a
+margin on some channel: forcing `IDV(12)` is not cosmetic, and the test fails if
+it ever looks that way.
 
 ### Measured by
 

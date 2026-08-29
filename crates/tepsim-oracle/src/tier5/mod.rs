@@ -375,13 +375,19 @@ pub fn start(oracle: &mut Oracle) -> Start {
 #[must_use]
 pub fn run_port(start: &Start, scenario: Scenario, seed: f64, hours: usize) -> Run {
     let _ = start;
-    let mut described = if scenario.fault == 0 {
-        tepsim::Scenario::baseline()
-    } else {
-        tepsim::Scenario::fault(scenario.fault)
+    // `faithful`, never `baseline`. Every differential in Tiers 5, 6 and 7 runs
+    // through here, and each one asks whether this port *is* `teprob.f`. It
+    // cannot answer that while carrying a deliberate difference from it, so the
+    // two Class C quirks the sign-off of 2026-08-28 turned off by default are
+    // turned back on: the plant freezes on a trip rather than the run ending
+    // (D-007), and the driver forces `IDV(12)` at eight hours (D-011). The
+    // Fortran on the other side of the comparison does both unconditionally.
+    let mut described = tepsim::Scenario::faithful()
+        .with_hours(hours as f64)
+        .with_seed(seed);
+    if scenario.fault != 0 {
+        described = described.with_fault(scenario.fault);
     }
-    .with_hours(hours as f64)
-    .with_seed(seed);
     described.sample_every = SAMPLE_EVERY;
 
     let finished = tepsim::Simulation::new(described).run();

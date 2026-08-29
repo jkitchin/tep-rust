@@ -6097,3 +6097,185 @@ determinism) have no harness, though the wasm half of Tier 9 is automatable
 today through the exported digest; and =.github/workflows/wheels.yml= has never
 run, its free-threaded and Pyodide rows being the least certain part of
 anything here.
+
+* 2026-08-29 B-0062..B-0067 The last two tiers, the dataset generator, and the four decisions
+:PROPERTIES:
+:ITEM:     B-0062 B-0063 B-0064 B-0065 B-0066 B-0067
+:PHASE:    5 6 8
+:TIER:     5 8 9 10
+:COMMIT:   pending
+:GFORTRAN: 15.2.0
+:STATUS:   DONE
+:END:
+** Preflight
+Clean and green at =101f2cf=. =xtask fidelity= 100 of 100 steps, worst
+*3.521323734565789e-14* at =YP(12)= at step 77, unchanged since B-0026 and
+unchanged again at the end of this iteration. =xtask provenance= *1306 of 2997
+(43.6%)* across 20 files, unchanged. =xtask deltas= 11 register entries, 11
+markers, classes agree. gfortran 15.2.0, rustc 1.97.1, node 25.1.0.
+
+** What changed
+The two tiers that had no harness now have one. Tier 8 fuzzes states against
+the oracle and shrinks what it finds; Tier 9 compares committed digests across
+native and wasm32. =tep dataset= generates published-shaped files from
+=tepsim::published=, whose every constant is asserted against the vendored
+Fortran. And the four items that had been BLOCKED on decisions are decided and
+implemented: a trip now ends the run, the driver no longer forces =IDV(12)=,
+and a stuck valve is judged on its distribution rather than on its mean.
+
+*Nothing is TODO and nothing is BLOCKED.*
+
+** Validation numbers
+
+*** Tier 8, differential fuzzing (B-0062)
+5,000,000 tuples at seed =0x7E2_0062=: *2,551,618 compared (51.0%)*, 2,263,855
+frozen by the shutdown, 184,526 lost to =TESUB2= falling through, *0* where the
+port failed while the Fortran converged. 240,773,700 component comparisons, 0
+non-finite on either side, worst agreeing error *4.674e-13 of scale*. Default
+=TEP_TIER8= size 400 tuples, 0.74 s.
+
+Sensitivity measured rather than assumed: an injected error of *1e-11* of a
+balance's scale is found, *1e-13* is not, both asserted. A term behind
+=teprob.f:615= (=TCC > 170 C=), reached by 25 of 10,222 compared tuples, shrinks
+from 18 knobs to 1 in 21 evaluations.
+
+*One counterexample in five million.* =fuzz#863105=, shrunk from 22 knobs to 3:
+nominal state, =IDV(13)=, =G=985491900=, =TIME=973.308134169278=. =YP(9)= misses
+by *4.607e-12 of the scale of its terms* against a 1e-12 gate. Attributed, not
+guessed: bit-identical in all fifty components under =libm-system=. 973 hours of
+IDV(13)'s kinetic walk leaves the drift at 3e7 and the rates at 1.1e10, so one
+ULP of =exp= becomes 1.2e-6 against balance terms of 5.2e4. No Tier 2 pool state
+has a drift factor above about one. The gate was not touched; =TEP_TIER8=full=
+reports and fails, and is not in the per-commit gate.
+
+*** Tier 9, cross-platform determinism (B-0063)
+Six committed digests plus a suite digest. =baseline-1h= =c8a26889992f1719=,
+=fault-1-2h= =29ff575a59cffd30=, =open-loop-4h= =50e714b2b49ace16=, =rk4-1h=
+=a6a677f8c0a7cebe=, =dormand-prince-1h= =92a055e5c4c25017=, =baseline-9h=
+=ce523c2364991886=, *suite =953892e861fd5e68=*.
+
+Identical on aarch64-apple-darwin (debug and release) and on
+wasm32-unknown-unknown under node v25.1.0 in three profiles (=release-wasm=
+533,025 B, =release= 684,550 B, =dev= 8,946,582 B). x86-64, Windows, aarch64
+Linux and a real browser remain unverified.
+
+*** Published dataset (B-0064)
+57 labelled seeds parsed out of =teprob.f:1187-1256= and all 44 checked; 3,840
+published lines re-emitted byte for byte from their own parsed values; every
+value in five published files already at five significant digits, so
+=round_as_published= is idempotent on 129,600+ fields.
+
+*** D-007, the frozen tail (B-0065)
+4 of the 44 published files carry one, *1,832 rows*: =d06_te.dat= 682 of 960
+(71.0%, from row 278), =d06.dat= 363 of 480 (75.6%, from row 117), =d18_te.dat=
+571 of 960 (59.5%), =d18.dat= 216 of 480 (45.0%). Across those rows 21
+continuous channels repeat identical five-digit values, because the noise at
+=teprob.f:711-716= is inside the shutdown guard and stops too; only the three
+dead-time analysers keep moving. Verified the port reproduces that structure
+exactly before deciding: generated =d06_te= is likewise flat on columns 2-4 and
+still moving on column 23.
+
+*** B-0067, the stuck-valve substitution
+=a_stuck_valve_is_still_judged_on_its_distribution= injects ten standard
+deviations into =XMV(10)= under =IDV(14)=. The paired mean difference equals the
+injected shift to 1e-9 and is declared non-equivalent; =failures()= does not
+report it; KS and energy distance both exceed every within-source split. The
+sticking map is parsed out of =teprob.f:793-798= and checked over all 20 x 53
+combinations.
+
+*** Regression
+Fidelity, provenance and delta counts all unchanged end to end. The six Tier 9
+digests are unchanged *after* both default flips, which is independent evidence
+that the flips changed no arithmetic: they are pinned to the reproducing
+configuration in =tier9::pinned=.
+
+** Surprises and decisions
+
+*The published files are not in Fortran =E13.5= form.* The driver writes
+=FORMAT(1X,E13.5)= to a dozen separate units, four values a line. The
+distributed files are one 52-column row per sample in =%16.7e=, so they were
+reassembled and reformatted by something that is not in the repository. Five
+significant digits of content padded to seven decimals is the fingerprint.
+
+*And the layout was got wrong first.* Three spaces plus =%.7e= reproduces every
+positive value exactly and is one byte too wide on every line containing a
+negative. They are fixed sixteen-column fields; every published line is exactly
+832 bytes. The test that settles it takes a shipped line apart into numbers and
+requires the formatter to give the bytes back.
+
+*The freeze's counter-argument does not survive contact.* The case for freezing
+was continuity of the published record. The user's question was better: the
+plant cannot be restarted either way, so the freeze preserves no option. It only
+withholds the fact that the run is over, and it does so for three quarters of
+=d06.dat=.
+
+*Pinning the Tier 9 cases mattered more than it looked.* Written a day earlier,
+the table inherited =Scenario::baseline()=. Both defaults then moved. Had they
+not been pinned, two of the six digests would have shifted and the failure would
+have read as a cross-platform disagreement rather than as the deliberate change
+it was.
+
+*A lint that nothing ran.* =clippy::suboptimal_flops= is on for the workspace
+and fires only under =libm-system=, because =no_std= has no =f64::mul_add= to
+suggest, and no gate linted that configuration. Eighteen findings in
+=tepsim-core=. Taking the suggestion would have been wrong: =mul_add= is fused,
+one rounding where the Fortran does two. Allowed with that reason, and the
+missing clippy pass added to =xtask ci=.
+
+*Three book tutorials were wrong within minutes of the flip, and nothing could
+have told me.* They carried =rust,ignore= listings and transcripts pasted
+beside them, so =scheduling-a-fault.md= went on showing =active [4, 12]= from a
+forced =IDV(12)= that no longer happens, and =injecting-a-fault.md='s closing
+block demonstrated a contrast that had stopped existing. Found by grep. They are
+now compiled examples pinned to their pages, and compiling them immediately
+turned up an =unwrap()= in the book that the workspace's =clippy::unwrap_used=
+would always have rejected. =a-detector.md= was unaffected, which was verified
+rather than assumed. B-0068.
+
+*The plant's own default had to diverge from the scenario's, and the gate is
+what found it.* Flipping =QuirkFixes::default= moved =Plant::default= with it,
+and Tier 2's =all_fifty_derivatives_match_the_fortran_over_all_three_pools=
+failed on the thirteen tripping states: un-zeroed derivatives against a frozen
+Fortran. The fix is not to patch the harness. =trip_ends_the_run= is a promise
+about what the *caller* does after a trip, and a bare =Plant= has no run to end,
+so a caller who took the fix and ignored the flag would integrate straight
+through a trip, which is neither behaviour. =Plant= now defaults to
+=QuirkFixes::faithful= and =tepsim::Simulation= assigns the scenario's over it,
+so the facade is unaffected. =the_plants_own_default_is_faithful= asserts the
+divergence, because the next person to tidy that constructor would otherwise
+reconverge them.
+
+*The scenario text was re-based without a version bump*, deliberately. Every
+field is written out explicitly, so a link written before the sign-off still
+names the scenario it always named; what changed is only which scenario the
+defaults render to. Asserted rather than assumed.
+
+** Next
+The remaining gaps are all things this machine cannot do rather than things
+nobody has done.
+
+- *Tier 9 has no x86-64 leg and no real browser.* Both are one command on the
+  right machine: the table is committed constants, not a value computed twice,
+  so =cargo xtask tier9= on an x86-64 host completes the claim with no code
+  change. A headless-browser leg is what =PLAN.org= actually asks for and node
+  is not a substitute for it, since a browser also exercises the wasm-bindgen
+  glue and the Worker boundary.
+- *=.github/workflows/wheels.yml= has never run.* Its free-threaded and Pyodide
+  rows are the least certain thing in the repository.
+- *Tier 8's open finding.* =fuzz#863105= is recorded and attributed, not fixed,
+  because there is nothing to fix: it is an accepted one-ULP =exp= difference
+  amplified by 973 hours of drift. Worth revisiting only if a second, unrelated
+  counterexample appears.
+- *Arrow and Parquet sinks were considered and not built.* They were on the
+  previous entry's unfinished list. The right home is =tepsim-cli= behind a
+  feature, never =tepsim=, which is =no_std= and compiles to wasm32 under a size
+  budget; and =arrow= plus =parquet= is a large dependency tree for a project
+  whose CSV path already streams and never holds a run. Worth doing when someone
+  has a dataset large enough that CSV is the bottleneck, and not before. The
+  same reasoning applies to =tep dataset --format=, which writes =.dat= and
+  =.csv= and has room for a third arm.
+- *A historian sink* was asked about and does not exist. Everything is wide
+  tabular. Long-format =tag,timestamp,value,quality= needs a caller-supplied
+  epoch (the core may not read a clock), a decision about what quality code a
+  dead-time analyser and a frozen channel deserve, and units promoted from
+  prose in =measurements.rs= to data on a channel.

@@ -111,6 +111,11 @@ use tepsim_stats::{
 
 use super::{Run, Scenario, VARIABLES};
 
+/// `XMEAS(1..41)` occupy the first 41 columns of a 53-wide row; the valves
+/// follow. `tepsim::MEASUREMENTS` is the same number and is asserted equal in
+/// `the_sticking_map_is_the_fortrans`.
+const MEASUREMENTS: usize = 41;
+
 /// The equivalence margin for a mean, as a fraction of the reference standard
 /// deviation. `PLAN.org`, "Tier 5".
 pub const MEAN_MARGIN_FRACTION: f64 = 0.1;
@@ -276,6 +281,10 @@ pub struct VariableReport {
     pub constant: bool,
     /// And neither did the candidate.
     pub candidate_constant: bool,
+    /// This variable is a valve the scenario's fault sticks, so its moment
+    /// tests are not applied. See [`sticks_this_valve`] and
+    /// [`Report::failures`].
+    pub stuck_valve: bool,
     /// The unpaired TOST interval's half-width as a multiple of the margin.
     ///
     /// Under one means the mean test *can* declare equivalence; over one means
@@ -304,7 +313,7 @@ impl VariableReport {
         if self.constant {
             return Some(self.candidate_constant);
         }
-        let mut all = self.paired.equivalent && self.variance.equivalent;
+        let mut all = self.stuck_valve || (self.paired.equivalent && self.variance.equivalent);
         for statistic in self.calibrated() {
             all &= statistic.passes()?;
         }
@@ -484,6 +493,32 @@ fn half_splits(n: usize, count: usize) -> Vec<(Vec<usize>, Vec<usize>)> {
     out
 }
 
+/// Whether this scenario's fault sticks this variable's valve.
+///
+/// `teprob.f:793-798` assigns `IVST(10)=IDV(14)`, `IVST(11)=IDV(15)` and
+/// `IVST(5)=IVST(7)=IVST(8)=IVST(9)=IDV(19)`. Read from
+/// [`tepsim_core::FAULTS`] rather than transcribed, and
+/// `the_sticking_map_is_the_fortrans` asserts the table against those lines.
+///
+/// Variables are the 53-wide row: `XMEAS(1..41)` at 0 to 40, `XMV(1..12)` at 41
+/// to 52.
+#[must_use]
+pub fn sticks_this_valve(scenario: Scenario, variable: usize) -> bool {
+    let Some(valve) = variable.checked_sub(MEASUREMENTS).map(|v| v + 1) else {
+        return false;
+    };
+    if scenario.fault == 0 {
+        return false;
+    }
+    tepsim_core::FAULTS
+        .iter()
+        .find(|f| f.index == scenario.fault)
+        .is_some_and(|f| match f.shape {
+            tepsim_core::Shape::Sticking { valves } => valves.contains(&valve),
+            _ => false,
+        })
+}
+
 /// Compare one variable across two sets of runs.
 ///
 /// `reference` is the Fortran and `candidate` the port. The asymmetry matters:
@@ -582,6 +617,7 @@ pub fn compare_variable(
         mean_power,
         paired,
         paired_power,
+        stuck_valve: sticks_this_valve(scenario, variable),
     }
 }
 
@@ -717,7 +753,7 @@ impl Report {
         let mut out: Vec<(usize, f64, f64)> = self
             .variables
             .iter()
-            .filter(|v| !v.constant && v.paired_power >= 1.0)
+            .filter(|v| !v.constant && !v.stuck_valve && v.paired_power >= 1.0)
             .map(|v| {
                 (
                     v.variable + 1,
@@ -747,6 +783,44 @@ impl Report {
         (self.seeds as f64 * worst * worst).ceil() as usize
     }
 
+    /// The variables whose moment gates were replaced by distributional ones,
+    /// with the verdicts that replaced them.
+    ///
+    /// # Why a stuck valve's mean is not a statistic about the process
+    ///
+    /// B-0047d. `IDV(14)`, `IDV(15)` and `IDV(19)` widen a valve's dead band
+    /// at `teprob.f:793-798`, and `teprob.f:801` then moves that valve only
+    /// when `DABS(VCV(I)-XMV(I)).GT.VST(I)*IVST(I)`. That is a discontinuous
+    /// branch on a floating-point comparison. One ULP of `exp` difference,
+    /// which Tier 2 accepts on about ten percent of arguments and which the
+    /// vendored `libm` has against gfortran's, decides which side of the
+    /// threshold the command lands on, and the valve then holds a *different
+    /// position* for the rest of the run.
+    ///
+    /// The resulting series is a few plateaux, not a distribution around a
+    /// centre, and its 48-hour mean is an artefact of how long it spent on each
+    /// plateau. Two sources can agree on every plateau and on how often each is
+    /// visited while their means differ by a tenth of a standard deviation.
+    /// That is what happened: `IDV(14)` and `IDV(19)` missed the mean gate at
+    /// 1.016e-1 on exactly the valves those faults stick, and were bit-
+    /// identical (0.000e0) under `--features libm-system`, where `exp` is the
+    /// one gfortran calls.
+    ///
+    /// So for these variables the battery asks the question it can answer:
+    /// Kolmogorov-Smirnov and energy distance on the pooled samples, both
+    /// permutation-calibrated against the reference's own split-half variation,
+    /// plus the autocorrelation and spectrum gates. Nothing was loosened. The
+    /// margin is unchanged and every other variable is judged exactly as
+    /// before.
+    #[must_use]
+    pub fn stuck_valves(&self) -> Vec<(usize, Option<bool>, Option<bool>)> {
+        self.variables
+            .iter()
+            .filter(|v| v.stuck_valve)
+            .map(|v| (v.variable + 1, v.ks.passes(), v.energy.passes()))
+            .collect()
+    }
+
     /// Statistics outside their margin, with what failed.
     ///
     /// Only gates that this report can actually decide. The moment tests need
@@ -770,10 +844,15 @@ impl Report {
             // An underpowered test has declined to decide, not failed. See
             // `Report::undecided`, which reports those separately.
             let decidable = report.paired_power < 1.0;
-            if self.gated && decidable && !report.paired.equivalent {
+            // A stuck valve is judged on its distribution, not on its mean.
+            // See `Report::stuck_valves` for why, and note that the four
+            // calibrated statistics below still run on it: this substitutes
+            // what is measured, it does not stop measuring.
+            let moments = self.gated && decidable && !report.stuck_valve;
+            if moments && !report.paired.equivalent {
                 out.push((report.variable + 1, "mean"));
             }
-            if self.gated && decidable && !report.variance.equivalent {
+            if moments && !report.variance.equivalent {
                 out.push((report.variable + 1, "variance"));
             }
             for statistic in report.calibrated() {

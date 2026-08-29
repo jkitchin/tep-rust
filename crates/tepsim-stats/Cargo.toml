@@ -16,5 +16,12 @@ publish = false
 # the same way on x86-64, aarch64 and wasm32.
 libm = { version = "0.2.16", default-features = false }
 
+# For the book's detector tutorial, which is `examples/a_detector.rs` and is
+# pinned to the page by `crates/tepsim/tests/book_examples.rs`. A dev-dependency
+# only, and the direction is the safe one: this crate is dev-only, so nothing
+# shipped becomes reachable from it.
+[dev-dependencies]
+tepsim.workspace = true
+
 [lints]
 workspace = true

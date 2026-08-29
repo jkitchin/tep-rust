@@ -126,12 +126,16 @@ impl Scenario {
     ///         three hours.
     ///     driver_forces_idv12: Whether to reproduce `temain_mod.f:366-368`,
     ///         which switches `IDV(12)` on at eight hours whatever the scenario
-    ///         asked for. True by default, because every published dataset
-    ///         longer than eight hours carries it. Delta D-011.
-    ///     trip_ends_the_run: Whether a trip stops the run. False by default,
-    ///         because `teprob.f:807-811` freezes the plant and keeps
-    ///         reporting, and those frozen samples are in every published file.
-    ///         Delta D-007, blocked on sign-off.
+    ///         asked for. False by default: the published `dNN_te` files sit at
+    ///         the nominal operating point straight across hour eight, so they
+    ///         were not made with it. Delta D-011, signed off 2026-08-28.
+    ///     trip_ends_the_run: Whether a trip stops the run. True by default.
+    ///         `teprob.f:807-811` instead freezes the plant and keeps
+    ///         reporting, which is 75.6% of `d06.dat`: 363 of its 480 rows are
+    ///         a stopped plant that reads as a very steady one. Pass
+    ///         `trip_ends_the_run=False, driver_forces_idv12=True` to get the
+    ///         configuration every oracle comparison runs, which Rust names
+    ///         `Scenario::faithful`. Delta D-007, signed off 2026-08-28.
     ///
     /// Raises:
     ///     ValueError: If a fault number is outside 1 to 20, or if `hours`,
@@ -145,8 +149,8 @@ impl Scenario {
         sample_every = tepsim::scenario::DEFAULT_SAMPLE_EVERY,
         faults = Vec::new(),
         controlled = true,
-        driver_forces_idv12 = true,
-        trip_ends_the_run = false,
+        driver_forces_idv12 = false,
+        trip_ends_the_run = true,
     ))]
     #[expect(
         clippy::too_many_arguments,
@@ -190,8 +194,8 @@ impl Scenario {
         step_hours = tepsim::scenario::DEFAULT_STEP_HOURS,
         sample_every = tepsim::scenario::DEFAULT_SAMPLE_EVERY,
         controlled = true,
-        driver_forces_idv12 = true,
-        trip_ends_the_run = false,
+        driver_forces_idv12 = false,
+        trip_ends_the_run = true,
     ))]
     fn baseline(
         seed: f64,
@@ -229,8 +233,8 @@ impl Scenario {
         step_hours = tepsim::scenario::DEFAULT_STEP_HOURS,
         sample_every = tepsim::scenario::DEFAULT_SAMPLE_EVERY,
         controlled = true,
-        driver_forces_idv12 = true,
-        trip_ends_the_run = false,
+        driver_forces_idv12 = false,
+        trip_ends_the_run = true,
     ))]
     #[expect(
         clippy::too_many_arguments,

@@ -238,9 +238,18 @@ def test_the_open_loop_plant_trips():
     # The step is one-based and the recorded time is the time at the *start* of
     # that step, so the two differ by exactly one step.
     assert run.tripped_at == round(run.tripped_hours * 3600) + 1
-    # A trip freezes the plant rather than stopping the run: `teprob.f:807-811`,
-    # and the frozen samples are in every published file. Delta D-007.
-    assert len(run) == run.scenario.samples
+    # The run ends at the trip, so it is shorter than its scenario planned.
+    # Delta D-007, signed off 2026-08-28.
+    assert len(run) < run.scenario.samples
+
+    # `teprob.f:807-811` freezes the plant and keeps reporting instead, which
+    # is what the published `d06` and `d18` files contain and what any
+    # comparison against them needs.
+    faithful = tep.Simulation(
+        tep.Scenario.baseline(hours=6, trip_ends_the_run=False).open_loop()
+    ).run()
+    assert faithful.outcome == "tripped"
+    assert len(faithful) == faithful.scenario.samples
 
 
 def test_the_closed_loop_plant_does_not_trip():
@@ -252,13 +261,23 @@ def test_the_closed_loop_plant_does_not_trip():
     assert run.solve_failed_at is None
 
 
-def test_a_trip_can_end_the_run():
-    """Delta D-007, off by default and reachable through the scenario."""
-    scenario = tep.Scenario(hours=6, controlled=False, trip_ends_the_run=True)
+def test_a_trip_ends_the_run_by_default():
+    """Delta D-007, signed off 2026-08-28."""
+    scenario = tep.Scenario(hours=6, controlled=False)
+    assert scenario.trip_ends_the_run
     run = tep.Simulation(scenario).run()
 
     assert run.outcome == "tripped"
     assert len(run) < scenario.samples
+
+
+def test_the_faithful_configuration_freezes_instead():
+    """`teprob.f:807-811`, which is what made the published frozen tails."""
+    scenario = tep.Scenario(hours=6, controlled=False, trip_ends_the_run=False)
+    run = tep.Simulation(scenario).run()
+
+    assert run.outcome == "tripped"
+    assert len(run) == scenario.samples
 
 
 # ---------------------------------------------------------------------------
@@ -282,7 +301,9 @@ def test_labels_record_what_was_actually_wrong():
 
 def test_the_driver_forces_idv12_at_eight_hours():
     """`temain_mod.f:366-368`: delta D-011, and it is in every published file."""
-    run = tep.Simulation(tep.Scenario.baseline(hours=10)).run()
+    run = tep.Simulation(
+        tep.Scenario.baseline(hours=10, driver_forces_idv12=True)
+    ).run()
     active = run.labels()["active"][:, 11]
 
     # By step rather than by `hours`: the recorded time is the time at the start
@@ -293,10 +314,9 @@ def test_the_driver_forces_idv12_at_eight_hours():
     assert active[~before].all()
 
 
-def test_idv12_forcing_can_be_switched_off():
-    run = tep.Simulation(
-        tep.Scenario.baseline(hours=10, driver_forces_idv12=False)
-    ).run()
+def test_idv12_forcing_is_off_by_default():
+    assert not tep.Scenario.baseline().driver_forces_idv12
+    run = tep.Simulation(tep.Scenario.baseline(hours=10)).run()
 
     assert not run.labels()["active"].any()
 
@@ -389,7 +409,7 @@ def test_scenario_repr_round_trips():
     for scenario in (
         Scenario.baseline(),
         Scenario.fault(3, hours=1, seed=5),
-        Scenario(faults=[2, 7, 20], controlled=False, trip_ends_the_run=True),
+        Scenario(faults=[2, 7, 20], controlled=False, trip_ends_the_run=False),
     ):
         assert eval(repr(scenario)) == scenario
 
@@ -408,8 +428,8 @@ SCENARIOS = [
     tep.Scenario.baseline(),
     tep.Scenario.fault(4, hours=8),
     tep.Scenario(faults=[1, 6, 20], seed=42, hours=6.5, sample_every=60),
-    tep.Scenario.baseline(controlled=False, driver_forces_idv12=False),
-    tep.Scenario.baseline(trip_ends_the_run=True),
+    tep.Scenario.baseline(controlled=False, driver_forces_idv12=True),
+    tep.Scenario.baseline(trip_ends_the_run=False),
     tep.Scenario.baseline(step_hours=1 / 7200),
 ]
 
@@ -454,7 +474,7 @@ def test_distinct_scenarios_have_distinct_digests_and_texts():
         # A version this build does not read.
         (tep.Scenario.baseline().to_text().replace("v1", "v2", 1), "tepsim.scenario.v2"),
         # A field left out. Not defaulted: a text says what it runs.
-        (tep.Scenario.baseline().to_text().replace(";trip=0", ""), "trip"),
+        (tep.Scenario.baseline().to_text().replace(";trip=1", ""), "trip"),
         # A number that is not one.
         (tep.Scenario.baseline().to_text().replace("hours=48", "hours=soon"), "soon"),
         # A number out of range.

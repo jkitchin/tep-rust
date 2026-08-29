@@ -141,7 +141,7 @@ test("decimateMinMax is bounded by the canvas and keeps the extremes", () => {
 // rather than throw.
 const BASELINE =
   "tepsim.scenario.v1;seed=4651207995;hours=48;step=2.777777777777778e-4;" +
-  "every=180;faults=;controlled=1;idv12=1;trip=0;continuous=0;integrator=euler;events=";
+  "every=180;faults=;controlled=1;idv12=0;trip=1;continuous=0;integrator=euler;events=";
 
 const DEFAULTS = {
   scenario: BASELINE,

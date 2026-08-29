@@ -32,7 +32,11 @@ RUN OPTIONS:
     --decimate <n>           Write only every nth recorded sample
     --integrator <name>      euler (default, matches the original), rk4, dopri5
     --open-loop              Hold the valves instead of controlling
-    --no-forced-idv12        Do not switch IDV(12) on at hour eight
+    --force-idv12            Switch IDV(12) on at hour eight whatever was
+                             asked for, as temain_mod.f:367 does
+    --freeze-on-trip         On a trip, freeze the plant and keep reporting
+                             instead of ending the run, as teprob.f:807-811 does
+    --faithful               Both of the above: reproduce every Class C quirk
     --labels                 Include ground-truth columns
 
 DATASET OPTIONS:
@@ -193,7 +197,12 @@ fn parse_run(args: &[String]) -> Result<Options, String> {
                 scenario = scenario.with_integrator(method);
             }
             "--open-loop" => scenario = scenario.open_loop(),
-            "--no-forced-idv12" => scenario.driver_forces_idv12 = false,
+            "--force-idv12" => scenario.driver_forces_idv12 = true,
+            "--freeze-on-trip" => scenario.quirks.trip_ends_the_run = false,
+            "--faithful" => {
+                scenario.driver_forces_idv12 = true;
+                scenario.quirks.trip_ends_the_run = false;
+            }
             "--labels" => labels = true,
             other => return Err(format!("unknown option `{other}`")),
         }
@@ -270,11 +279,15 @@ fn run(options: Options) -> ExitCode {
             ExitCode::SUCCESS
         }
         Outcome::Tripped { step, hours, cause } => {
-            // Not a failure exit: a trip is a result, and the frozen samples
-            // after it are part of what the original produces.
+            // Not a failure exit: a trip is a result, not a malfunction.
+            let tail = if scenario.quirks.trip_ends_the_run {
+                "the run ends there"
+            } else {
+                "the plant is frozen and keeps reporting to the end of the run"
+            };
             eprintln!(
-                "tep: the plant tripped at step {step} ({hours:.3} h) on {cause:?}; \
-                 the plant is frozen after the trip"
+                "tep: the plant tripped at step {step} ({hours:.3} h) on \
+                 {cause:?}; {tail}"
             );
             ExitCode::SUCCESS
         }
@@ -367,7 +380,8 @@ mod tests {
             "--decimate",
             "5",
             "--open-loop",
-            "--no-forced-idv12",
+            "--force-idv12",
+            "--freeze-on-trip",
             "--labels",
         ])
         .expect("parses");
@@ -381,7 +395,8 @@ mod tests {
         assert_eq!(options.scenario.sample_every, 60);
         assert_eq!(options.decimate, 5);
         assert!(!options.scenario.controlled);
-        assert!(!options.scenario.driver_forces_idv12);
+        assert!(options.scenario.driver_forces_idv12);
+        assert!(!options.scenario.quirks.trip_ends_the_run);
         assert!(options.labels);
         // Unspecified, so the faithful default.
         assert_eq!(options.scenario.integrator, Integrator::Euler);
@@ -435,7 +450,9 @@ mod tests {
             "--decimate",
             "--integrator",
             "--open-loop",
-            "--no-forced-idv12",
+            "--force-idv12",
+            "--freeze-on-trip",
+            "--faithful",
             "--labels",
         ] {
             assert!(USAGE.contains(flag), "`{flag}` is undocumented");

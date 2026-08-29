@@ -31,6 +31,7 @@ fn trace(run: &Run, mv: usize, at: &[f64]) {
     }
 }
 
+/// Runs the four demonstrations the tutorial walks through.
 fn main() {
     println!("--- a fault that arrives at hour 6 and clears at hour 12 ---");
     let scenario = Scenario::baseline()
@@ -100,6 +101,7 @@ fn main() {
     println!("  equal: {}", back == partial);
 }
 
+/// A scenario's digest, as the sixteen hex characters a URL fragment carries.
 fn hex(scenario: &Scenario) -> String {
     String::from_utf8(scenario.digest_hex().to_vec()).expect("hex is ascii")
 }
@@ -113,31 +115,31 @@ events: 2
     4.05 h   XMV(10)  41.063   active []
     5.95 h   XMV(10)  40.582   active []
     6.15 h   XMV(10)  45.254   active [4]
-    8.05 h   XMV(10)  44.594   active [4, 12]
-   11.95 h   XMV(10)  43.941   active [4, 12]
-   12.15 h   XMV(10)  40.828   active [12]
-   14.05 h   XMV(10)  39.513   active [12]
-   17.05 h   XMV(10)  40.314   active [12]
+    8.05 h   XMV(10)  44.594   active [4]
+   11.95 h   XMV(10)  44.918   active [4]
+   12.15 h   XMV(10)  40.071   active []
+   14.05 h   XMV(10)  41.269   active []
+   17.05 h   XMV(10)  40.347   active []
 
 --- ground truth follows the schedule ---
    5.95 h   faulted false   IDV(4) since onset None
    6.15 h   faulted true   IDV(4) since onset Some(0.15)
   11.95 h   faulted true   IDV(4) since onset Some(5.95)
-  12.15 h   faulted true   IDV(4) since onset None
+  12.15 h   faulted false   IDV(4) since onset None
 
 --- half a fault, which the original cannot express ---
     5.95 h   XMV(10)  40.582   active []
-    8.05 h   XMV(10)  42.671   active [4, 12]
-   11.95 h   XMV(10)  41.937   active [4, 12]
-   14.05 h   XMV(10)  39.506   active [12]
+    8.05 h   XMV(10)  42.671   active [4]
+   11.95 h   XMV(10)  42.872   active [4]
+   14.05 h   XMV(10)  41.264   active []
 
 --- without the extension it is refused, not rounded ---
   Err(ContinuousDisturbancesNotEnabled)
 
 --- the schedule travels with the scenario ---
-  tepsim.scenario.v1;seed=4651207995;hours=18;step=2.777777777777778e-4;every=180;faults=;controlled=1;idv12=1;trip=0;continuous=1;integrator=euler;events=6:magnitude:4:0.5,12:magnitude:4:0
-  digest before 246b561b64789ada
-  digest after  246b561b64789ada
+  tepsim.scenario.v1;seed=4651207995;hours=18;step=2.777777777777778e-4;every=180;faults=;controlled=1;idv12=0;trip=1;continuous=1;integrator=euler;events=6:magnitude:4:0.5,12:magnitude:4:0
+  digest before 7dad227a612462e8
+  digest after  7dad227a612462e8
   equal: true
 ```
 
@@ -158,15 +160,17 @@ Two events at the same instant keep the order they were added, because `Stop`
 then `Start` on one fault is a different scenario from the reverse, and the
 digest has to be able to tell them apart.
 
-## The labels are honest, including where that is inconvenient
+## The labels follow the schedule exactly
 
-At 12.15 hours `faulted()` still reports `true` while `since_onset[3]` has gone
-back to `None`. Both are correct. `IDV(4)` really has cleared, and `IDV(12)` is
-still on because the driver switched it on at hour eight, as `temain_mod.f`
-does. `faulted()` asks whether anything is wrong and `since_onset[i]` asks about
-one specific disturbance, and on a scheduled run those questions genuinely come
-apart. Set `driver_forces_idv12` to `false` to study a schedule without the
-driver's contribution.
+At 12.15 hours `faulted()` reports `false` and `since_onset[3]` has gone back to
+`None`: the fault cleared and the run is clean again. That is worth pointing at
+because it did not used to be true. Until the sign-off of 2026-08-28
+`driver_forces_idv12` defaulted to `true`, so the driver switched `IDV(12)` on
+at hour eight and a scheduled fault could never fully clear; `faulted()` stayed
+`true` for the rest of every run longer than eight hours while `since_onset[3]`
+said the requested fault was over. Both answers were correct and the pair was
+confusing, which is part of why the default moved. `Scenario::faithful()` still
+reproduces the driver if you want to see it.
 
 ## Half a fault
 

@@ -85,10 +85,12 @@ fn d007_the_trip_fix_discards_the_frozen_tail() {
     .collect();
 
     for (label, scenario) in cases {
-        let frozen = Simulation::new(scenario).run();
-        let mut fixed = scenario;
-        fixed.quirks.trip_ends_the_run = true;
-        let stopped = Simulation::new(fixed).run();
+        // `stopped` is the default since 2026-08-28; `frozen` is what
+        // `teprob.f:807-811` does and what `Scenario::faithful` selects.
+        let stopped = Simulation::new(scenario).run();
+        let mut faithful = scenario;
+        faithful.quirks.trip_ends_the_run = false;
+        let frozen = Simulation::new(faithful).run();
 
         rows.push(TripDelta {
             label,
@@ -99,8 +101,9 @@ fn d007_the_trip_fix_discards_the_frozen_tail() {
     }
 
     println!(
-        "D-007 over {HOURS} h. `frozen` is the default (teprob.f:807-811 zeroes \
-         the derivatives and the plant keeps reporting); `stopped` is the fix.\n"
+        "D-007 over {HOURS} h. `frozen` is `Scenario::faithful` (teprob.f:807-811 \
+         zeroes the derivatives and the plant keeps reporting); `stopped` is the \
+         default since the sign-off of 2026-08-28.\n"
     );
     println!(
         "  {:<22} {:>10} {:>9} {:>9} {:>8}",
@@ -137,7 +140,7 @@ fn d007_the_trip_fix_discards_the_frozen_tail() {
         if row.tripped_at.is_some() {
             assert!(
                 row.stopped_samples < row.frozen_samples,
-                "{}: the fix kept as many samples as the default",
+                "{}: the default kept as many samples as the freeze",
                 row.label
             );
         } else {
@@ -145,7 +148,7 @@ fn d007_the_trip_fix_discards_the_frozen_tail() {
             // other half of the claim.
             assert_eq!(
                 row.stopped_samples, row.frozen_samples,
-                "{}: the fix changed a run that never tripped",
+                "{}: the flag changed a run that never tripped",
                 row.label
             );
         }
@@ -159,10 +162,10 @@ fn d007_the_trip_fix_discards_the_frozen_tail() {
 #[test]
 fn d007_changes_nothing_before_the_trip() {
     let scenario = Scenario::baseline().with_hours(HOURS).open_loop();
-    let frozen = Simulation::new(scenario).run();
-    let mut fixed = scenario;
-    fixed.quirks.trip_ends_the_run = true;
-    let stopped = Simulation::new(fixed).run();
+    let stopped = Simulation::new(scenario).run();
+    let mut faithful = scenario;
+    faithful.quirks.trip_ends_the_run = false;
+    let frozen = Simulation::new(faithful).run();
 
     assert!(stopped.samples.len() > 2, "nothing to compare");
     for (index, (a, b)) in stopped.samples.iter().zip(&frozen.samples).enumerate() {
@@ -261,23 +264,46 @@ fn d011_the_forced_disturbance_moves_the_plant_by_a_tenth() {
     );
 }
 
-/// Both Class C fixes are off by default, which is the standing rule.
+/// Both Class C fixes are on by default, and `Scenario::faithful` still turns
+/// both off.
+///
+/// Signed off 2026-08-28: D-007 by B-0065 and D-011 by B-0066. The standing
+/// rule before that was that a Class C fix stays off until measured and signed
+/// off, and this test is what changed when it was. Both halves are asserted,
+/// because the whole point of `faithful` is that the fixes did not become
+/// unreachable when they became the default.
 #[test]
-fn every_class_c_fix_is_off_by_default() {
+fn both_class_c_fixes_are_on_by_default_and_faithful_turns_them_off() {
     let scenario = Scenario::baseline();
     assert!(
-        !scenario.quirks.trip_ends_the_run,
-        "D-007's fix is on by default"
+        scenario.quirks.trip_ends_the_run,
+        "D-007's fix is not the default"
     );
     assert!(
-        scenario.driver_forces_idv12,
-        "D-011's quirk is not being reproduced by default"
+        !scenario.driver_forces_idv12,
+        "D-011's quirk is still being reproduced by default"
     );
-    // And the extension, which is not a fix but is also off.
+    // The extension is not a fix, and is still off.
     assert!(!scenario.extensions.continuous_disturbances);
+
+    let faithful = Scenario::faithful();
+    assert!(!faithful.quirks.trip_ends_the_run);
+    assert!(faithful.driver_forces_idv12);
+    assert!(!faithful.extensions.continuous_disturbances);
 
     assert_eq!(
         Simulation::new(scenario).run().outcome,
         Simulation::new(Scenario::default()).run().outcome
+    );
+
+    // And the two configurations really are different runs, or nothing above
+    // is being tested.
+    let open = Scenario::baseline().with_hours(HOURS).open_loop();
+    let mut open_faithful = Scenario::faithful().with_hours(HOURS).open_loop();
+    open_faithful.seed = open.seed;
+    assert_ne!(
+        Simulation::new(open).run().samples.len(),
+        Simulation::new(open_faithful).run().samples.len(),
+        "the default and the faithful configuration produced the same run"
     );
 }

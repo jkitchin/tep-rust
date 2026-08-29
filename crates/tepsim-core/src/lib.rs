@@ -32,6 +32,22 @@
 // default build, and therefore every build the gate exercises, is `no_std`.
 #![cfg_attr(not(feature = "libm-system"), no_std)]
 #![forbid(unsafe_code)]
+// `suboptimal_flops` suggests `f64::mul_add` for every `a * b + c`. That is a
+// *fused* multiply-add: one rounding where the Fortran does two. It is more
+// accurate, and here more accurate is wrong. Every bit-exactness result in this
+// project was measured against a build that does not use it, and adopting it
+// would move the port off `teprob.f` silently, on a suggestion, with no test
+// naming the change.
+//
+// The lint is on for the workspace on purpose and is right about ordinary
+// numerical code. It is silent on the default build only because `no_std` has
+// no `f64::mul_add` to suggest, so it fires exactly on the `libm-system`
+// configuration and nowhere else. Allowed here rather than at the workspace
+// level so that the reason travels with the crate the invariant belongs to.
+#![allow(
+    clippy::suboptimal_flops,
+    reason = "mul_add is fused: one rounding where the Fortran does two"
+)]
 
 extern crate alloc;
 

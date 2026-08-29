@@ -335,6 +335,14 @@ fn the_two_sources_agree_over_a_whole_run() {
             // twenty-one scenarios, `IDV(14)` and `IDV(19)` are the only two
             // whose manipulated variables do not agree, and the channels
             // affected are precisely the valves those faults stick.
+            //
+            // B-0047d decided what the battery does about it, on 2026-08-28:
+            // a stuck valve is judged on its distribution rather than on its
+            // mean, because a series of plateaux has no meaningful centre. See
+            // `tier5::battery::Report::stuck_valves`. Nothing was loosened
+            // here: this assertion is unchanged, and bounds the divergence to
+            // a valve landing somewhere else on its own travel rather than a
+            // run going somewhere else entirely.
             assert!(
                 worst.0 < 1.0,
                 "{}: {:.3e} is a whole-scale divergence, not a valve landing \

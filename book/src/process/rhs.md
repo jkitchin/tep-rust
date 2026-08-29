@@ -111,15 +111,16 @@ holds. That does not stop the plant, it *freezes* it: the state stops moving,
 the clock keeps running, and nothing in the original says so.
 
 `PLAN.org` classes this as a Class C quirk, "behaviour-defining and
-benchmark-relevant", which means the *fix* is what needs sign-off and the
-faithful freeze is what ships until then. It is delta D-007. The port reports
-the trip and its cause rather than leaving a caller to infer a freeze from a
-vector of zeros, and a switch to end the run instead exists and is off by
-default.
+benchmark-relevant", so the *fix* needed a measured delta and a sign-off. Both
+arrived on 2026-08-28, and a default `Scenario` now **ends the run** at the
+trip. It is delta D-007. The port reports the trip and its cause either way,
+rather than leaving a caller to infer a freeze from a vector of zeros.
 
-That is also the only reading Tier 2 could live with. The adversarial sampling
-pool contains states that trip, and a port that did not freeze would disagree
-with the oracle on all fifty components for every one of them.
+`Scenario::faithful()` reproduces the freeze, and Tier 2 needs it to: the
+adversarial sampling pool contains states that trip, and a port that did not
+freeze would disagree with the oracle on all fifty components for every one of
+them. So does any comparison against `d06` or `d18`, whose published files are
+between 45% and 76% frozen tail.
 
 ## Determinism, and the two `libm` builds
 

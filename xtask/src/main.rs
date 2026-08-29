@@ -259,6 +259,24 @@ fn cmd_ci(root: &Path, fast: bool) -> Result<(), String> {
     } else {
         println!("[skip] clippy with the oracle feature: no gfortran on PATH");
     }
+    // And a third pass under `libm-system`. Not redundant: that configuration
+    // is `std`, so `f64::mul_add` exists and `clippy::suboptimal_flops` starts
+    // firing on arithmetic that is silent under `no_std`. Nothing linted it
+    // until B-0067, and a lint nothing runs is a lint that is not on.
+    step(
+        root,
+        "cargo",
+        &[
+            "clippy",
+            "--workspace",
+            "--all-targets",
+            "--features",
+            "tepsim-core/libm-system",
+            "--",
+            "-D",
+            "warnings",
+        ],
+    )?;
     step(root, "cargo", &["test", "--workspace"])?;
     step_with_env(
         root,
@@ -1089,12 +1107,21 @@ fn cmd_validate(root: &Path, flags: &[String]) -> Result<(), String> {
                     ],
                 )?;
             }
-            other => println!(
-                "\n[skip] tier {other}: no harness yet. Tier 8 is differential \
-                 fuzzing; see BACKLOG.org."
-            ),
+            other => println!("\n[skip] tier {other}: no harness in this arm; see BACKLOG.org."),
         }
     }
+
+    // The book's tutorial transcripts. Not a tier, but the same shape of check
+    // and the same reason it is here rather than in `ci`: re-running the three
+    // examples costs about a minute in a debug build, and the cheap half, which
+    // pins each listing to its example file, already runs on every commit.
+    println!("\n--- book tutorials ---");
+    step_with_env(
+        root,
+        "cargo",
+        &["test", "-p", "tepsim", "--test", "book_examples"],
+        &[("TEP_BOOK", "1")],
+    )?;
 
     // The index last, so it describes a run that finished. It re-reads the
     // chapters on disk rather than trusting `written`, which is what keeps it
