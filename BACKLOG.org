@@ -3208,7 +3208,7 @@ Done when:
 :TIER:  none
 :DEPS:  B-0064
 :PLAN:  Command-line interface
-:COMMIT: pending
+:COMMIT: c2ef6bb
 :RESULT: =tep dataset --layout rieth --runs N=. The geometry lives in
          =tepsim::published::rieth= as named constants with a scenario builder,
          so the numbers are in the library and under test rather than in an
