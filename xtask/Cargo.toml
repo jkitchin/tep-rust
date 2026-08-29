@@ -17,6 +17,11 @@ tepsim-oracle.workspace = true
 # `xtask fidelity` runs the port against the committed trace, so it needs the
 # model. Dev-only, like the rest of xtask; nothing shipped depends on xtask.
 tepsim-core.workspace = true
+# `xtask tier9` needs the committed determinism table and has to run it, which
+# is the facade's job rather than the core's. No new transitive dependency:
+# tepsim is tepsim-core plus tepsim-control and tepsim-scenario, all of which
+# are already in this tree.
+tepsim.workspace = true
 
 [lints]
 workspace = true

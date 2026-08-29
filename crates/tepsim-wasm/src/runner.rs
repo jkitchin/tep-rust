@@ -459,9 +459,13 @@ pub fn hours_since_onset(labels: &Labels, id: u8) -> Option<f64> {
 /// ships with, under the faithful Euler integrator. 3,600 steps and 20
 /// samples: long enough that the controllers have fired and the plant has moved
 /// off its initial condition, short enough to run on page load without a pause.
+///
+/// Taken from [`tepsim::tier9::CASES`] rather than written out again, so the
+/// number a browser prints is the number the library is committed to and not a
+/// second scenario that merely looks the same.
 #[must_use]
 pub fn self_check_scenario() -> Scenario {
-    Scenario::baseline().with_hours(1.0)
+    tepsim::tier9::CASES[0].scenario()
 }
 
 /// Run [`self_check_scenario`] and return the digest of its output.
@@ -469,6 +473,12 @@ pub fn self_check_scenario() -> Scenario {
 /// The point of the whole exercise. This number must be identical on x86-64,
 /// aarch64 and wasm32, or the determinism invariant is already broken and every
 /// trajectory built on it is suspect.
+///
+/// Computed through [`Runner`] rather than through [`tepsim::tier9::digest`],
+/// on purpose: this is the browser's transport path, chunking and packing
+/// included, and asserting that it lands on the library's committed constant is
+/// worth more than calling the library and reporting what it said.
+/// `tests/determinism.rs` makes that assertion.
 #[must_use]
 pub fn self_check_digest() -> u64 {
     let Ok(mut runner) = Runner::new(self_check_scenario()) else {

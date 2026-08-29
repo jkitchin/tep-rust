@@ -29,6 +29,7 @@ use tepsim_wasm::runner::{
     ConfigError, MAX_SAMPLES, MAX_STEPS, ROW_WIDTH, Runner, hours_since_onset, scenario_digest,
     self_check_digest, self_check_scenario, tepsim_wasm_self_check_digest, validate,
 };
+use tepsim_wasm::tier9;
 
 /// Measured, then written down. See the module docs before changing it.
 ///
@@ -110,6 +111,86 @@ fn run_digest_is_pinned() {
 fn the_glue_free_export_returns_the_pinned_digest() {
     assert_eq!(self_check_digest(), PINNED_RUN_DIGEST);
     assert_eq!(tepsim_wasm_self_check_digest(), PINNED_RUN_DIGEST);
+}
+
+/// The browser's number and the library's Tier 9 constant are the same number.
+///
+/// Two independent computations of it: this crate packs chunks and hashes what
+/// it hands JavaScript, and `tepsim::tier9` streams samples straight from the
+/// facade. They arrive at the same digest, which is what makes one committed
+/// constant meaningful for both.
+#[test]
+fn the_self_check_is_the_first_tier9_case() {
+    assert_eq!(
+        tepsim::tier9::CASES[0].digest,
+        PINNED_RUN_DIGEST,
+        "the browser's self-check and Tier 9 case 0 must be the same run"
+    );
+    assert_eq!(self_check_digest(), tepsim::tier9::CASES[0].compute());
+}
+
+/// Every Tier 9 case must survive being run through these bindings, not just
+/// through the facade. The bindings are where a browser actually runs them.
+#[test]
+fn the_tier9_table_agrees_through_the_bindings() {
+    for case in tepsim::tier9::CASES {
+        let mut run = runner(case.scenario());
+        let values = run.run_to_end();
+        assert_eq!(
+            values.len(),
+            case.scenario().samples() * ROW_WIDTH,
+            "case `{}` recorded a different number of rows through the \
+             bindings than the scenario plans for",
+            case.name
+        );
+        assert_eq!(
+            run.checksum(),
+            case.digest,
+            "case `{}`: the chunked transport does not reproduce the \
+             committed Tier 9 digest",
+            case.name
+        );
+    }
+}
+
+/// The glue-free Tier 9 exports must return the table, in order. A runtime
+/// reads them without knowing anything about Rust, so an off-by-one here would
+/// show up as a cross-platform disagreement that is really an indexing bug.
+#[test]
+fn the_glue_free_tier9_exports_match_the_table() {
+    let count = tier9::tepsim_wasm_tier9_case_count();
+    assert_eq!(count as usize, tepsim::tier9::CASES.len());
+
+    for (index, case) in tepsim::tier9::CASES.iter().enumerate() {
+        let index = u32::try_from(index).expect("the table is small");
+        assert_eq!(
+            tier9::tepsim_wasm_tier9_expected_digest(index),
+            case.digest,
+            "case `{}`: the exported constant is not the table's",
+            case.name
+        );
+        assert_eq!(
+            tier9::tepsim_wasm_tier9_case_digest(index),
+            case.digest,
+            "case `{}`: the exported computation does not reproduce it",
+            case.name
+        );
+    }
+
+    assert_eq!(
+        tier9::tepsim_wasm_tier9_suite_digest(),
+        tier9::tepsim_wasm_tier9_expected_suite_digest()
+    );
+    assert_eq!(
+        tier9::tepsim_wasm_tier9_expected_suite_digest(),
+        tepsim::tier9::SUITE_DIGEST
+    );
+
+    // Out of range is zero rather than a panic or a wrapped index. In wasm a
+    // panic aborts the module, and a wrapped index would answer a wrong
+    // question convincingly.
+    assert_eq!(tier9::tepsim_wasm_tier9_case_digest(count), 0);
+    assert_eq!(tier9::tepsim_wasm_tier9_expected_digest(u32::MAX), 0);
 }
 
 /// The single most important test here. These bindings must not be a second,

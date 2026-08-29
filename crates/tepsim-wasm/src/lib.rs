@@ -46,9 +46,14 @@
 //!
 //! [`self_check_digest`] runs a fixed one-hour baseline scenario and returns
 //! its digest, and [`runner::tepsim_wasm_self_check_digest`] exports the same
-//! number to any WebAssembly runtime without needing `wasm-bindgen` glue.
-//! `tests/determinism.rs` pins the value; comparing a browser's against it is
-//! the wasm half of Tier 9.
+//! number to any WebAssembly runtime without needing `wasm-bindgen` glue. That
+//! scenario is the first entry of [`tepsim::tier9::CASES`], so the number a
+//! browser prints is the number the library is committed to.
+//!
+//! [`tier9`] exports the whole table the same way, so a runtime can evaluate
+//! every Tier 9 case against its committed digest without any glue at all.
+//! `cargo xtask tier9` is what drives it; `tests/determinism.rs` covers the
+//! same ground on the host.
 //!
 //! # `unsafe`
 //!
@@ -72,6 +77,7 @@ pub mod channels;
 pub mod digest;
 pub mod runner;
 pub mod sim;
+pub mod tier9;
 
 pub use channels::{column_ids, column_labels, column_units};
 pub use digest::Fnv1a64;
