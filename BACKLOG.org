@@ -3150,7 +3150,7 @@ Done when:
 :TIER:  5
 :DEPS:  B-0078
 :PLAN:  Validation > Validation report
-:COMMIT: pending
+:COMMIT: f8a4419
 :RESULT: =tier5_battery= prints one machine-readable line per variable carrying
          the paired difference, the margin and *why* the moment gate does or
          does not apply; =plot::forest= draws it as a lane per scenario with
