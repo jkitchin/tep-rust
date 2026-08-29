@@ -340,10 +340,26 @@ fn cmd_ci(root: &Path, fast: bool) -> Result<(), String> {
     // Node is optional, like gfortran and maturin: a checkout without it can
     // still gate the Rust. The suite itself skips its deployed-artifact check
     // when `apps/studio/dist` has not been built.
-    if which("node").is_some() {
-        step(&root.join("apps/studio"), "npm", &["test", "--silent"])?;
-    } else {
+    let studio = root.join("apps/studio");
+    if which("node").is_none() {
         println!("\n[skip] TEP Studio's Node suite: node is not on PATH");
+    } else if !studio.join("dist").is_dir() {
+        // The suite imports from `dist/` on purpose, not from `js/`:
+        // `page.test.mjs` says so outright, because reading the built output is
+        // how it proves `build.sh` copied what it should. That makes a build a
+        // precondition rather than a convenience, and building it here would
+        // mean a wasm toolchain on every `xtask ci`.
+        //
+        // `.github/workflows/pages.yml` builds the studio and then runs this
+        // suite, so CI has the coverage unconditionally; locally it costs one
+        // `apps/studio/build.sh`.
+        println!(
+            "\n[skip] TEP Studio's Node suite: apps/studio/dist does not exist.\n\
+             Run `apps/studio/build.sh` once; the suite reads the built output \
+             by design."
+        );
+    } else {
+        step(&studio, "npm", &["test", "--silent"])?;
     }
 
     println!("\nci: green");
