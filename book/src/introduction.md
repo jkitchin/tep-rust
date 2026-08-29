@@ -28,6 +28,19 @@ steam stripper. The whole plant is fifty integrated states (`teprob.f:24-26`),
 forty-one measurements, twelve manipulated variables, and twenty programmed
 disturbances (`teprob.f:340`, which loops `DO 500 I=1,20`).
 
+Those five units, the four feeds and the thirteen streams between them are the
+whole plant, and it is worth seeing them laid out once before reading anything
+else. The diagram below was drawn from `teprob.f` rather than from the paper's
+figure, so every stream carries both of the numbers it goes by: the `FTM` index
+the source uses, and, where one exists, the stream number Downs and Vogel print.
+Those two disagree on three of the four feeds, which is the most common way to
+wire up a reimplementation incorrectly.
+
+<figure style="margin: 1.5rem 0;">
+{{#include images/tep-flowsheet.svg}}
+<figcaption style="font-size: 0.9em; opacity: 0.8; margin-top: 0.6em;">The Tennessee Eastman Process as <code>teprob.f</code> wires it. Solid lines are the thirteen internal streams, each labelled with its Fortran <code>FTM</code> index and, where one exists, the stream number of the paper. Dashed lines are utilities: cooling water through the reactor coil and the condenser, and steam to the stripper reboiler. Beside each vessel are the <code>XMEAS</code> instruments and <code>XMV</code> valves that sit on it, and the three <code>AT</code> bubbles mark the streams the composition analysers sample.</figcaption>
+</figure>
+
 Two properties make it a good benchmark and a hard one. It is open-loop
 unstable, so a run with the valves held still does not merely drift, it trips:
 this port measures that trip at 3.060 simulated hours on reactor pressure (LOG
