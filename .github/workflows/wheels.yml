@@ -62,6 +62,7 @@ jobs:
   licences:
     name: licences (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
@@ -89,14 +90,16 @@ jobs:
   # 3.9 up. The core is pure Rust with no C dependencies, which is what makes
   # this a matrix of targets rather than a matrix of toolchains.
   #
-  # UNVERIFIED: the cross-compiled rows. aarch64 Linux and aarch64 Windows are
-  # built on x86_64 runners, and maturin-action is being trusted to install the
-  # target and pick the right linker. The native rows (manylinux x86_64,
-  # macOS both, Windows x86_64) are the ones most likely to work first time.
+  # UNVERIFIED: the cross-compiled rows. aarch64 Linux, aarch64 Windows and
+  # x86_64 macOS are built on hosts of the other architecture, and
+  # maturin-action is being trusted to install the target and pick the right
+  # linker. The native rows (manylinux x86_64, macOS aarch64, Windows x86_64)
+  # are the ones most likely to work first time.
   abi3:
     name: abi3 ${{ matrix.name }}
     needs: licences
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -117,8 +120,22 @@ jobs:
             os: ubuntu-latest
             target: aarch64-unknown-linux-musl
             manylinux: musllinux_1_2
+          # Cross-compiled from the aarch64 runner, not built on an Intel
+          # one. `macos-13` is the last Intel image and its runners are
+          # scarce: on 2026-08-29 this row queued 5, 22, 30, 50 and 106
+          # minutes across five runs and was cancelled every time without
+          # executing a single step, so the workflow never once finished.
+          # Queue time is not billed, but a wheel job that never runs is
+          # worse than an expensive one.
+          #
+          # Nothing about the build needs an Intel host. Xcode carries both
+          # SDKs, and this is already an abi3 build with no `--interpreter`,
+          # so it is the same situation as the aarch64 Linux and Windows
+          # rows above: maturin installs the target and cross-compiles. The
+          # smoke job never exercised this wheel anyway -- it tests
+          # macos-aarch64 only -- so no coverage changes hands here.
           - name: macos-x86_64
-            os: macos-13
+            os: macos-14
             target: x86_64-apple-darwin
           - name: macos-aarch64
             os: macos-14
@@ -184,6 +201,7 @@ jobs:
     name: ${{ matrix.python }} ${{ matrix.platform.name }}
     needs: licences
     runs-on: ${{ matrix.platform.os }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -230,6 +248,7 @@ jobs:
     name: sdist
     needs: licences
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
@@ -255,6 +274,7 @@ jobs:
     name: smoke ${{ matrix.name }} py${{ matrix.python }}
     needs: abi3
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       # Written out rather than crossed, because the combinations are not a
@@ -326,6 +346,7 @@ jobs:
     needs: licences
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -375,6 +396,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [abi3, freethreaded, sdist, smoke]
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     environment:
       name: pypi
       url: https://pypi.org/p/tepsim
