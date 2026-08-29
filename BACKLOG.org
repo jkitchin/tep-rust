@@ -3201,6 +3201,56 @@ Done when:
 - [ ] Numbers in `LOG.org`: the worst difference-over-margin and which variable
       and scenario it belongs to
 
+** NEXT B-0080 Generate Rieth-shaped ensembles from the CLI
+:PROPERTIES:
+:ID:    B-0080
+:PHASE: 6
+:TIER:  none
+:DEPS:  B-0064
+:PLAN:  Command-line interface
+:END:
+
+`tep dataset` produces the original 44 files, one run each. The dataset most
+current machine-learning work is trained on is not that one: it is
+`rieth-2017-addit`, 500 runs per fault at independent seeds, and the CLI cannot
+produce its shape.
+
+Their protocol, from the dataset's own documentation and confirmed against two
+independent descriptions:
+
+| | training | testing |
+|---|---|---|
+| duration | 25 h | 48 h |
+| rows | 500 | 960 |
+| fault onset | 1 h, row 20 | 8 h, row 160 |
+| runs per fault | 500 | 500 |
+| columns | 52 | 52 |
+
+Note the training protocol is *not* the one `published::File::scenario` uses.
+Ours runs 25 h with the fault from step zero and discards the first hour, which
+is the only hypothesis that explains `d00.dat`'s 500 rows against the others'
+480. Rieth keeps all 500 rows with the first 20 fault-free. Both are 25 h and
+both split 20/480, and they are different runs. That is worth a sentence in the
+docs, because someone will otherwise assume one file can serve as the other.
+
+Done when:
+- [ ] `tepsim::published::rieth` carries the geometry as named constants, cited,
+      and a scenario builder, so the numbers are in the library rather than in
+      an argument parser
+- [ ] `tep dataset --layout rieth --runs N` writes the four files their
+      distribution has, in the long layout with `faultNumber`, `simulationRun`
+      and `sample` columns
+- [ ] The seed scheme is deterministic and documented. Do **not** claim the
+      streams are independent or non-overlapping: the original generator's
+      `g * 9228907` product exceeds 2^53, so its modulus is inexact and it is
+      not a clean LCG. A cycle search from the compiled-in seed found no return
+      within 2e9 states, which refutes the group-theoretic period but
+      establishes nothing about stream independence either
+- [ ] It says, as `tep dataset` already does, that the output is Rieth-*shaped*
+      and not Rieth's data
+- [ ] The cost is stated up front: 500 runs by 21 faults by two splits is
+      21,000 runs, and the CLI should report the estimate before starting
+
 * Blocked
 
 Items parked on a decision. Move them back into their phase when answered.
