@@ -3094,7 +3094,7 @@ Done when:
 :TIER:  none
 :DEPS:  B-0059
 :PLAN:  Validation > Validation report
-:COMMIT: pending
+:COMMIT: 5feea27
 :RESULT: Seven generated SVGs in =book/src/validation/figures/=, written by a
          new =xtask/src/plot.rs= with =format!= exactly as =report.rs= writes
          markdown. *No plotting dependency*: the book still builds with
