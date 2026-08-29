@@ -989,9 +989,95 @@ fn cmd_validate(root: &Path, flags: &[String]) -> Result<(), String> {
                     )?;
                 }
             }
+            6 => {
+                if which("gfortran").is_none() {
+                    return Err("tier 6 needs gfortran, which is not on PATH.".to_string());
+                }
+                // The cross-source detector experiment, plus the detection
+                // rates against the published files. Both take a size
+                // selector; `validate` asks for the full one.
+                println!("\n=== tier 6: downstream-task equivalence ===");
+                for (target, size) in [
+                    ("tier6_cross_source", TIER6_ENV),
+                    ("tier6_published_rates", TIER6_RATES_ENV),
+                ] {
+                    step_with_env(
+                        root,
+                        "cargo",
+                        &[
+                            "test",
+                            "-p",
+                            "tepsim-oracle",
+                            "--features",
+                            "oracle",
+                            "--release",
+                            "--test",
+                            target,
+                            "--",
+                            "--nocapture",
+                            "--test-threads",
+                            "1",
+                        ],
+                        &[(size, "full")],
+                    )?;
+                }
+            }
+            7 => {
+                if which("gfortran").is_none() {
+                    return Err("tier 7 needs gfortran, which is not on PATH.".to_string());
+                }
+                // Every published file rather than the four-file smoke set.
+                // About five minutes in release; thirty-five in debug, which
+                // is why it is not in `ci`.
+                println!("\n=== tier 7: published dataset reproduction ===");
+                step_with_env(
+                    root,
+                    "cargo",
+                    &[
+                        "test",
+                        "-p",
+                        "tepsim-oracle",
+                        "--features",
+                        "oracle",
+                        "--release",
+                        "--test",
+                        "tier7_published",
+                        "--",
+                        "--nocapture",
+                        "--test-threads",
+                        "1",
+                    ],
+                    &[(TIER7_ENV, "full")],
+                )?;
+            }
+            10 => {
+                if which("gfortran").is_none() {
+                    return Err("tier 10 needs gfortran, which is not on PATH.".to_string());
+                }
+                println!("\n=== tier 10: measured deltas for every Class C quirk ===");
+                step(
+                    root,
+                    "cargo",
+                    &[
+                        "test",
+                        "-p",
+                        "tepsim-oracle",
+                        "--features",
+                        "oracle",
+                        "--release",
+                        "--test",
+                        "tier10_quirk_deltas",
+                        "--",
+                        "--nocapture",
+                        "--test-threads",
+                        "1",
+                    ],
+                )?;
+            }
             other => println!(
-                "\n[skip] tier {other}: not implemented yet. Tiers 6-10 land \
-                 with their phases; see BACKLOG.org."
+                "\n[skip] tier {other}: no harness yet. Tiers 8 and 9 are \
+                 differential fuzzing and cross-platform determinism; see \
+                 BACKLOG.org."
             ),
         }
     }
@@ -1196,6 +1282,15 @@ const TIER4_HOURS_ENV: &str = "TEP_TIER4_HOURS";
 
 /// Selects Tier 5's battery size, likewise.
 const TIER5_ENV: &str = "TEP_TIER5";
+
+/// Selects Tier 6's cross-source battery size.
+const TIER6_ENV: &str = "TEP_TIER6";
+
+/// Selects how much of the published-rate sweep runs.
+const TIER6_RATES_ENV: &str = "TEP_TIER6_RATES";
+
+/// Selects whether Tier 7 covers every published file or the smoke set.
+const TIER7_ENV: &str = "TEP_TIER7";
 
 /// Tier 4. The open-loop trajectory is diagnostic; the closed-loop one is not
 /// quite, because the controllers hold the plant at a setpoint and so remove
