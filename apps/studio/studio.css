@@ -68,6 +68,32 @@ code,
   max-width: 62rem;
 }
 
+/* The way back out of the app: to the book, to the source, to the validation
+   chapter. Someone who arrives from a shared scenario link has no other route
+   to any of them, and this page makes claims that all three back up.
+
+   `currentColor` rather than a new custom property, because the file defines
+   no link colour and both themes already set a readable foreground. */
+.masthead-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 1.1rem;
+  margin-top: 0.6rem;
+  font-size: 0.85rem;
+}
+
+.masthead-links a {
+  color: currentColor;
+  text-decoration: none;
+  border-bottom: 1px solid var(--line-strong);
+  padding-bottom: 1px;
+}
+
+.masthead-links a:hover,
+.masthead-links a:focus-visible {
+  border-bottom-color: currentColor;
+}
+
 .error {
   color: var(--bad);
   font-family: var(--mono);

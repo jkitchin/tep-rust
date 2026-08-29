@@ -3,7 +3,20 @@ name: CI
 on:
   push:
     branches: [main]
+    # A commit that only moves prose cannot break the build, and this
+    # repository moves a lot of prose. `pages.yml` still publishes it.
+    paths-ignore:
+      - 'book/**'
+      - 'notebooks/**'
+      - '**.org'
+      - '**.md'
+      - 'LICENSE*'
+      - 'NOTICE*'
+      - '.github/workflows/pages.yml'
   pull_request:
+  # Miri, once a week. See the `miri` job below.
+  schedule:
+    - cron: '0 6 * * 1'
   workflow_dispatch:
 
 env:
@@ -15,24 +28,31 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # The gate, on Linux only.
+  # Linux only. Every job in this file is, deliberately.
   #
-  # It ran on all three runners until 2026-08-29. What that bought, measured
-  # rather than assumed the first time the matrix actually completed, was one
-  # genuine finding: the Windows runner *does* ship gfortran, contrary to the
-  # comment that used to sit here, so `xtask ci` tried to build the oracle
-  # there and `f951.exe` could not parse the extended-length `\\?\` path that
-  # `fs::canonicalize` produces. That is now handled by policy in
-  # `xtask::oracle_supported`, which refuses Windows outright, matching what
-  # `CLAUDE.md` always said.
+  # # Why there is no Windows or macOS job any more
   #
-  # Everything else the Windows and macOS gate rows checked is checked
-  # elsewhere: the oracle job below still runs on Linux and macOS, so aarch64
-  # and a second gfortran are still covered and the bit-exactness claim is
-  # unaffected; the wheels workflow still builds and smoke-tests wheels on
-  # Windows and macOS, which is where cross-platform breakage would actually
-  # reach a user; and `tepsim-core` is `no_std` with no platform-specific code
-  # to diverge. Three full gates for that was not paying for itself.
+  # Cost. macOS runners bill at ten times a Linux minute and Windows at twice,
+  # and between them they were the large majority of this repository's Actions
+  # usage. Removed on 2026-08-29 at 90% of the allotment.
+  #
+  # Windows had already earned its keep once and been paid off: the first full
+  # matrix run in 180 commits found that the Windows runner *does* ship
+  # gfortran, so `xtask ci` tried to build the oracle there and `f951.exe`
+  # could not parse the extended-length `\\?\` path `fs::canonicalize`
+  # produces. That is fixed by policy in `xtask::oracle_supported`, which
+  # refuses Windows outright, so the finding is now permanent rather than
+  # something a Windows runner has to rediscover.
+  #
+  # # What this gives up, stated plainly rather than waved away
+  #
+  # There is no longer an aarch64 leg and no second gfortran on any automatic
+  # run. The bit-exactness claim rests on one compiler on one architecture.
+  # `cargo xtask tier9` on any other machine still completes the determinism
+  # claim, because the Tier 9 digests are committed constants rather than a
+  # value computed twice, and the wheels workflow still builds and smoke-tests
+  # on Windows and macOS when a release is tagged. Neither is automatic on a
+  # push, and that is the trade that was made.
   gate:
     name: gate (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -41,16 +61,6 @@ jobs:
       matrix:
         os: [ubuntu-latest]
     steps:
-      # Before checkout, and it has to be: crates/tepsim-py/{LICENSE,
-      # LICENSE-NCSA,NOTICE.md} are symlinks to the repository root, and Git for
-      # Windows ships with core.symlinks=false in its system config. Without
-      # this, git writes the target *path* as the file body and the licence
-      # texts become the 13-byte string "../../LICENSE". `xtask ci` checks for
-      # exactly that and fails, which is the point, but the fix belongs here.
-      - name: Let git create symlinks (Windows)
-        if: runner.os == 'Windows'
-        run: git config --global core.symlinks true
-
       - uses: actions/checkout@v4
 
       # No @stable: rust-toolchain.toml pins the version, and an action that
@@ -79,16 +89,18 @@ jobs:
       - name: cargo xtask ci
         run: cargo xtask ci --fast
 
-  # Differential testing against the original Fortran. Linux and macOS only:
-  # gfortran on Windows runners is a source of toolchain trouble that buys
+  # Differential testing against the original Fortran. Linux only, and never
+  # Windows: gfortran there is a source of toolchain trouble that buys
   # nothing, since the oracle is a development instrument and never shipped.
+  # The Fortran differential, on Linux, on every change. This is the job that
+  # holds the project's central claim, so it is never off the push path.
   oracle:
     name: oracle (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest]
     steps:
       - uses: actions/checkout@v4
 
@@ -96,13 +108,8 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: Install gfortran (Linux)
-        if: runner.os == 'Linux'
+      - name: Install gfortran
         run: sudo apt-get update && sudo apt-get install -y gfortran
-
-      - name: Install gfortran (macOS)
-        if: runner.os == 'macOS'
-        run: brew install gcc
 
       # The reference numbers depend on the compiler, so record it. A gfortran
       # change is a deliberate re-baseline, not a regression: see CLAUDE.md.
@@ -130,8 +137,17 @@ jobs:
 
   # The core contains no unsafe, so this should be uneventful. It is here to
   # stay uneventful.
+  # Weekly, and on demand.
+  #
+  # Miri is the second-largest line item at about fourteen minutes, and what it
+  # checks is a crate that is `forbid(unsafe_code)`. The chance a given commit
+  # introduces undefined behaviour there is close to zero, and the chance it
+  # does so without any other test noticing is smaller still. It stays because
+  # "close to zero" is not zero, and it moves off the push path because paying
+  # fourteen minutes a commit for it is not proportionate.
   miri:
-    name: miri (core)
+    name: miri (core, weekly)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

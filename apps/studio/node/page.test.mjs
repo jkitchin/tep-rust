@@ -94,12 +94,46 @@ test("the page ships no third-party JavaScript", () => {
   // The byte budget in PLAN.org survives because nothing is vendored. If that
   // ever changes it should change deliberately, with the licence carried into
   // dist, not by a copy-paste.
-  const external = [...html.matchAll(/(?:src|href)="(https?:)?\/\/[^"]+"/g)];
+  //
+  // What is forbidden is *loading* something off-origin: a script, a
+  // stylesheet, a font, an image, a frame. A static host cannot vouch for any
+  // of those, and any of them can change under the page after it ships.
+  //
+  // A plain `<a href>` to another site is not that. It fetches nothing, runs
+  // nothing, and is how the masthead links to the repository. This test used
+  // to match every `href` and so could not tell the two apart; it now matches
+  // the attributes that actually load, plus `href` only on the elements where
+  // `href` means "fetch this" rather than "go here".
+  const loaders = [
+    // `src` on script, img, iframe, audio, video, embed, source.
+    /\bsrc="(?:https?:)?\/\/[^"]+"/g,
+    // `href` on <link>, which is a fetch. Anchors are excluded by requiring
+    // the tag name.
+    /<link\b[^>]*\bhref="(?:https?:)?\/\/[^"]+"/g,
+    // CSS `url(...)` and `@import`, which fetch too.
+    /url\(\s*['"]?(?:https?:)?\/\/[^)]+\)/g,
+  ];
+  const external = loaders.flatMap((re) => [...html.matchAll(re)].map((m) => m[0]));
   assert.deepEqual(
-    external.map((m) => m[0]),
+    external,
     [],
     "index.html loads something off-origin; a static host cannot vouch for it",
   );
+});
+
+test("an off-origin link is allowed, and carries rel=noopener", () => {
+  // The other half of the rule above. Linking out is fine; doing it without
+  // `rel="noopener"` on a `target="_blank"` hands the opened page a live
+  // `window.opener` back into this one, which is a real and pointless risk.
+  const blanks = [...html.matchAll(/<a\b[^>]*target="_blank"[^>]*>/g)].map((m) => m[0]);
+  assert.ok(blanks.length > 0, "no external link found, so this proves nothing");
+  for (const tag of blanks) {
+    assert.match(
+      tag,
+      /rel="[^"]*noopener[^"]*"/,
+      `a target="_blank" link without rel=noopener: ${tag}`,
+    );
+  }
 });
 
 test("the worker is a module and is loaded relative to its own script", () => {

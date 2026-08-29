@@ -16,19 +16,25 @@ name: wheels
 #     (measured: it produced `cp313-cp313` against a GIL-enabled 3.13)
 #   - the wheel carries the three licence texts, 1069, 1788 and 4116 bytes
 
+# TAGS AND ON DEMAND ONLY, deliberately.
+#
+# This file builds *publishable* wheels: twenty-odd jobs across Linux, Windows
+# and macOS, several of them on macOS runners that bill at ten times a Linux
+# minute. Running that on every commit to `main` was costing more than the
+# whole of `ci.yml`, to produce artifacts nobody downloaded.
+#
+# Nothing is lost from the push path. `cargo xtask ci` builds a real wheel and
+# runs the whole pytest suite against it on every commit, and it checks the
+# licence texts too, so a change that breaks the Python package fails `ci.yml`
+# long before it would fail here. What this file adds is *cross-platform*
+# packaging, which is a release concern.
+#
+# Run it before tagging: `gh workflow run wheels.yml`.
 on:
   push:
-    branches: [main]
     tags: ['v*']
-  pull_request:
-    paths:
-      - 'crates/tepsim-py/**'
-      - 'crates/tepsim/**'
-      - 'crates/tepsim-core/**'
-      - 'crates/tepsim-control/**'
-      - 'crates/tepsim-scenario/**'
-      - 'Cargo.lock'
-      - '.github/workflows/wheels.yml'
+  release:
+    types: [published]
   workflow_dispatch:
 
 env:
