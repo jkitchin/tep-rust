@@ -47,6 +47,7 @@ concurrency:
 
 env:
   MDBOOK_VERSION: 0.5.4
+  BINARYEN_VERSION: "132"
 
 jobs:
   build:
@@ -89,14 +90,41 @@ jobs:
           echo "Cargo.lock wants wasm-bindgen $wanted"
           cargo install wasm-bindgen-cli --version "$wanted" --locked
 
-      # binaryen for wasm-opt. Worth about 9% of the raw module and close to
-      # nothing gzipped, so `build.sh` treats it as optional; installing it
-      # here costs seconds and makes the published bytes the smaller ones.
-      - name: Install binaryen
-        run: sudo apt-get update && sudo apt-get install -y binaryen
+      # binaryen for wasm-opt, pinned to a release rather than taken from apt.
+      #
+      # `apt install binaryen` on ubuntu-latest gives version 108, from 2021,
+      # and it failed this build outright: rustc 1.97 emits `i32.extend16_s`
+      # and a wasm-opt that old rejects sign-extension at validation. The
+      # `--enable-sign-ext` flag `build.sh` now passes fixes that, but the
+      # deeper problem is that an unpinned four-year-old optimiser is not
+      # something to hand the shipped artifact to. Pinned, like mdBook above
+      # and like rustc in `rust-toolchain.toml`.
+      #
+      # Note what checks this: `apps/studio/node/deployed.test.mjs` runs the
+      # built module and asserts it still produces the Tier 9 digest, so an
+      # optimiser that changed a floating-point result would fail the build
+      # rather than quietly publish different numbers.
+      - name: Install binaryen ${{ env.BINARYEN_VERSION }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.local/bin"
+          url="https://github.com/WebAssembly/binaryen/releases/download/version_${BINARYEN_VERSION}/binaryen-version_${BINARYEN_VERSION}-x86_64-linux.tar.gz"
+          curl --proto '=https' --tlsv1.2 -sSfL "$url" | tar -xz -C "$RUNNER_TEMP"
+          cp "$RUNNER_TEMP/binaryen-version_${BINARYEN_VERSION}/bin/wasm-opt" "$HOME/.local/bin/"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: wasm-opt version, recorded rather than assumed
+        run: wasm-opt --version
 
       - name: Build the studio
         run: apps/studio/build.sh
+
+      # Including `deployed.test.mjs`, which asserts the module that just came
+      # out of wasm-bindgen and wasm-opt still computes the Tier 9 digest.
+      # Publishing a studio whose numbers had shifted would be the worst kind
+      # of failure here: silent, and on the page users actually reach.
+      - name: Test the studio, including the built module
+        run: npm --prefix apps/studio test --silent
 
       # --- assemble -----------------------------------------------------
 

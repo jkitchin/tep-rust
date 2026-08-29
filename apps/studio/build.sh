@@ -28,9 +28,13 @@
 # either way, so a missing wasm-opt is a note rather than a failure.
 #
 # The feature flags are not optional. rustc 1.97 emits bulk-memory instructions
-# (`memory.copy`) and non-trapping float conversions, and a wasm-opt that is not
-# told to expect them rejects the module outright at validation. Trunk's own
-# bundled binaryen hits exactly this.
+# (`memory.copy`), non-trapping float conversions, and sign-extension operators
+# (`i32.extend16_s`), and a wasm-opt that is not told to expect them rejects the
+# module outright at validation. Trunk's own bundled binaryen hits exactly this,
+# and so does Ubuntu's: `apt install binaryen` on noble gives version 108, from
+# 2021, which failed the Pages build on sign-extension until `--enable-sign-ext`
+# was added here. A binaryen new enough to enable these by default does not need
+# the flags and is not harmed by them.
 #
 # Usage:
 #   apps/studio/build.sh              release, optimized
@@ -96,6 +100,7 @@ wasm-bindgen --target web --out-dir "${dist}/js" --no-typescript "${wasm}"
 if [ "${run_opt}" = "1" ] && command -v wasm-opt >/dev/null 2>&1; then
   echo "==> wasm-opt -Oz"
   wasm-opt -Oz --enable-bulk-memory --enable-nontrapping-float-to-int \
+    --enable-sign-ext \
     "${dist}/js/tepsim_wasm_bg.wasm" -o "${dist}/js/tepsim_wasm_bg.wasm"
 else
   if [ "${run_opt}" = "1" ]; then
