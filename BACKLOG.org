@@ -2829,7 +2829,7 @@ Run by =cargo test -p tepsim-oracle --features oracle --test tier8_fuzz=, with
 :TIER:  10
 :DEPS:  B-0025b
 :PLAN:  Quirk and delta register
-:COMMIT: pending
+:COMMIT: 988c079
 :RESULT: =QuirkFixes::new= now sets =trip_ends_the_run=, and =QuirkFixes::faithful=
          and =Scenario::faithful= are the reproducing configuration. Every
          differential pins =faithful=: =tier5::run_port= (which Tiers 5, 6 and 7
@@ -2860,7 +2860,7 @@ Run by =cargo test -p tepsim-oracle --features oracle --test tier8_fuzz=, with
 :TIER:  10
 :DEPS:  B-0040a B-0051a
 :PLAN:  Quirk and delta register
-:COMMIT: pending
+:COMMIT: 988c079
 :RESULT: =Scenario::driver_forces_idv12= defaults to =false=. Reachable four
          ways: =Scenario::faithful=, =tep run --force-idv12= (which replaces
          =--no-forced-idv12=, along with new =--freeze-on-trip= and
@@ -2879,7 +2879,7 @@ Run by =cargo test -p tepsim-oracle --features oracle --test tier8_fuzz=, with
 :TIER:  5
 :DEPS:  B-0047d
 :PLAN:  Validation > Tier 5
-:COMMIT: pending
+:COMMIT: 988c079
 :RESULT: =battery::sticks_this_valve= reads the map from =tepsim_core::FAULTS=,
          and =the_sticking_map_is_the_fortrans= parses the six =IVST(n)=IDV(m)=
          assignments out of =teprob.f:793-798= and checks all 20 x 53
@@ -2911,7 +2911,7 @@ Run by =cargo test -p tepsim-oracle --features oracle --test tier8_fuzz=, with
 :TIER:  none
 :DEPS:  B-0059
 :PLAN:  Documentation
-:COMMIT: pending
+:COMMIT: 988c079
 :RESULT: Three tutorials carried a =rust,ignore= listing and a transcript pasted
          beside it. Nothing compiled either, so when B-0065 and B-0066 moved the
          defaults, =scheduling-a-fault.md= went on showing =active [4, 12]= from
