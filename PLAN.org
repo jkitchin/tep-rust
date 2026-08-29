@@ -857,6 +857,122 @@ mid-range laptop, which puts a 48-hour run at under thirty seconds and makes
 interactive exploration pleasant. Deploy to GitHub Pages as primary and mirror to
 a Hugging Face Static Space, both free and both fully static.
 
+* Operations: economics, reconciliation and planning
+
+** Decision 2026-08-29 (B-0074): add an operations layer above the controllers
+
+This section did not exist. The port could simulate the plant and detect faults
+on it, and could not *decide* anything about it. That leaves out the layer
+industrial practice actually spends its money on: given drifting feed quality
+and drifting prices, reconcile what the instruments say against what the
+balances allow, and move the plant to meet an objective.
+
+The Tennessee Eastman problem was posed with exactly this in mind. Downs and
+Vogel state an operating cost and six operating modes at different G/H ratios
+and production rates, and much of the published work on the process is about
+optimisation and plant-wide control rather than about detection alone.
+
+** Where it attaches, which is the reason this is cheap
+
+Nothing new has to be invented to *apply* a decision.
+=tepsim_scenario::Action::Setpoint= already exists, =Schedule= already carries
+timed actions, and =Simulation= already applies them. A planner is therefore a
+pure function from a measurement history to a set of setpoint moves, and the
+machinery to deliver those moves is already written and already validated.
+
+That is the whole architectural claim, and it is what makes this an additive
+layer rather than a redesign. Nothing in =tepsim-core= or =tepsim-control=
+changes.
+
+** The three pieces, in the order they are worth building
+
+*** Economics: what a run costs
+
+A cost rate in currency per hour, computed from channels the plant already
+measures: material leaving in the purge (=XMEAS(10)= with the composition at
+=XMEAS(29..36)=), material leaving in the product (=XMEAS(17)= with
+=XMEAS(37..41)=), compressor work (=XMEAS(20)=) and stripper steam
+(=XMEAS(19)=).
+
+*Prices are an input, not a constant, and that is deliberate twice over.* It is
+what the use case needs, since the whole point is to plan against drifting
+prices. And it is what this project's rules allow: the operating cost
+coefficients are in the Downs and Vogel paper and *are not in the vendored
+source*, so there is nothing in =reference/= to assert them against. The rule
+here is that constants are asserted and never retyped, and a coefficient typed
+off a paper nobody in the repository can check is exactly the silent failure
+that rule exists to prevent. So the crate ships the *structure*, which is
+derivable from the model and testable, and takes the coefficients from the
+caller.
+
+See the open question below on whether to add a cited preset.
+
+*** Reconciliation: what the instruments must have meant
+
+Steady-state data reconciliation: adjust the measurements by the smallest
+weighted amount that satisfies the balances.
+
+This fits the project unusually well, because neither half has to be invented.
+The constraints are the mass and per-component molar balances that
+=tepsim-core= already computes and that the Tier 2 invariants already check.
+And the weights are not a modelling choice either: =XNS(i)= in =teprob.f= is the
+standard deviation of the noise on each measurement, which is precisely the
+weighting a weighted least-squares reconciliation wants. Both sides come out of
+the source rather than out of a judgement call, which is rare and worth taking
+advantage of.
+
+Gross error detection follows from the same machinery: a measurement whose
+adjustment is large relative to its own noise is either faulty or the balance
+is wrong, and the process has twenty labelled ways for the latter to happen.
+
+*** Planning: what to do about it
+
+Choose setpoints to optimise a stated objective subject to constraints, and emit
+the result as =Action::Setpoint= events. Objectives the use case names:
+minimise energy, maximise profit, meet a production target. Constraints include
+the process shutdown limits, which are already typed as
+=ShutdownCause=, so "do not trip the plant" is expressible rather than
+aspirational.
+
+** What is checkable, and what is not
+
+This project's habit is to say which claims have teeth before making them.
+
+Checkable: that the cost is zero when nothing flows and strictly positive when
+material leaves; that it responds to each term in the right direction; that
+reconciled measurements satisfy the balances to tolerance while the raw ones do
+not; that reconciliation reduces the error against the *true* state, which the
+simulator uniquely knows, over the noise realisations; that a gross error is
+detected where one was injected, using the twenty disturbances as ground truth;
+and that a planned setpoint schedule beats a fixed operating point on the stated
+objective across the disturbance battery.
+
+Not checkable here: the absolute currency values, for the reason above.
+
+** Crate layout
+
+A new =tepsim-operations=, a *shipped* crate depending on =tepsim= and
+=tepsim-scenario=.
+
+It carries its own small linear algebra rather than reaching for
+=tepsim-stats=, and that is forced rather than chosen: =tepsim-stats= is
+development-only, =xtask ci= asserts that no shipped crate so much as names it,
+and reconciliation needs a Cholesky solve of a KKT system, which is short enough
+to write once.
+
+It is *not* in =tepsim-core=. The core is =no_std=, =forbid(unsafe_code)= and
+bound by the determinism invariant, and an iterative optimiser has no business
+inside the thing whose bit-exactness against Fortran is the project's central
+claim.
+
+** Tier 11: the operations layer
+
+The ladder gains a rung, and it is a different kind of rung: Tiers 1 to 10 ask
+whether this port *is* the Fortran, and Tier 11 asks whether a decision made on
+top of it is any good. The gate is a comparison against a fixed operating point
+over the disturbance battery, on the stated objective, with the simulator's
+knowledge of the true state used to score the reconciliation.
+
 * Documentation
 
 Each unit operation gets a rustdoc module page carrying the governing equations
@@ -965,6 +1081,12 @@ green. Phases 7 and 8 can proceed in parallel with Phase 5 as long as they track
 the core, and Phase 9 accumulates throughout rather than being deferred to the
 end.
 
+*Phase 10, the operations layer.* Economics, steady-state data reconciliation
+and a setpoint planner, in a new shipped =tepsim-operations= crate. Exit
+criterion: Tier 11 shows a planned schedule beating a fixed operating point on a
+stated objective across the disturbance battery, and reconciliation reducing
+error against the true state that only the simulator knows.
+
 * Risks
 
 The largest technical risk is that transcendental function differences prevent
@@ -1001,6 +1123,13 @@ now and expensive if retrofitted.
 Whether the browser app should support running a Python controller through
 Pyodide, which is technically possible and pedagogically attractive but adds
 several megabytes to the page and would need to be lazy-loaded.
+
+Whether =tepsim-operations= should ship a cited =Prices::downs_vogel_1993()=
+preset. The coefficients are in the paper and not in =reference/=, so nothing in
+the repository can assert them and the project's own rule says a retyped
+constant is a silent failure. Adding the paper's cost table to =reference/= with
+a checksum would resolve it, at the cost of vendoring something that is not
+code. Until then prices are supplied by the caller.
 
 Whether to publish generated reference datasets alongside the code, and if so at
 what scale and on what host, given that a labeled corpus with scenario hashes

@@ -14,8 +14,8 @@ earlier phases will change what the right decomposition is.
 
 Rewrite this block at the end of every iteration. Keep it to five lines.
 
-- Phase: *every phase has landed its work, and every decision has been taken.*
-  Nothing is TODO and nothing is BLOCKED
+- Phase: Phases 0-9 are complete. *Phase 10, the operations layer, is open*:
+  B-0074 is NEXT, B-0075 to B-0077 follow it
 - Last completed: B-0062 (Tier 8 fuzzing), B-0063 (Tier 9 determinism), B-0064
   (=tep dataset=), B-0065/B-0066/B-0067 (the three sign-offs), B-0068 (the
   book's tutorials pinned to compiled examples)
@@ -2941,6 +2941,121 @@ Run by =cargo test -p tepsim-oracle --features oracle --test tier8_fuzz=, with
          =a-detector.md= turned out to be unaffected by the flips, because it
          already set =driver_forces_idv12: false=; verified rather than assumed.
 :END:
+
+* Phase 10: the operations layer
+
+Economics, data reconciliation and setpoint planning, above the controllers and
+outside the core. See =PLAN.org=, "Operations", and the decision of 2026-08-29.
+
+Exit: Tier 11 shows a planned schedule beating a fixed operating point on a
+stated objective across the disturbance battery, and reconciliation reducing
+error against the true state that only the simulator knows.
+
+** NEXT B-0074 The operating cost of a run
+:PROPERTIES:
+:ID:    B-0074
+:PHASE: 10
+:TIER:  11
+:DEPS:  B-0052
+:PLAN:  Operations > Economics
+:END:
+
+A new shipped crate =tepsim-operations=, and in it a cost rate in currency per
+hour computed from what the plant already measures.
+
+Prices are an input. The Downs and Vogel coefficients are in the paper and not
+in =reference/=, so nothing here can assert them, and this project's rule is
+that a constant which cannot be asserted is a silent failure waiting to happen.
+Ship the structure, take the numbers from the caller. It is also what the use
+case wants, since the point is to plan against prices that move.
+
+Done when:
+- [ ] =tepsim-operations= exists, is shipped, depends on neither
+      =tepsim-oracle= nor =tepsim-stats=, and =xtask ci='s isolation check
+      still passes
+- [ ] =Prices= and a cost rate over purge loss, product loss, compressor work
+      and stripper steam, each citing the =XMEAS= channel it reads and the
+      =teprob.f= line that defines that channel's units
+- [ ] The unit conversions are *derived and asserted*, not assumed: the purge
+      is kscmh and the product is m3/h, and turning either into a mass rate
+      needs the molecular weights, which are already in =tepsim-core= and
+      already asserted against the oracle
+- [ ] Zero flow costs nothing; each term moves the cost in the right direction;
+      a term's contribution is zero exactly when its price is zero
+- [ ] The cost of a nominal 48-hour run is *recorded as a number* in =LOG.org=
+      under a stated price vector, so the next iteration has a baseline
+- [ ] Rustdoc says plainly that the absolute currency value is not validated
+      against anything, and why
+
+** TODO B-0075 Steady-state data reconciliation
+:PROPERTIES:
+:ID:    B-0075
+:PHASE: 10
+:TIER:  11
+:DEPS:  B-0074
+:PLAN:  Operations > Reconciliation
+:END:
+
+Weighted least squares: adjust the measurements by the smallest weighted amount
+that satisfies the balances.
+
+Neither half is invented. The constraints are the balances =tepsim-core=
+already computes and the Tier 2 invariants already check; the weights are
+=XNS(i)=, the noise standard deviations in =teprob.f=.
+
+Done when:
+- [ ] A Cholesky solve of the KKT system, written in the crate, with
+      known-answer tests against a problem whose solution is analytic
+- [ ] Reconciled measurements satisfy the balances to tolerance; raw ones,
+      demonstrably, do not
+- [ ] *The reconciliation reduces error against the true state*, measured over
+      many noise realisations. The simulator knows the true state, which is a
+      luxury the real problem does not have and this project should use
+- [ ] Numbers in =LOG.org=: the reduction, and on which channels it is largest
+
+** TODO B-0076 Gross error detection, scored against the twenty disturbances
+:PROPERTIES:
+:ID:    B-0076
+:PHASE: 10
+:TIER:  11
+:DEPS:  B-0075
+:PLAN:  Operations > Reconciliation
+:END:
+
+A measurement whose adjustment is large against its own noise is either faulty
+or the balance is wrong. The process ships twenty labelled ways for the latter,
+so the ground truth for scoring already exists.
+
+Done when:
+- [ ] A per-measurement test statistic and a stated threshold
+- [ ] Detection rate and false-alarm rate over the twenty disturbances,
+      recorded, and compared against the Tier 6 PCA detectors on the same runs
+- [ ] The comparison is honest about what it is: reconciliation uses the model
+      and PCA does not, so this is not a like-for-like contest
+
+** TODO B-0077 The setpoint planner
+:PROPERTIES:
+:ID:    B-0077
+:PHASE: 10
+:TIER:  11
+:DEPS:  B-0074 B-0075
+:PLAN:  Operations > Planning
+:END:
+
+Choose setpoints for a stated objective and emit them as =Action::Setpoint=
+events into the existing schedule.
+
+Done when:
+- [ ] At least two objectives: minimise a cost rate, and meet a production
+      target at least cost
+- [ ] The shutdown limits are constraints, expressed through the existing
+      typed =ShutdownCause= rather than as magic numbers
+- [ ] Deterministic termination. The determinism invariant is not suspended
+      because a solver is iterative
+- [ ] *Tier 11*: the planned schedule beats a fixed operating point on the
+      stated objective across the disturbance battery, with the margin recorded
+- [ ] A worked example in the book and a notebook
+
 
 * Blocked
 
