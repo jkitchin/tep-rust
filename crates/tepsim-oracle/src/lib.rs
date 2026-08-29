@@ -68,6 +68,11 @@ pub mod tier6;
 #[cfg(feature = "oracle")]
 pub mod tier7;
 
+// Tier 8 forces the Fortran into a randomly generated state and reads its
+// derivative back, so it needs the Fortran for the same reason `tier2` does.
+#[cfg(feature = "oracle")]
+pub mod tier8;
+
 #[cfg(feature = "oracle")]
 mod ffi;
 
