@@ -51,6 +51,67 @@ export function formatValue(value) {
   return value.toExponential(2);
 }
 
+/**
+ * A number for a panel readout: four significant figures, never wider than a
+ * flowsheet has room for.
+ *
+ * [`formatValue`] is right for a table, where a column of readings that share a
+ * decimal point is what makes the column scannable, and where five decimals
+ * cost nothing but a little ink. On a diagram they cost the space the next
+ * label needed, and nobody reads the fifth digit of a reactor temperature off a
+ * picture. So this is the same idea with the budget halved: four significant
+ * figures, which is `2705 kPa`, `120.4 Deg C`, `0.2505 kscmh`, and at most six
+ * characters before the sign.
+ *
+ * Below a tenth the significant figures give way to a fixed four decimals. A
+ * flow that has collapsed to 0.0012 is a flow that has collapsed, and the
+ * absolute size is the readable fact about it; carrying it to 0.001200 would
+ * widen every label on the diagram to say nothing. Below a thousandth even that
+ * stops distinguishing anything and the exponent is the only honest form.
+ *
+ * @param {number} value
+ * @returns {string}
+ */
+export function formatReadout(value) {
+  if (!Number.isFinite(value)) return "-";
+  const magnitude = Math.abs(value);
+  if (magnitude === 0) return "0";
+  if (magnitude >= 1000) return value.toFixed(0);
+  if (magnitude >= 100) return value.toFixed(1);
+  if (magnitude >= 10) return value.toFixed(2);
+  if (magnitude >= 1) return value.toFixed(3);
+  if (magnitude >= 0.001) return value.toFixed(4);
+  return value.toExponential(1);
+}
+
+// How a unit is spelled when there is no room for how the Fortran spells it.
+//
+// This is a rendering of the string the bindings hand over, not a second table
+// of units: anything not named here is drawn exactly as it arrived, so a unit
+// that changes upstream shows through rather than being quietly mapped to the
+// wrong abbreviation. The unabbreviated spelling stays on the hover title.
+const SHORT_UNITS = new Map([
+  ["kPa gauge", "kPa"],
+  ["Deg C", "°C"],
+  ["Mole %", "mol%"],
+  ["kg/hr", "kg/h"],
+  ["m3/hr", "m3/h"],
+]);
+
+/**
+ * The diagram's spelling of a unit from `columnUnits()`.
+ *
+ * `kPa gauge` is nine characters of which three carry information, and it was
+ * the difference between a readout that fitted beside the separator and one
+ * that ran off the edge of the picture.
+ *
+ * @param {string} unit as the bindings spell it
+ * @returns {string}
+ */
+export function shortUnit(unit) {
+  return SHORT_UNITS.get(unit) ?? unit;
+}
+
 /** Simulated hours as `h:mm`, for a time axis. */
 export function formatHours(hours) {
   if (!Number.isFinite(hours)) return "-";

@@ -198,7 +198,13 @@ select {
 }
 
 /* The flowsheet. The SVG keeps its aspect ratio and scales to the column, so
-   the readouts stay where the diagram put them at any width. */
+   the readouts stay where the diagram put them at any width.
+
+   The type sizes are chosen against the 1200-unit viewBox at the width the
+   main column actually gets, which is a little over 1000 CSS pixels at a
+   laptop's 1440: a 12.5-unit value renders at about 10.5 pixels there, which
+   is the size of the rest of the page's small type. Below the min-width the
+   frame scrolls rather than shrinking the labels into illegibility. */
 .pfd-frame {
   width: 100%;
   overflow-x: auto;
@@ -207,66 +213,75 @@ select {
 #pfd {
   display: block;
   width: 100%;
-  min-width: 40rem;
+  min-width: 58rem;
   height: auto;
   color: inherit;
 }
 
 .pfd-vessel {
-  fill: none;
+  fill: currentColor;
+  fill-opacity: 0.04;
   stroke: currentColor;
-  stroke-width: 1.5;
-  opacity: 0.75;
+  stroke-width: 1.6;
+  stroke-opacity: 0.75;
 }
 
 .pfd-pipe {
   fill: none;
   stroke: currentColor;
-  stroke-width: 1.2;
+  stroke-width: 1.4;
+  stroke-linejoin: round;
   opacity: 0.45;
 }
 
+/* Cooling water and steam, and the levels in the vessels: the one place the
+   diagram uses a colour rather than currentColor, because a utility is not a
+   process stream and the difference should be visible at a glance. The second
+   declaration lifts it out of the background in a dark theme and is ignored by
+   a browser without `light-dark()`, which keeps the first. */
 .pfd-cooling {
   fill: none;
   stroke: #4c78a8;
+  stroke: light-dark(#4c78a8, #82b1e0);
   stroke-width: 1.4;
-  stroke-dasharray: 4 3;
-  opacity: 0.8;
+  stroke-dasharray: 5 4;
+  opacity: 0.85;
 }
 
 .pfd-arrowhead {
   fill: currentColor;
-  opacity: 0.5;
+  opacity: 0.55;
 }
 
 .pfd-level {
   stroke: #4c78a8;
+  stroke: light-dark(#4c78a8, #82b1e0);
   stroke-width: 1.2;
-  stroke-dasharray: 3 3;
+  stroke-dasharray: 4 3;
   opacity: 0.7;
 }
 
 .pfd-unit {
   fill: currentColor;
-  font: 600 11px var(--sans);
+  font: 600 13px var(--sans);
   opacity: 0.85;
 }
 
 .pfd-stream {
   fill: currentColor;
-  font: 9px var(--sans);
-  opacity: 0.5;
+  font: 11.5px var(--sans);
+  opacity: 0.55;
 }
 
 .pfd-caption {
   fill: currentColor;
-  font: 9px var(--sans);
-  opacity: 0.6;
+  font: 12px var(--sans);
+  opacity: 0.65;
 }
 
 .pfd-value {
   fill: currentColor;
-  font: 10px var(--mono);
+  font: 12.5px var(--mono);
 }
 
 .pfd-readout {
