@@ -6266,6 +6266,13 @@ nobody has done.
   because there is nothing to fix: it is an accepted one-ULP =exp= difference
   amplified by 973 hours of drift. Worth revisiting only if a second, unrelated
   counterexample appears.
+- *=book/src/validation/delta-index.md= can never be stamped with its own
+  commit.* =xtask deltas= writes the hash it ran at into the page, so the
+  committed page is always one commit behind, and it had been carrying
+  =3ba70c3-dirty= until this iteration restamped it at =c736d76=. Not wrong,
+  but the stamp is the one field that cannot be right. Either drop the hash from
+  the page or let the generator read =HEAD= before the bookkeeping commit; a
+  small decision either way, and nobody has taken it.
 - *Arrow and Parquet sinks were considered and not built.* They were on the
   previous entry's unfinished list. The right home is =tepsim-cli= behind a
   feature, never =tepsim=, which is =no_std= and compiles to wasm32 under a size
