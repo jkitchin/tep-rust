@@ -35,12 +35,12 @@ wheel and its virtualenv from the repository root, then add the notebook tools
 to that virtualenv:
 
 ```bash
-cargo xtask python                                  # builds target/xtask-python/venv
-target/xtask-python/venv/bin/pip install jupyter matplotlib
-target/xtask-python/venv/bin/jupyter lab notebooks/
+cargo xtask python                                  # builds .xtask-python/venv
+.xtask-python/venv/bin/pip install jupyter matplotlib
+.xtask-python/venv/bin/jupyter lab notebooks/
 ```
 
-Note that `cargo xtask python` deletes and rebuilds `target/xtask-python/venv`
+Note that `cargo xtask python` deletes and rebuilds `.xtask-python/venv`
 every time it runs, so `jupyter` and `matplotlib` have to be reinstalled after
 each rebuild.
 
@@ -49,7 +49,7 @@ produced:
 
 ```bash
 cd notebooks
-../target/xtask-python/venv/bin/jupyter nbconvert \
+../.xtask-python/venv/bin/jupyter nbconvert \
     --to notebook --execute --inplace *.ipynb
 ```
 

@@ -51,3 +51,7 @@ __pycache__/
 
 # Assembled locally to rehearse what `.github/workflows/pages.yml` publishes.
 /_site/
+
+# The venv and wheel `cargo xtask python` builds. Outside `target/` on
+# purpose; see `PY_WORK_DIR` in xtask.
+/.xtask-python/

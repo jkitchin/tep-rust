@@ -377,7 +377,18 @@ const PY_CRATE_DIR: &str = "crates/tepsim-py";
 ///
 /// Under `target/`, which is already ignored, so a gate run leaves the working
 /// tree clean.
-const PY_WORK_DIR: &str = "target/xtask-python";
+/// Where the Python venv and the built wheel live.
+///
+/// Deliberately *not* under `target/`, though it was until B-0075b and that is
+/// where you would expect scratch work to go.
+///
+/// `Swatinem/rust-cache` walks `target/` looking for build directories to
+/// prune, and a Python venv underneath it is both a waste of that walk and a
+/// hazard: numpy ships a fixture directory literally named
+/// `numpy/testing/tests/target`, which the cache action tried to open and
+/// failed on, annotating every CI run with an `ENOENT` that had nothing to do
+/// with the build. Keeping the venv out of `target/` removes the whole class.
+const PY_WORK_DIR: &str = ".xtask-python";
 
 /// Build the wheel, install it into a throwaway virtualenv, run pytest.
 ///
