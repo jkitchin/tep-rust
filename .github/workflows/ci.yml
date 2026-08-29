@@ -27,12 +27,14 @@ jobs:
   # `CLAUDE.md` always said.
   #
   # Everything else the Windows and macOS gate rows checked is checked
-  # elsewhere: the oracle job below still runs on Linux and macOS, so aarch64
-  # and a second gfortran are still covered and the bit-exactness claim is
-  # unaffected; the wheels workflow still builds and smoke-tests wheels on
+  # elsewhere: the wheels workflow still builds and smoke-tests wheels on
   # Windows and macOS, which is where cross-platform breakage would actually
   # reach a user; and `tepsim-core` is `no_std` with no platform-specific code
   # to diverge. Three full gates for that was not paying for itself.
+  #
+  # This comment used to add "and the oracle job still runs on macOS, so a
+  # second gfortran is covered". It does not, as of the commit that carries
+  # this line; see the oracle job for what that costs.
   gate:
     name: gate (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -79,16 +81,28 @@ jobs:
       - name: cargo xtask ci
         run: cargo xtask ci --fast
 
-  # Differential testing against the original Fortran. Linux and macOS only:
-  # gfortran on Windows runners is a source of toolchain trouble that buys
-  # nothing, since the oracle is a development instrument and never shipped.
+  # Differential testing against the original Fortran. Linux only.
+  #
+  # Windows was never here: gfortran on Windows runners is toolchain trouble
+  # that buys nothing, since the oracle is a development instrument and never
+  # shipped. macOS left on 2026-08-29 for cost. It was 335 of the account's
+  # ~1100 billed Actions minutes that month, on its own -- macOS runners bill
+  # at 10x, and this job installs gcc from Homebrew on every run.
+  #
+  # Know what that gives up. Bit-exactness against the Fortran is now claimed
+  # from *one* gfortran on *one* architecture. A divergence that only appears
+  # under Homebrew's gfortran, or only on aarch64, will not be caught here.
+  # Re-baselining after a compiler change (see CLAUDE.md) is likewise a
+  # single-platform measurement now. If that matters more than the minutes,
+  # restore `macos-latest` here *and* the `brew install gcc` step this commit
+  # removed with it, or run the pair on a schedule rather than per push.
   oracle:
     name: oracle (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest]
     steps:
       - uses: actions/checkout@v4
 
@@ -99,10 +113,6 @@ jobs:
       - name: Install gfortran (Linux)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y gfortran
-
-      - name: Install gfortran (macOS)
-        if: runner.os == 'macOS'
-        run: brew install gcc
 
       # The reference numbers depend on the compiler, so record it. A gfortran
       # change is a deliberate re-baseline, not a regression: see CLAUDE.md.
